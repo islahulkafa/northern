@@ -1,0 +1,54 @@
+#pragma once
+
+#include "core/error/error.hpp"
+#include "core/error/result.hpp"
+#include "core/math/geometry.hpp"
+#include "graphics/device.hpp"
+#include "graphics/gpu_handle.hpp"
+#include "text/font.hpp"
+#include <memory>
+#include <unordered_map>
+
+namespace northern::text {
+
+struct CachedGlyph {
+    core::Rect uvRect{0.0f, 0.0f, 0.0f, 0.0f};
+    core::Point offset{0.0f, 0.0f};
+    core::Size size{0.0f, 0.0f};
+};
+
+class GlyphAtlas {
+public:
+    static core::Result<std::unique_ptr<GlyphAtlas>, core::Error>
+    create(graphics::Device& device, uint32_t width = 1024, uint32_t height = 1024);
+
+    ~GlyphAtlas();
+
+    GlyphAtlas(const GlyphAtlas&) = delete;
+    GlyphAtlas& operator=(const GlyphAtlas&) = delete;
+    GlyphAtlas(GlyphAtlas&&) noexcept = default;
+    GlyphAtlas& operator=(GlyphAtlas&&) = delete;
+
+    core::Result<CachedGlyph, core::Error> getOrInsert(const Font& font, uint32_t glyphId);
+
+    [[nodiscard]] graphics::TextureHandle texture() const noexcept { return texture_; }
+    [[nodiscard]] uint32_t width() const noexcept { return width_; }
+    [[nodiscard]] uint32_t height() const noexcept { return height_; }
+
+private:
+    GlyphAtlas(graphics::Device& device, graphics::TextureHandle texture, uint32_t width,
+               uint32_t height) noexcept;
+
+    graphics::Device& device_;
+    graphics::TextureHandle texture_;
+    uint32_t width_{0};
+    uint32_t height_{0};
+
+    uint32_t currentShelfX_{1};
+    uint32_t currentShelfY_{1};
+    uint32_t shelfHeight_{0};
+
+    std::unordered_map<uint64_t, CachedGlyph> cache_;
+};
+
+} // namespace northern::text
