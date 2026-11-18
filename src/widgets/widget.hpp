@@ -2,10 +2,13 @@
 
 #include "core/math/geometry.hpp"
 #include "layout/layout_node.hpp"
+#include "platform/mouse_types.hpp"
 #include "widgets/widget_events.hpp"
 
+#include <functional>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace northern::renderer {
@@ -14,7 +17,10 @@ class PaintContext;
 
 namespace northern::widgets {
 
+class ContextMenu;
 class WidgetContext;
+
+enum class FocusReason : uint8_t { Pointer, Keyboard, Programmatic };
 
 class Widget {
 public:
@@ -47,6 +53,7 @@ public:
     std::unique_ptr<Widget> removeChild(Widget* child);
     std::unique_ptr<Widget> removeFromParent();
     void clearChildren();
+    [[nodiscard]] bool isDescendantOf(const Widget* ancestor) const noexcept;
 
     // Deferred Deletion
     void deleteLater();
@@ -84,11 +91,27 @@ public:
     [[nodiscard]] bool isFocusable() const noexcept { return isFocusable_; }
     void setFocusable(bool focusable) noexcept { isFocusable_ = focusable; }
     [[nodiscard]] bool hasFocus() const noexcept;
-    void setFocus();
+    [[nodiscard]] bool hasKeyboardFocus() const noexcept;
+    void setFocus(FocusReason reason = FocusReason::Programmatic);
+
+    // Cursor & Tooltip
+    void setCursorShape(platform::CursorShape shape) noexcept;
+    [[nodiscard]] platform::CursorShape cursorShape() const noexcept { return cursorShape_; }
+
+    void setTooltip(std::string text, std::string shortcut = {});
+    [[nodiscard]] const std::string& tooltipText() const noexcept { return tooltipText_; }
+    [[nodiscard]] const std::string& tooltipShortcut() const noexcept { return tooltipShortcut_; }
+
+    // Context Menu
+    void setContextMenuBuilder(std::function<std::unique_ptr<ContextMenu>()> builder);
 
     // Context linkage
     [[nodiscard]] WidgetContext* context() const noexcept { return context_; }
     void setContext(WidgetContext* context) noexcept;
+
+    // Animations & Frame Updates
+    virtual void updateAnimations(float deltaSeconds);
+    [[nodiscard]] virtual bool hasActiveAnimations() const noexcept { return false; }
 
     // Virtual Paint & Event Hooks
     virtual void paint(renderer::PaintContext& ctx);
@@ -101,6 +124,7 @@ public:
     virtual void onMouseDown(WidgetMouseEvent& ev);
     virtual void onMouseUp(WidgetMouseEvent& ev);
     virtual void onMouseWheel(WidgetMouseEvent& ev);
+    virtual void onContextMenu(WidgetMouseEvent& ev);
     virtual void onKeyDown(WidgetKeyEvent& ev);
     virtual void onKeyUp(WidgetKeyEvent& ev);
     virtual void onFocusGained();
@@ -121,6 +145,11 @@ protected:
     bool isLayoutDirty_{true};
     bool isPendingDelete_{false};
     bool isFocusedStandalone_{false};
+    FocusReason standaloneFocusReason_{FocusReason::Programmatic};
+    platform::CursorShape cursorShape_{platform::CursorShape::Arrow};
+    std::string tooltipText_{};
+    std::string tooltipShortcut_{};
+    std::function<std::unique_ptr<ContextMenu>()> contextMenuBuilder_{nullptr};
 };
 
 } // namespace northern::widgets

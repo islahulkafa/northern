@@ -14,6 +14,11 @@ add_library(northern_core STATIC
     core/signal/trackable.cpp
     core/signal/signal.hpp
     core/signal/signal.cpp
+    core/animation/easing.hpp
+    core/animation/spring.hpp
+    core/animation/property_animation.hpp
+    core/animation/animation_manager.hpp
+    core/animation/animation_manager.cpp
 )
 target_include_directories(northern_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -189,6 +194,21 @@ add_library(northern_widgets STATIC
     widgets/checkbox.cpp
     widgets/slider.hpp
     widgets/slider.cpp
+    widgets/switch.hpp
+    widgets/switch.cpp
+    widgets/radio_button.hpp
+    widgets/radio_button.cpp
+    widgets/radio_group.hpp
+    widgets/radio_group.cpp
+    widgets/progress_bar.hpp
+    widgets/progress_bar.cpp
+    widgets/overlay.hpp
+    widgets/tooltip.hpp
+    widgets/tooltip.cpp
+    widgets/context_menu.hpp
+    widgets/context_menu.cpp
+    widgets/dropdown.hpp
+    widgets/dropdown.cpp
 )
 target_include_directories(northern_widgets PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

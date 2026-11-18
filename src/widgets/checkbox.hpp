@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/animation/property_animation.hpp"
 #include "core/math/color.hpp"
 #include "core/signal/signal.hpp"
 #include "text/font.hpp"
@@ -40,6 +41,10 @@ public:
     void onMouseLeave() override;
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onMouseUp(WidgetMouseEvent& ev) override;
+    void onKeyDown(WidgetKeyEvent& ev) override;
+
+    void updateAnimations(float deltaSeconds) override;
+    [[nodiscard]] bool hasActiveAnimations() const noexcept override;
 
     void paint(renderer::PaintContext& ctx) override;
 
@@ -49,6 +54,8 @@ private:
     bool isChecked_{false};
     bool isHovered_{false};
     bool isPressed_{false};
+
+    core::animation::PropertyAnimation<float> checkAnim_{0.0f};
 
     float boxSize_{16.0f};
     float boxCornerRadius_{4.0f};

@@ -3,8 +3,10 @@
 #include "renderer/paint_context.hpp"
 #include "text/text_layout.hpp"
 #include "widgets/theme.hpp"
+#include "widgets/widget_context.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace northern::widgets {
 
@@ -67,6 +69,7 @@ float measurePrefixWidth(std::string_view text, size_t count,
 TextInput::TextInput(std::string placeholder, std::shared_ptr<text::Font> font)
     : placeholder_(std::move(placeholder)), font_(std::move(font)) {
     setFocusable(true);
+    setCursorShape(platform::CursorShape::IBeam);
     style().height = layout::Length::points(theme::Metrics::ControlHeightStandard);
     style().padding = layout::RectLength{
         .left = layout::Length::points(10.0f),
@@ -199,6 +202,8 @@ void TextInput::deleteSelection() {
     text_.erase(start, end - start);
     cursorIndex_ = start;
     selectionAnchor_ = cursorIndex_;
+    cursorBlinkTimer_ = 0.0f;
+    cursorVisible_ = true;
     ensureCursorVisible();
     markPaintDirty();
     onTextChanged.emit(text_);
@@ -214,6 +219,8 @@ void TextInput::insertText(std::string_view str) {
     text_.insert(cursorIndex_, str);
     cursorIndex_ += str.size();
     selectionAnchor_ = cursorIndex_;
+    cursorBlinkTimer_ = 0.0f;
+    cursorVisible_ = true;
     ensureCursorVisible();
     markPaintDirty();
     onTextChanged.emit(text_);
@@ -303,6 +310,9 @@ void TextInput::onKeyDown(WidgetKeyEvent& ev) {
     if (!hasFocus()) {
         return;
     }
+    cursorBlinkTimer_ = 0.0f;
+    cursorVisible_ = true;
+    markPaintDirty();
     bool shift = platform::hasModifier(ev.modifiers(), platform::KeyModifier::Shift);
     bool ctrl = platform::hasModifier(ev.modifiers(), platform::KeyModifier::Control);
 
@@ -432,13 +442,37 @@ void TextInput::onKeyDown(WidgetKeyEvent& ev) {
 }
 
 void TextInput::onFocusGained() {
+    cursorBlinkTimer_ = 0.0f;
+    cursorVisible_ = true;
+    if (context_) {
+        context_->registerAnimatedWidget(this);
+    }
     markPaintDirty();
 }
 
 void TextInput::onFocusLost() {
     isDraggingSelection_ = false;
     selectionAnchor_ = cursorIndex_;
+    cursorVisible_ = false;
+    if (context_) {
+        context_->unregisterAnimatedWidget(this);
+    }
     markPaintDirty();
+}
+
+void TextInput::updateAnimations(float deltaSeconds) {
+    if (hasFocus()) {
+        cursorBlinkTimer_ += deltaSeconds;
+        bool visible = (std::fmod(cursorBlinkTimer_, 1.06f) < 0.53f);
+        if (visible != cursorVisible_) {
+            cursorVisible_ = visible;
+            markPaintDirty();
+        }
+    }
+}
+
+bool TextInput::hasActiveAnimations() const noexcept {
+    return hasFocus();
 }
 
 void TextInput::paint(renderer::PaintContext& ctx) {
@@ -497,7 +531,7 @@ void TextInput::paint(renderer::PaintContext& ctx) {
         ctx.drawTextLayout(core::Point{textX, textY}, textLayout, textColor_);
     }
 
-    if (hasFocus() && font_) {
+    if (hasFocus() && font_ && cursorVisible_) {
         float cursorX = measurePrefixWidth(text_, cursorIndex_, font_);
         core::Rect cursorRect{core::Point{textX + cursorX, cursorY}, core::Size{1.5f, cursorH}};
         ctx.drawRect(cursorRect, cursorColor_);

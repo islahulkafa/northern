@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/animation/property_animation.hpp"
 #include "core/math/color.hpp"
 #include "core/signal/signal.hpp"
 #include "text/font.hpp"
@@ -50,17 +51,26 @@ public:
 
     void onMouseEnter() override;
     void onMouseLeave() override;
+    void onMouseMove(WidgetMouseEvent& ev) override;
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onMouseUp(WidgetMouseEvent& ev) override;
+    void onKeyDown(WidgetKeyEvent& ev) override;
+
+    void updateAnimations(float deltaSeconds) override;
+    [[nodiscard]] bool hasActiveAnimations() const noexcept override;
 
     void paint(renderer::PaintContext& ctx) override;
 
 private:
     void applyVariantStyle() noexcept;
+    void updateTargetColors(bool animated = true);
 
     std::string text_{};
     std::shared_ptr<text::Font> font_{nullptr};
     ButtonVariant variant_{ButtonVariant::Secondary};
+
+    core::animation::PropertyAnimation<core::Color> bgAnim_{};
+    core::animation::PropertyAnimation<core::Color> borderAnim_{};
 
     core::Color idleBgColor_{core::Color{0.153f, 0.153f, 0.165f, 1.0f}};
     core::Color hoverBgColor_{core::Color{0.188f, 0.188f, 0.204f, 1.0f}};

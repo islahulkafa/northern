@@ -12,6 +12,14 @@ set(UNIT_TEST_SOURCES
     unit/test_text.cpp
     unit/test_layout.cpp
     unit/test_widgets.cpp
+    unit/test_switch.cpp
+    unit/test_radio_button.cpp
+    unit/test_progress_bar.cpp
+    unit/test_animation.cpp
+    unit/test_overlay.cpp
+    unit/test_dropdown.cpp
+    unit/test_focus_cursor_tooltip.cpp
+    unit/test_context_menu.cpp
 )
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})

@@ -1,4 +1,5 @@
 #include "widgets/widget.hpp"
+#include "widgets/context_menu.hpp"
 #include "widgets/widget_context.hpp"
 
 #include <algorithm>
@@ -111,6 +112,20 @@ void Widget::clearChildren() {
     markLayoutDirty();
 }
 
+bool Widget::isDescendantOf(const Widget* ancestor) const noexcept {
+    if (!ancestor) {
+        return false;
+    }
+    const Widget* cur = parent_;
+    while (cur) {
+        if (cur == ancestor) {
+            return true;
+        }
+        cur = cur->parent_;
+    }
+    return false;
+}
+
 void Widget::deleteLater() {
     if (isPendingDelete_) {
         return;
@@ -187,12 +202,39 @@ bool Widget::hasFocus() const noexcept {
     return context_ ? (context_->focusedWidget() == this) : isFocusedStandalone_;
 }
 
-void Widget::setFocus() {
+bool Widget::hasKeyboardFocus() const noexcept {
+    if (!hasFocus()) {
+        return false;
+    }
+    return context_ ? (context_->focusReason() == FocusReason::Keyboard)
+                    : (standaloneFocusReason_ == FocusReason::Keyboard);
+}
+
+void Widget::setFocus(FocusReason reason) {
     if (context_) {
-        context_->setFocusedWidget(this);
+        context_->setFocusedWidget(this, reason);
     } else {
         isFocusedStandalone_ = true;
+        standaloneFocusReason_ = reason;
     }
+}
+
+void Widget::setCursorShape(platform::CursorShape shape) noexcept {
+    if (cursorShape_ != shape) {
+        cursorShape_ = shape;
+        if (context_) {
+            context_->refreshCursorShape();
+        }
+    }
+}
+
+void Widget::setTooltip(std::string text, std::string shortcut) {
+    tooltipText_ = std::move(text);
+    tooltipShortcut_ = std::move(shortcut);
+}
+
+void Widget::setContextMenuBuilder(std::function<std::unique_ptr<ContextMenu>()> builder) {
+    contextMenuBuilder_ = std::move(builder);
 }
 
 void Widget::setContext(WidgetContext* context) noexcept {
@@ -206,6 +248,7 @@ void Widget::setContext(WidgetContext* context) noexcept {
 
 void Widget::paint(renderer::PaintContext&) {}
 void Widget::paintOverlay(renderer::PaintContext&) {}
+void Widget::updateAnimations(float) {}
 
 bool Widget::hitTest(const core::Point& localPoint) const {
     if (!isVisible_ || !isEnabled_ || isPendingDelete_) {
@@ -222,11 +265,24 @@ void Widget::onMouseMove(WidgetMouseEvent&) {}
 void Widget::onMouseDown(WidgetMouseEvent&) {}
 void Widget::onMouseUp(WidgetMouseEvent&) {}
 void Widget::onMouseWheel(WidgetMouseEvent&) {}
+void Widget::onContextMenu(WidgetMouseEvent& ev) {
+    if (contextMenuBuilder_ && context_) {
+        auto menu = contextMenuBuilder_();
+        if (menu) {
+            core::Rect sRect = screenRect();
+            core::Point screenPos{sRect.origin.x + ev.position().x,
+                                  sRect.origin.y + ev.position().y};
+            ContextMenu::showAt(*context_, std::move(menu), screenPos, this);
+            ev.accept();
+        }
+    }
+}
 void Widget::onKeyDown(WidgetKeyEvent&) {}
 void Widget::onKeyUp(WidgetKeyEvent&) {}
 void Widget::onFocusGained() {}
 void Widget::onFocusLost() {
     isFocusedStandalone_ = false;
+    standaloneFocusReason_ = FocusReason::Programmatic;
 }
 
 } // namespace northern::widgets

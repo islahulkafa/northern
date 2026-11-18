@@ -1,6 +1,7 @@
 #include "widgets/slider.hpp"
 #include "renderer/paint_context.hpp"
 #include "widgets/theme.hpp"
+#include "widgets/widget_context.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +11,7 @@ namespace northern::widgets {
 Slider::Slider(float min, float max, float value)
     : minValue_(min), maxValue_(max), value_(std::clamp(value, min, max)) {
     setFocusable(true);
+    setCursorShape(platform::CursorShape::PointingHand);
     style().height = layout::Length::points(24.0f);
 
     layoutNode_.setMeasureFunc([this](const layout::LayoutNode&, float, float) -> core::Size {
@@ -79,10 +81,30 @@ void Slider::updateValueFromPosition(float localX) {
     setValue(minValue_ + t * (maxValue_ - minValue_));
 }
 
+void Slider::updateHoverAnimation() {
+    float targetScale = (isHovered_ || isDragging_) ? 1.25f : 1.0f;
+    thumbScaleAnim_.start(thumbScaleAnim_.currentValue(), targetScale, 0.12f,
+                          core::animation::EasingCurve::OutCubic);
+    if (context_) {
+        context_->registerAnimatedWidget(this);
+    }
+    markPaintDirty();
+}
+
+void Slider::updateAnimations(float deltaSeconds) {
+    thumbScaleAnim_.update(deltaSeconds);
+    markPaintDirty();
+}
+
+bool Slider::hasActiveAnimations() const noexcept {
+    return thumbScaleAnim_.isRunning();
+}
+
 void Slider::onMouseDown(WidgetMouseEvent& ev) {
     if (ev.button() == platform::MouseButton::Left) {
         isDragging_ = true;
         setFocus();
+        updateHoverAnimation();
         updateValueFromPosition(ev.position().x);
         ev.accept();
     }
@@ -98,6 +120,7 @@ void Slider::onMouseMove(WidgetMouseEvent& ev) {
 void Slider::onMouseUp(WidgetMouseEvent& ev) {
     if (ev.button() == platform::MouseButton::Left && isDragging_) {
         isDragging_ = false;
+        updateHoverAnimation();
         ev.accept();
         markPaintDirty();
     }
@@ -105,12 +128,29 @@ void Slider::onMouseUp(WidgetMouseEvent& ev) {
 
 void Slider::onMouseEnter() {
     isHovered_ = true;
-    markPaintDirty();
+    updateHoverAnimation();
 }
 
 void Slider::onMouseLeave() {
     isHovered_ = false;
-    markPaintDirty();
+    updateHoverAnimation();
+}
+
+void Slider::onKeyDown(WidgetKeyEvent& ev) {
+    float delta = (step_ > 0.0f) ? step_ : (maxValue_ - minValue_) * 0.05f;
+    if (ev.key() == platform::Key::Left || ev.key() == platform::Key::Down) {
+        setValue(value_ - delta);
+        ev.accept();
+    } else if (ev.key() == platform::Key::Right || ev.key() == platform::Key::Up) {
+        setValue(value_ + delta);
+        ev.accept();
+    } else if (ev.key() == platform::Key::Home) {
+        setValue(minValue_);
+        ev.accept();
+    } else if (ev.key() == platform::Key::End) {
+        setValue(maxValue_);
+        ev.accept();
+    }
 }
 
 void Slider::paint(renderer::PaintContext& ctx) {
@@ -135,20 +175,21 @@ void Slider::paint(renderer::PaintContext& ctx) {
         ctx.drawRoundedRect(activeRect, activeTrackColor_, trackHeight_ * 0.5f);
     }
 
+    float currentRadius = thumbRadius_ * thumbScaleAnim_.currentValue();
     float thumbCenterX = trackX + activeW;
     float thumbCenterY = trackY + trackHeight_ * 0.5f;
     core::Rect thumbRect{
-        core::Point{thumbCenterX - thumbRadius_, thumbCenterY - thumbRadius_},
-        core::Size{thumbRadius_ * 2.0f, thumbRadius_ * 2.0f},
+        core::Point{thumbCenterX - currentRadius, thumbCenterY - currentRadius},
+        core::Size{currentRadius * 2.0f, currentRadius * 2.0f},
     };
 
-    float radii[4] = {thumbRadius_, thumbRadius_, thumbRadius_, thumbRadius_};
+    float radii[4] = {currentRadius, currentRadius, currentRadius, currentRadius};
     core::Color currentThumbBorder =
         (isHovered_ || isDragging_) ? theme::ColorTokens::AccentDefault : thumbBorderColor_;
     ctx.drawBox(thumbRect, thumbColor_, currentThumbBorder, 1.0f, radii);
 
-    if (hasFocus()) {
-        theme::paintFocusRing(ctx, thumbRect, thumbRadius_);
+    if (hasKeyboardFocus()) {
+        theme::paintFocusRing(ctx, thumbRect, currentRadius);
     }
 }
 

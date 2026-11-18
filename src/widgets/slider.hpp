@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/animation/property_animation.hpp"
 #include "core/math/color.hpp"
 #include "core/signal/signal.hpp"
 #include "widgets/widget.hpp"
@@ -36,11 +37,16 @@ public:
     void onMouseUp(WidgetMouseEvent& ev) override;
     void onMouseEnter() override;
     void onMouseLeave() override;
+    void onKeyDown(WidgetKeyEvent& ev) override;
+
+    void updateAnimations(float deltaSeconds) override;
+    [[nodiscard]] bool hasActiveAnimations() const noexcept override;
 
     void paint(renderer::PaintContext& ctx) override;
 
 private:
     void updateValueFromPosition(float localX);
+    void updateHoverAnimation();
 
     float minValue_{0.0f};
     float maxValue_{1.0f};
@@ -52,6 +58,8 @@ private:
 
     bool isDragging_{false};
     bool isHovered_{false};
+
+    core::animation::PropertyAnimation<float> thumbScaleAnim_{1.0f};
 
     core::Color inactiveTrackColor_{core::Color{0.153f, 0.153f, 0.165f, 1.0f}};
     core::Color activeTrackColor_{core::Color{0.145f, 0.388f, 0.922f, 1.0f}};

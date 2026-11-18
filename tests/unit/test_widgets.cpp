@@ -437,6 +437,59 @@ TEST(WidgetTest, SliderValueAndDrag) {
     EXPECT_FLOAT_EQ(slider.value(), 0.0f);
 }
 
+TEST(WidgetTest, SliderMouseDragOutsideBounds) {
+    WidgetContext ctx;
+    auto slider = std::make_unique<Slider>(0.0f, 100.0f, 0.0f);
+    slider->style().width = layout::Length::points(200.0f);
+    slider->style().height = layout::Length::points(28.0f);
+    Slider* sPtr = slider.get();
+
+    ctx.setRootWidget(std::move(slider));
+    ctx.handleResize(core::Size{200.0f, 28.0f});
+
+    EXPECT_FLOAT_EQ(sPtr->value(), 0.0f);
+
+    // 1. Mouse down inside slider at center (100, 14)
+    platform::MouseEvent evDown{};
+    evDown.button = platform::MouseButton::Left;
+    evDown.position = core::Point{100.0f, 14.0f};
+    ctx.handleMouseDown(evDown);
+    EXPECT_EQ(ctx.mouseGrabWidget(), sPtr);
+    EXPECT_GT(sPtr->value(), 40.0f);
+    EXPECT_LT(sPtr->value(), 60.0f);
+
+    // 2. Mouse move far outside bounds: y is -200 (far above), x is 150
+    platform::MouseEvent evMoveOutside{};
+    evMoveOutside.button = platform::MouseButton::Left;
+    evMoveOutside.position = core::Point{150.0f, -200.0f};
+    ctx.handleMouseMove(evMoveOutside);
+    EXPECT_GT(sPtr->value(), 70.0f);
+    EXPECT_LT(sPtr->value(), 85.0f);
+
+    // 3. Mouse move far to the right outside bounds (300, 500) -> clamps to max (100.0f)
+    evMoveOutside.position = core::Point{300.0f, 500.0f};
+    ctx.handleMouseMove(evMoveOutside);
+    EXPECT_FLOAT_EQ(sPtr->value(), 100.0f);
+
+    // 4. Mouse move far to the left outside bounds (-100, -50) -> clamps to min (0.0f)
+    evMoveOutside.position = core::Point{-100.0f, -50.0f};
+    ctx.handleMouseMove(evMoveOutside);
+    EXPECT_FLOAT_EQ(sPtr->value(), 0.0f);
+
+    // 5. Release mouse button while outside bounds (-100, -50)
+    platform::MouseEvent evUpOutside{};
+    evUpOutside.button = platform::MouseButton::Left;
+    evUpOutside.position = core::Point{-100.0f, -50.0f};
+    ctx.handleMouseUp(evUpOutside);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+
+    // 6. Further mouse moves without drag should no longer affect slider
+    platform::MouseEvent evMoveNoGrab{};
+    evMoveNoGrab.position = core::Point{150.0f, 14.0f};
+    ctx.handleMouseMove(evMoveNoGrab);
+    EXPECT_FLOAT_EQ(sPtr->value(), 0.0f);
+}
+
 TEST(WidgetTest, ButtonVariantsAndThemeTokens) {
     EXPECT_EQ(theme::ColorTokens::AccentDefault, (core::Color{0.145f, 0.388f, 0.922f, 1.0f}));
     EXPECT_FLOAT_EQ(theme::Metrics::ControlHeightStandard, 32.0f);

@@ -13,14 +13,21 @@
 #include "widgets/button.hpp"
 #include "widgets/checkbox.hpp"
 #include "widgets/container.hpp"
+#include "widgets/context_menu.hpp"
+#include "widgets/dropdown.hpp"
 #include "widgets/label.hpp"
+#include "widgets/progress_bar.hpp"
+#include "widgets/radio_button.hpp"
+#include "widgets/radio_group.hpp"
 #include "widgets/scroll_view.hpp"
 #include "widgets/slider.hpp"
+#include "widgets/switch.hpp"
 #include "widgets/text_input.hpp"
 #include "widgets/theme.hpp"
 #include "widgets/widget_context.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -95,9 +102,13 @@ int main() {
     auto& fontMgr = text::FontManager::instance();
     auto titleFont = fontMgr.defaultFont(13.5f * dpi).valueOr(nullptr);
     auto bodyFont = fontMgr.defaultFont(11.0f * dpi).valueOr(nullptr);
+    auto captionFont = fontMgr.defaultFont(10.0f * dpi).valueOr(nullptr);
 
     // Build unslop declarative retained widget tree centered in the window
     WidgetContext uiContext;
+    uiContext.setTooltipFont(captionFont ? captionFont : bodyFont);
+    uiContext.onCursorShapeChanged.connect(
+        [&window](CursorShape shape) { window->setCursorShape(shape); });
 
     auto root = std::make_unique<Container>();
     root->style().flexDirection = FlexDirection::Column;
@@ -126,19 +137,56 @@ int main() {
     auto textInput = std::make_unique<TextInput>("Search or enter command...", bodyFont);
     textInput->style().width = Length::percent(100.0f);
     textInput->style().height = Length::points(theme::Metrics::ControlHeightStandard * dpi);
-    card->addChild(std::move(textInput));
+    textInput->setTooltip("Filter workspace commands", "Ctrl+F");
+    TextInput* inputPtr = card->addChild(std::move(textInput));
 
-    // 3. Slider (28px row)
+    // 3. Dropdown Preset Selector (32px standard row)
+    auto dropdown = std::make_unique<Dropdown>(
+        std::vector<std::string>{
+            "Vulkan GAL (Native High-DPI)",
+            "Direct3D 11 (Fallback)",
+            "Metal (macOS Remote)",
+            "Software CPU (Headless CI)",
+        },
+        0, bodyFont);
+    dropdown->style().width = Length::percent(100.0f);
+    dropdown->style().height = Length::points(theme::Metrics::ControlHeightStandard * dpi);
+    dropdown->setTooltip("Select graphics backend");
+    Dropdown* dropdownPtr = card->addChild(std::move(dropdown));
+
+    // 4. ProgressBar
+    auto progressBar = std::make_unique<ProgressBar>(0.65f);
+    progressBar->setBarHeight(4.0f * dpi);
+    ProgressBar* progressPtr = card->addChild(std::move(progressBar));
+
+    // 4. Slider (28px row)
     auto slider = std::make_unique<Slider>(0.0f, 100.0f, 40.0f);
     slider->style().width = Length::percent(100.0f);
     slider->style().height = Length::points(28.0f * dpi);
-    card->addChild(std::move(slider));
+    slider->setTooltip("Adjust pipeline target");
+    Slider* sliderPtr = card->addChild(std::move(slider));
 
-    // 4. Checkbox (24px row)
-    auto checkbox = std::make_unique<Checkbox>("Enable Hardware Acceleration", true, bodyFont);
-    checkbox->style().width = Length::percent(100.0f);
-    checkbox->style().height = Length::points(24.0f * dpi);
-    card->addChild(std::move(checkbox));
+    // 5. Toggles Row (Switch + Checkbox)
+    auto toggleRow = std::make_unique<Container>();
+    toggleRow->style().flexDirection = FlexDirection::Row;
+    toggleRow->style().alignItems = AlignItems::Center;
+    toggleRow->style().justifyContent = JustifyContent::SpaceBetween;
+    toggleRow->style().width = Length::percent(100.0f);
+
+    auto switchCtrl = std::make_unique<Switch>("HDR Mode", true, bodyFont);
+    auto checkbox = std::make_unique<Checkbox>("Hardware Acceleration", true, bodyFont);
+    toggleRow->addChild(std::move(switchCtrl));
+    toggleRow->addChild(std::move(checkbox));
+    card->addChild(std::move(toggleRow));
+
+    // 6. RadioGroup
+    auto radioGroup = std::make_unique<RadioGroup>();
+    radioGroup->style().flexDirection = FlexDirection::Row;
+    radioGroup->style().columnGap = 16.0f * dpi;
+    radioGroup->addRadioButton(std::make_unique<RadioButton>("Vulkan Backend", false, bodyFont));
+    radioGroup->addRadioButton(std::make_unique<RadioButton>("Direct3D 11", false, bodyFont));
+    radioGroup->setSelectedIndex(0);
+    card->addChild(std::move(radioGroup));
 
     // 5. Button Actions Row (Primary + Secondary)
     auto btnRow = std::make_unique<Container>();
@@ -153,10 +201,43 @@ int main() {
 
     auto applyBtn = std::make_unique<Button>("Apply", bodyFont, ButtonVariant::Primary);
     applyBtn->style().height = Length::points(theme::Metrics::ControlHeightStandard * dpi);
+    applyBtn->setTooltip("Apply workstation changes", "Ctrl+Enter");
 
     btnRow->addChild(std::move(cancelBtn));
     btnRow->addChild(std::move(applyBtn));
     card->addChild(std::move(btnRow));
+
+    card->setContextMenuBuilder([bodyFont, inputPtr, dropdownPtr, sliderPtr, progressPtr]() {
+        auto menu = std::make_unique<ContextMenu>(bodyFont);
+        menu->addItem(
+            "Reset Controls",
+            [inputPtr, dropdownPtr, sliderPtr, progressPtr]() {
+                if (inputPtr) {
+                    inputPtr->setText("");
+                }
+                if (dropdownPtr) {
+                    dropdownPtr->setSelectedIndex(0);
+                }
+                if (sliderPtr) {
+                    sliderPtr->setValue(40.0f);
+                }
+                if (progressPtr) {
+                    progressPtr->setProgress(0.65f);
+                }
+            },
+            "Ctrl+R");
+        menu->addItem("Maximize Slider", [sliderPtr, progressPtr]() {
+            if (sliderPtr) {
+                sliderPtr->setValue(100.0f);
+            }
+            if (progressPtr) {
+                progressPtr->setProgress(1.0f);
+            }
+        });
+        menu->addSeparator();
+        menu->addItem("Export Frame Trace", nullptr, "Ctrl+E", false);
+        return menu;
+    });
 
     // 6. ScrollView with quiet optical zinc list items
     auto scrollView = std::make_unique<ScrollView>();
@@ -239,8 +320,15 @@ int main() {
         app.quit(0);
     });
 
+    auto lastFrameTime = std::chrono::steady_clock::now();
+
     while (running) {
         app.pollEvents();
+
+        auto now = std::chrono::steady_clock::now();
+        float dt = std::chrono::duration<float>(now - lastFrameTime).count();
+        lastFrameTime = now;
+        uiContext.advanceAnimations(dt);
 
         if (swapchain->size().width <= 0 || swapchain->size().height <= 0) {
             continue;

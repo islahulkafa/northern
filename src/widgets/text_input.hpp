@@ -52,6 +52,9 @@ public:
     void onFocusGained() override;
     void onFocusLost() override;
 
+    void updateAnimations(float deltaSeconds) override;
+    [[nodiscard]] bool hasActiveAnimations() const noexcept override;
+
     void paint(renderer::PaintContext& ctx) override;
 
 private:
@@ -68,6 +71,9 @@ private:
     size_t selectionAnchor_{0};
     float scrollOffset_{0.0f};
     bool isDraggingSelection_{false};
+
+    float cursorBlinkTimer_{0.0f};
+    bool cursorVisible_{true};
 
     core::Color bgColor_{core::Color{0.122f, 0.122f, 0.137f, 1.0f}};
     core::Color idleBorderColor_{core::Color{1.0f, 1.0f, 1.0f, 0.12f}};

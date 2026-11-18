@@ -83,7 +83,7 @@ flowchart TD
         F1["Focus Indicators (2px Outer Ring)"]
         F2["Primary Action Buttons (Fill)"]
         F3["Active Slider Tracks & Toggles"]
-        F4["Selected Text & Row Highlights"]
+        F4["Text Selection & Row Highlights"]
     end
 
     ResolvedAccent --> Controls
@@ -262,42 +262,30 @@ flowchart LR
 
 Desktop applications must be 100% operable via keyboard without reliance on a pointer device.
 
-### Keyboard Focus Indicators
+### Keyboard focus indicators
 
-1. **Two-Pixel Offset Focus Ring**: Focused interactive elements display a 2px solid outer ring offset by 2px from the control boundary.
-2. **Focus-Visible Distinction**:
-   - The focus ring is rendered when focus is acquired through keyboard navigation (`Tab`, `Shift+Tab`, arrow keys).
-   - The focus ring is suppressed when focus is acquired via direct mouse click (except on text inputs where caret presence indicates focus).
-3. **Contrast**: The focus ring must have at least 3:1 contrast against both the control background and the surrounding container canvas.
+1. **Two-pixel offset focus ring**: Focused interactive elements display a 2px solid outer ring offset by 2px from the control boundary (`theme::paintFocusRing`).
+2. **Focus-visible distinction**:
+   - The focus ring renders on all focusable controls when focus is acquired via keyboard navigation (`Tab`, `Shift+Tab`, arrow keys, setting `FocusReason::Keyboard`).
+   - Direct mouse clicks (`FocusReason::Pointer`) suppress the outer focus ring on non-input controls (`Button`, `Checkbox`, `Switch`, `RadioButton`, `Slider`, `Dropdown`), while `TextInput` always displays its focus border and caret when focused.
+3. **Contrast**: The focus ring maintains at least 3:1 contrast against both the control background and the surrounding container canvas.
 
-```
-+---------------------------------------+
-|  [2px Focus Ring (Accent #2563EB)]    |
-|   +-------------------------------+   |
-|   | 2px Transparent Gap           |   |
-|   |   +-----------------------+   |   |
-|   |   | [Interactive Control] |   |   |
-|   |   +-----------------------+   |   |
-|   +-------------------------------+   |
-+---------------------------------------+
-```
+### Desktop motion dynamics
 
-### Desktop Motion Dynamics
+- **Duration standard**: Standard UI state transitions (hover fades, toggle slides, dropdown/context-menu popups, tooltip fades) complete within `120ms – 180ms`.
+- **Easing curve**: Standard `OutCubic` / cubic bezier `(0.0, 0.0, 0.2, 1.0)` easing for crisp deceleration without overshoot.
+- **Analytical damping**: Northern includes a closed-form damped harmonic `Spring` solver in [spring.hpp](../src/core/animation/spring.hpp); normal controls avoid bouncy overshoot or 400ms+ lingering fades.
 
-- **Duration Standard**: All UI state transitions (hover, focus, tab changes, toggle slides) must complete within `100ms – 150ms`.
-- **Easing Curve**: Standard cubic bezier `(0.0, 0.0, 0.2, 1.0)` (Snappy Ease-Out).
-- **No Spring Bouncing**: Bouncy springs, rubber-banding on normal controls, and 400ms+ lingering fades are strictly prohibited. Motion exists solely to confirm user intent, not to entertain.
+### Accelerator keys and tooltips
 
-### Accelerator Keys and Tooltips
-
-- Every actionable menu item or toolbar button must support keyboard shortcuts formatted consistently (e.g., `Ctrl+S`, `Alt+F`, `F5`).
-- Tooltips display after a 500ms hover delay, rendering the action description alongside its keyboard shortcut in a muted `TextTertiary` badge (e.g., `Save File  Ctrl+S`).
+- Every actionable menu item or toolbar button supports consistent keyboard shortcut labels (e.g., `Ctrl+S`, `Ctrl+R`, `F5`).
+- Tooltips display after a `500ms` hover delay, rendering the action description alongside its optional shortcut badge in `TextTertiary`.
 
 ---
 
-## 9. C++ Implementation Tokens Reference
+## 9. C++ implementation tokens reference
 
-The design language tokens map directly into Northern's C++ types in [src/core/math/color.hpp](file:///C:/Users/leugard/Projects/C++/northern/src/core/math/color.hpp) and [src/layout/style.hpp](file:///C:/Users/leugard/Projects/C++/northern/src/layout/style.hpp).
+The design language tokens map directly into Northern's C++ types in [color.hpp](../src/core/math/color.hpp), [style.hpp](../src/layout/style.hpp), and [theme.hpp](../src/widgets/theme.hpp).
 
 ```cpp
 namespace northern::theme {

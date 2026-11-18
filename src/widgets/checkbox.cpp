@@ -2,14 +2,17 @@
 #include "renderer/paint_context.hpp"
 #include "text/text_layout.hpp"
 #include "widgets/theme.hpp"
+#include "widgets/widget_context.hpp"
 
 #include <algorithm>
 
 namespace northern::widgets {
 
 Checkbox::Checkbox(std::string text, bool checked, std::shared_ptr<text::Font> font)
-    : text_(std::move(text)), font_(std::move(font)), isChecked_(checked) {
+    : text_(std::move(text)), font_(std::move(font)), isChecked_(checked),
+      checkAnim_(checked ? 1.0f : 0.0f) {
     setFocusable(true);
+    setCursorShape(platform::CursorShape::PointingHand);
     style().flexDirection = layout::FlexDirection::Row;
     style().alignItems = layout::AlignItems::Center;
 
@@ -33,9 +36,24 @@ Checkbox::Checkbox(std::string text, bool checked, std::shared_ptr<text::Font> f
 void Checkbox::setChecked(bool checked) {
     if (isChecked_ != checked) {
         isChecked_ = checked;
+        float target = isChecked_ ? 1.0f : 0.0f;
+        checkAnim_.start(checkAnim_.currentValue(), target, 0.15f,
+                         core::animation::EasingCurve::OutCubic);
+        if (context_) {
+            context_->registerAnimatedWidget(this);
+        }
         markPaintDirty();
         onToggled.emit(isChecked_);
     }
+}
+
+void Checkbox::updateAnimations(float deltaSeconds) {
+    checkAnim_.update(deltaSeconds);
+    markPaintDirty();
+}
+
+bool Checkbox::hasActiveAnimations() const noexcept {
+    return checkAnim_.isRunning();
 }
 
 void Checkbox::toggle() {
@@ -119,6 +137,13 @@ void Checkbox::onMouseUp(WidgetMouseEvent& ev) {
     }
 }
 
+void Checkbox::onKeyDown(WidgetKeyEvent& ev) {
+    if (ev.key() == platform::Key::Space || ev.key() == platform::Key::Enter) {
+        ev.accept();
+        toggle();
+    }
+}
+
 void Checkbox::paint(renderer::PaintContext& ctx) {
     core::Rect rect = screenRect();
     if (rect.size.width <= 0.0f || rect.size.height <= 0.0f) {
@@ -130,16 +155,17 @@ void Checkbox::paint(renderer::PaintContext& ctx) {
     core::Rect boxRect{core::Point{rect.origin.x, boxY}, core::Size{boxSize_, boxSize_}};
 
     float radii[4] = {boxCornerRadius_, boxCornerRadius_, boxCornerRadius_, boxCornerRadius_};
-    core::Color bg = isChecked_ ? checkedColor_ : uncheckedColor_;
+    float progress = checkAnim_.currentValue();
+    core::Color bg = uncheckedColor_.lerp(checkedColor_, progress);
     core::Color border = isHovered_ ? borderHoverColor_ : borderColor_;
 
     ctx.drawBox(boxRect, bg, border, 1.0f, radii);
 
-    if (hasFocus()) {
+    if (hasKeyboardFocus()) {
         theme::paintFocusRing(ctx, boxRect, boxCornerRadius_);
     }
 
-    if (isChecked_) {
+    if (progress > 0.01f) {
         float cx = boxRect.origin.x;
         float cy = boxRect.origin.y;
         float s = boxSize_;
@@ -147,8 +173,17 @@ void Checkbox::paint(renderer::PaintContext& ctx) {
         core::Point p1{cx + s * 0.42f, cy + s * 0.72f};
         core::Point p2{cx + s * 0.78f, cy + s * 0.28f};
         float thickness = std::max(1.8f, s * 0.12f);
-        ctx.drawLine(p0, p1, checkmarkColor_, thickness);
-        ctx.drawLine(p1, p2, checkmarkColor_, thickness);
+        core::Color markCol = checkmarkColor_.withAlpha(checkmarkColor_.a * progress);
+
+        float seg1T = std::clamp(progress * 2.0f, 0.0f, 1.0f);
+        core::Point p1Curr = p0 + (p1 - p0) * seg1T;
+        ctx.drawLine(p0, p1Curr, markCol, thickness);
+
+        if (progress > 0.5f) {
+            float seg2T = (progress - 0.5f) * 2.0f;
+            core::Point p2Curr = p1 + (p2 - p1) * seg2T;
+            ctx.drawLine(p1, p2Curr, markCol, thickness);
+        }
     }
 
     if (font_ && !text_.empty()) {

@@ -1,6 +1,7 @@
 #include "widgets/button.hpp"
 #include "renderer/paint_context.hpp"
 #include "widgets/theme.hpp"
+#include "widgets/widget_context.hpp"
 
 #include <algorithm>
 
@@ -9,6 +10,7 @@ namespace northern::widgets {
 Button::Button(std::string text, std::shared_ptr<text::Font> font, ButtonVariant variant)
     : text_(std::move(text)), font_(std::move(font)), variant_(variant) {
     setFocusable(true);
+    setCursorShape(platform::CursorShape::PointingHand);
     style().padding = layout::RectLength{
         .left = layout::Length::points(12.0f),
         .top = layout::Length::points(6.0f),
@@ -94,6 +96,7 @@ void Button::applyVariantStyle() noexcept {
         borderWidth_ = 0.0f;
         break;
     }
+    updateTargetColors(false);
 }
 
 void Button::setText(std::string text) {
@@ -186,30 +189,88 @@ void Button::setCornerRadii(float r0, float r1, float r2, float r3) noexcept {
     markPaintDirty();
 }
 
+void Button::updateTargetColors(bool animated) {
+    ButtonState st = state();
+    const core::Color& targetBg = (st == ButtonState::Pressed)   ? pressedBgColor_
+                                  : (st == ButtonState::Hovered) ? hoverBgColor_
+                                                                 : idleBgColor_;
+    const core::Color& targetBorder = (st == ButtonState::Pressed)   ? pressedBorderColor_
+                                      : (st == ButtonState::Hovered) ? hoverBorderColor_
+                                                                     : idleBorderColor_;
+    if (animated) {
+        bgAnim_.start(bgAnim_.currentValue(), targetBg, 0.12f,
+                      core::animation::EasingCurve::OutCubic);
+        borderAnim_.start(borderAnim_.currentValue(), targetBorder, 0.12f,
+                          core::animation::EasingCurve::OutCubic);
+        if (context_) {
+            context_->registerAnimatedWidget(this);
+        }
+    } else {
+        bgAnim_.setCurrentValue(targetBg);
+        borderAnim_.setCurrentValue(targetBorder);
+    }
+    markPaintDirty();
+}
+
+void Button::updateAnimations(float deltaSeconds) {
+    bgAnim_.update(deltaSeconds);
+    borderAnim_.update(deltaSeconds);
+    markPaintDirty();
+}
+
+bool Button::hasActiveAnimations() const noexcept {
+    return bgAnim_.isRunning() || borderAnim_.isRunning();
+}
+
 void Button::onMouseEnter() {
     isHovered_ = true;
-    markPaintDirty();
+    updateTargetColors(true);
 }
 
 void Button::onMouseLeave() {
     isHovered_ = false;
-    isPressed_ = false;
-    markPaintDirty();
+    updateTargetColors(true);
+}
+
+void Button::onMouseMove(WidgetMouseEvent& ev) {
+    if (isPressed_) {
+        core::Rect rect = layoutRect();
+        bool inside = ev.position().x >= 0.0f && ev.position().x <= rect.size.width &&
+                      ev.position().y >= 0.0f && ev.position().y <= rect.size.height;
+        if (inside != isHovered_) {
+            isHovered_ = inside;
+            updateTargetColors(true);
+        }
+        ev.accept();
+    }
 }
 
 void Button::onMouseDown(WidgetMouseEvent& ev) {
     if (ev.button() == platform::MouseButton::Left) {
         isPressed_ = true;
+        isHovered_ = true;
         ev.accept();
-        markPaintDirty();
+        updateTargetColors(true);
     }
 }
 
 void Button::onMouseUp(WidgetMouseEvent& ev) {
     if (ev.button() == platform::MouseButton::Left && isPressed_) {
+        core::Rect rect = layoutRect();
+        bool inside = ev.position().x >= 0.0f && ev.position().x <= rect.size.width &&
+                      ev.position().y >= 0.0f && ev.position().y <= rect.size.height;
         isPressed_ = false;
         ev.accept();
-        markPaintDirty();
+        updateTargetColors(true);
+        if (inside) {
+            onClicked.emit();
+        }
+    }
+}
+
+void Button::onKeyDown(WidgetKeyEvent& ev) {
+    if (ev.key() == platform::Key::Space || ev.key() == platform::Key::Enter) {
+        ev.accept();
         onClicked.emit();
     }
 }
@@ -221,19 +282,22 @@ void Button::paint(renderer::PaintContext& ctx) {
     }
 
     ButtonState st = state();
-    const core::Color& bg = (st == ButtonState::Pressed)   ? pressedBgColor_
-                            : (st == ButtonState::Hovered) ? hoverBgColor_
-                                                           : idleBgColor_;
-    const core::Color& border = (st == ButtonState::Pressed)   ? pressedBorderColor_
+    core::Color bg = bgAnim_.isRunning() ? bgAnim_.currentValue()
+                                         : ((st == ButtonState::Pressed)   ? pressedBgColor_
+                                            : (st == ButtonState::Hovered) ? hoverBgColor_
+                                                                           : idleBgColor_);
+    core::Color border = borderAnim_.isRunning()
+                             ? borderAnim_.currentValue()
+                             : ((st == ButtonState::Pressed)   ? pressedBorderColor_
                                 : (st == ButtonState::Hovered) ? hoverBorderColor_
-                                                               : idleBorderColor_;
+                                                               : idleBorderColor_);
     const core::Color& textColor = (st == ButtonState::Pressed)   ? pressedTextColor_
                                    : (st == ButtonState::Hovered) ? hoverTextColor_
                                                                   : idleTextColor_;
 
     ctx.drawBox(rect, bg, border, borderWidth_, cornerRadii_);
 
-    if (hasFocus()) {
+    if (hasKeyboardFocus()) {
         theme::paintFocusRing(ctx, rect, cornerRadii_[0]);
     }
 
