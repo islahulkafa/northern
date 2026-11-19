@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/math/geometry.hpp"
+#include "platform/native_handle.hpp"
 #include <string>
 
 namespace northern::platform {
@@ -12,8 +13,10 @@ struct WindowDesc {
     core::Size maxSize{0.0f, 0.0f};
     bool resizable{true};
     bool decorated{true};
+    bool customTitleBar{false};
     bool visible{true};
     bool startMaximized{false};
+    NativeWindowHandle parent{};
 };
 
 } // namespace northern::platform

@@ -35,6 +35,7 @@ add_library(northern_platform STATIC
     platform/native_handle.hpp
     platform/window.hpp
     platform/window.cpp
+    platform/file_dialog.hpp
     platform/application.hpp
     platform/application.cpp
     platform/clipboard.hpp
@@ -43,6 +44,7 @@ add_library(northern_platform STATIC
     platform/win32/win32_window.cpp
     platform/win32/win32_key_map.hpp
     platform/win32/win32_key_map.cpp
+    platform/win32/win32_file_dialog.cpp
 )
 target_include_directories(northern_platform PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -58,6 +60,7 @@ target_link_libraries(northern_platform
         gdi32
         shell32
         ole32
+        dwmapi
 )
 
 add_library(northern_graphics STATIC
@@ -158,6 +161,9 @@ add_library(northern_renderer STATIC
     renderer/dynamic_ring_buffer.cpp
     renderer/batch_renderer.hpp
     renderer/batch_renderer.cpp
+    renderer/svg/nanosvg.h
+    renderer/svg/svg_document.hpp
+    renderer/svg/svg_document.cpp
 )
 target_include_directories(northern_renderer PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -180,6 +186,16 @@ add_library(northern_widgets STATIC
     widgets/widget.cpp
     widgets/widget_context.hpp
     widgets/widget_context.cpp
+    widgets/icons.hpp
+    widgets/icons.cpp
+    widgets/icon.hpp
+    widgets/icon.cpp
+    widgets/title_bar.hpp
+    widgets/title_bar.cpp
+    widgets/dialog.hpp
+    widgets/dialog.cpp
+    widgets/message_box.hpp
+    widgets/message_box.cpp
     widgets/container.hpp
     widgets/container.cpp
     widgets/label.hpp
@@ -209,6 +225,28 @@ add_library(northern_widgets STATIC
     widgets/context_menu.cpp
     widgets/dropdown.hpp
     widgets/dropdown.cpp
+    widgets/divider.hpp
+    widgets/divider.cpp
+    widgets/split_view.hpp
+    widgets/split_view.cpp
+    widgets/tab_view.hpp
+    widgets/tab_view.cpp
+    widgets/accordion.hpp
+    widgets/accordion.cpp
+    widgets/item_model.hpp
+    widgets/item_model.cpp
+    widgets/item_selection_model.hpp
+    widgets/item_selection_model.cpp
+    widgets/item_delegate.hpp
+    widgets/item_delegate.cpp
+    widgets/header_view.hpp
+    widgets/header_view.cpp
+    widgets/list_view.hpp
+    widgets/list_view.cpp
+    widgets/table_view.hpp
+    widgets/table_view.cpp
+    widgets/tree_view.hpp
+    widgets/tree_view.cpp
 )
 target_include_directories(northern_widgets PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

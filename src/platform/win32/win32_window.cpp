@@ -2,6 +2,7 @@
 #include "platform/win32/win32_key_map.hpp"
 
 #include <algorithm>
+#include <dwmapi.h>
 #include <mutex>
 #include <vector>
 #include <windowsx.h>
@@ -87,13 +88,15 @@ Window::Impl::create(Window* owner, const WindowDesc& desc) {
     impl->logicalSize_ = desc.size;
     impl->minSize_ = desc.minSize;
     impl->maxSize_ = desc.maxSize;
+    impl->customTitleBar_ = desc.customTitleBar;
+    impl->resizable_ = desc.resizable;
 
     HINSTANCE hInstance = GetModuleHandleW(nullptr);
 
     DWORD style = WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
     DWORD exStyle = WS_EX_APPWINDOW;
 
-    if (desc.decorated) {
+    if (desc.decorated || desc.customTitleBar) {
         style |= WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
         if (desc.resizable) {
             style |= WS_THICKFRAME | WS_MAXIMIZEBOX;
@@ -106,7 +109,6 @@ Window::Impl::create(Window* owner, const WindowDesc& desc) {
         style |= WS_VISIBLE;
     }
 
-    // Default to system DPI (96) before window creation
     impl->dpi_ = 96;
     impl->dpiScale_ = 1.0f;
 
@@ -117,10 +119,11 @@ Window::Impl::create(Window* owner, const WindowDesc& desc) {
     AdjustWindowRectEx(&rect, style, FALSE, exStyle);
 
     std::wstring wideTitle = utf8ToWide(desc.title);
+    HWND parentHwnd = desc.parent.isValid() ? reinterpret_cast<HWND>(desc.parent.handle) : nullptr;
 
     HWND hwnd = CreateWindowExW(exStyle, windowClassName(), wideTitle.c_str(), style, CW_USEDEFAULT,
                                 CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top,
-                                nullptr, nullptr, hInstance, impl.get());
+                                parentHwnd, nullptr, hInstance, impl.get());
 
     if (!hwnd) {
         return core::Error(core::ErrorCode::PlatformError, "Failed to create Win32 window");
@@ -129,7 +132,13 @@ Window::Impl::create(Window* owner, const WindowDesc& desc) {
     impl->hwnd_ = hwnd;
     impl->updateDpi();
 
-    // Query actual client dimensions
+    if (impl->customTitleBar_) {
+        MARGINS margins = {1, 1, 1, 1};
+        DwmExtendFrameIntoClientArea(hwnd, &margins);
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+
     RECT clientRect{};
     GetClientRect(hwnd, &clientRect);
     impl->physicalSize_ = {clientRect.right - clientRect.left, clientRect.bottom - clientRect.top};
@@ -286,6 +295,53 @@ void Window::Impl::requestClose() {
     }
 }
 
+void Window::Impl::setCustomTitleBar(bool custom) {
+    if (customTitleBar_ == custom) {
+        return;
+    }
+    customTitleBar_ = custom;
+    if (hwnd_) {
+        MARGINS margins = customTitleBar_ ? MARGINS{1, 1, 1, 1} : MARGINS{0, 0, 0, 0};
+        DwmExtendFrameIntoClientArea(hwnd_, &margins);
+        SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+}
+
+bool Window::Impl::isMaximized() const noexcept {
+    return hwnd_ ? (IsZoomed(hwnd_) != FALSE) : false;
+}
+
+bool Window::Impl::isMinimized() const noexcept {
+    return hwnd_ ? (IsIconic(hwnd_) != FALSE) : false;
+}
+
+void Window::Impl::minimize() {
+    if (hwnd_) {
+        ShowWindow(hwnd_, SW_MINIMIZE);
+    }
+}
+
+void Window::Impl::maximize() {
+    if (hwnd_) {
+        ShowWindow(hwnd_, SW_MAXIMIZE);
+    }
+}
+
+void Window::Impl::restore() {
+    if (hwnd_) {
+        ShowWindow(hwnd_, SW_RESTORE);
+    }
+}
+
+void Window::Impl::toggleMaximize() {
+    if (isMaximized()) {
+        restore();
+    } else {
+        maximize();
+    }
+}
+
 LRESULT CALLBACK Window::Impl::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     Window::Impl* impl = nullptr;
 
@@ -309,6 +365,78 @@ LRESULT CALLBACK Window::Impl::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
 
 LRESULT Window::Impl::wndProc(UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    case WM_NCCALCSIZE: {
+        if (wParam && customTitleBar_) {
+            if (IsZoomed(hwnd_)) {
+                auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+                int borderThickness =
+                    GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                params->rgrc[0].top += borderThickness;
+                params->rgrc[0].left += borderThickness;
+                params->rgrc[0].right -= borderThickness;
+                params->rgrc[0].bottom -= borderThickness;
+            }
+            return 0;
+        }
+        break;
+    }
+
+    case WM_NCHITTEST: {
+        if (customTitleBar_) {
+            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            RECT winRect;
+            GetWindowRect(hwnd_, &winRect);
+
+            if (resizable_ && !IsZoomed(hwnd_)) {
+                int border = static_cast<int>(6.0f * (dpiScale_ > 0.0f ? dpiScale_ : 1.0f));
+                bool onLeft = (pt.x >= winRect.left && pt.x < winRect.left + border);
+                bool onRight = (pt.x < winRect.right && pt.x >= winRect.right - border);
+                bool onTop = (pt.y >= winRect.top && pt.y < winRect.top + border);
+                bool onBottom = (pt.y < winRect.bottom && pt.y >= winRect.bottom - border);
+
+                if (onTop && onLeft)
+                    return HTTOPLEFT;
+                if (onTop && onRight)
+                    return HTTOPRIGHT;
+                if (onBottom && onLeft)
+                    return HTBOTTOMLEFT;
+                if (onBottom && onRight)
+                    return HTBOTTOMRIGHT;
+                if (onLeft)
+                    return HTLEFT;
+                if (onRight)
+                    return HTRIGHT;
+                if (onTop)
+                    return HTTOP;
+                if (onBottom)
+                    return HTBOTTOM;
+            }
+
+            if (hitTestCallback_) {
+                core::Point logicalPos{
+                    static_cast<float>(pt.x - winRect.left) / (dpiScale_ > 0.0f ? dpiScale_ : 1.0f),
+                    static_cast<float>(pt.y - winRect.top) / (dpiScale_ > 0.0f ? dpiScale_ : 1.0f)};
+                HitTestResult res = hitTestCallback_(logicalPos);
+                switch (res) {
+                case HitTestResult::Caption:
+                    return HTCAPTION;
+                case HitTestResult::MinimizeBtn:
+                    return HTMINBUTTON;
+                case HitTestResult::MaximizeBtn:
+                    return HTMAXBUTTON;
+                case HitTestResult::CloseBtn:
+                    return HTCLOSE;
+                case HitTestResult::Client:
+                    return HTCLIENT;
+                default:
+                    break;
+                }
+            }
+            return HTCLIENT;
+        }
+        break;
+    }
+
     case WM_ERASEBKGND:
         return 1;
 

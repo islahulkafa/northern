@@ -50,6 +50,17 @@ public:
     void setCursorShape(CursorShape shape);
     void requestClose();
 
+    [[nodiscard]] bool isCustomTitleBar() const noexcept { return customTitleBar_; }
+    void setCustomTitleBar(bool custom);
+    [[nodiscard]] bool isMaximized() const noexcept;
+    [[nodiscard]] bool isMinimized() const noexcept;
+    void minimize();
+    void maximize();
+    void restore();
+    void toggleMaximize();
+
+    void setHitTestCallback(HitTestCallback cb) { hitTestCallback_ = std::move(cb); }
+
     [[nodiscard]] NativeWindowHandle nativeHandle() const noexcept {
         return NativeWindowHandle{reinterpret_cast<uintptr_t>(hwnd_)};
     }
@@ -77,6 +88,9 @@ private:
     bool mouseTracked_{false};
     CursorShape cursorShape_{CursorShape::Arrow};
     HCURSOR hCurrentCursor_{nullptr};
+    bool customTitleBar_{false};
+    bool resizable_{true};
+    HitTestCallback hitTestCallback_{};
 };
 
 } // namespace northern::platform

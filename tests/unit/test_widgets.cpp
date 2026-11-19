@@ -178,6 +178,10 @@ TEST(WidgetTest, HitTestingAndHoverTransitions) {
 
     EXPECT_EQ(ctx.hoveredWidget(), ctx.rootWidget());
     EXPECT_EQ(p2->leaveCount, 1);
+
+    // Mouse leaves window completely
+    ctx.handleMouseLeave();
+    EXPECT_EQ(ctx.hoveredWidget(), nullptr);
 }
 
 TEST(WidgetTest, EventBubbling) {

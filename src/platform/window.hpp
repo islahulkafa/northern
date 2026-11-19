@@ -8,10 +8,25 @@
 #include "platform/mouse_types.hpp"
 #include "platform/native_handle.hpp"
 #include "platform/window_desc.hpp"
+#include <functional>
 #include <memory>
 #include <string_view>
 
 namespace northern::platform {
+
+enum class HitTestResult {
+    Client,      // Interactive client widget (clicks pass to widget hierarchy)
+    Caption,     // Draggable title bar caption (window dragging, double click to maximize)
+    MinimizeBtn, // Minimize caption button
+    MaximizeBtn, // Maximize/Restore caption button (triggers Windows 11 Snap Layouts)
+    CloseBtn,    // Close caption button
+    BorderLeft,
+    BorderRight,
+    BorderTop,
+    BorderBottom
+};
+
+using HitTestCallback = std::function<HitTestResult(core::Point screenPos)>;
 
 class Window {
 public:
@@ -45,6 +60,18 @@ public:
     void setVisible(bool visible);
     void setCursorShape(CursorShape shape);
     void requestClose();
+
+    // Window management and custom title bar
+    [[nodiscard]] bool isCustomTitleBar() const noexcept;
+    void setCustomTitleBar(bool custom);
+    [[nodiscard]] bool isMaximized() const noexcept;
+    [[nodiscard]] bool isMinimized() const noexcept;
+    void minimize();
+    void maximize();
+    void restore();
+    void toggleMaximize();
+
+    void setHitTestCallback(HitTestCallback cb);
 
     // Native handle for GAL swapchain
     [[nodiscard]] NativeWindowHandle nativeHandle() const noexcept;

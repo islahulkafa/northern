@@ -1,4 +1,5 @@
 #include "renderer/paint_context.hpp"
+#include "renderer/svg/svg_document.hpp"
 
 namespace northern::renderer {
 
@@ -72,6 +73,11 @@ void PaintContext::drawLine(const core::Point& p0, const core::Point& p1, const 
     cmd.color = color;
     cmd.thickness = thickness;
     commands_.push_back(cmd);
+}
+
+void PaintContext::drawSvg(const SvgDocument& doc, const core::Rect& bounds,
+                           const core::Color& tintColor) {
+    doc.render(*this, bounds, tintColor);
 }
 
 void PaintContext::drawText(const core::Point& pos, std::string_view text,

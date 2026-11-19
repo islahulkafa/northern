@@ -1,6 +1,7 @@
 #include "widgets/dropdown.hpp"
 #include "renderer/paint_context.hpp"
 #include "text/text_layout.hpp"
+#include "widgets/icons.hpp"
 #include "widgets/widget_context.hpp"
 
 #include <algorithm>
@@ -370,16 +371,15 @@ void Dropdown::paint(renderer::PaintContext& ctx) {
         ctx.popClip();
     }
 
-    // Draw Continuous Chevron Indicator
-    float centerX = rect.origin.x + rect.size.width - 16.0f;
-    float t = popupAnim_.currentValue();
-    float tipY = targetCenterY + (2.5f - 4.5f * t);
-    float armY = targetCenterY + (-2.0f + 4.5f * t);
-
-    ctx.drawLine(core::Point{centerX - 4.5f, armY}, core::Point{centerX, tipY}, chevronColor_,
-                 1.5f);
-    ctx.drawLine(core::Point{centerX, tipY}, core::Point{centerX + 4.5f, armY}, chevronColor_,
-                 1.5f);
+    // Draw SVG Chevron Indicator
+    if (auto doc = getSvgDocument(IconId::ChevronDown)) {
+        float chevronSize = 14.0f;
+        core::Rect chevRect{
+            core::Point{rect.origin.x + rect.size.width - 22.0f,
+                        targetCenterY - chevronSize * 0.5f},
+            core::Size{chevronSize, chevronSize}};
+        ctx.drawSvg(*doc, chevRect, chevronColor_);
+    }
 }
 
 } // namespace northern::widgets

@@ -1,6 +1,7 @@
 #include "widgets/checkbox.hpp"
 #include "renderer/paint_context.hpp"
 #include "text/text_layout.hpp"
+#include "widgets/icons.hpp"
 #include "widgets/theme.hpp"
 #include "widgets/widget_context.hpp"
 
@@ -166,23 +167,12 @@ void Checkbox::paint(renderer::PaintContext& ctx) {
     }
 
     if (progress > 0.01f) {
-        float cx = boxRect.origin.x;
-        float cy = boxRect.origin.y;
-        float s = boxSize_;
-        core::Point p0{cx + s * 0.22f, cy + s * 0.50f};
-        core::Point p1{cx + s * 0.42f, cy + s * 0.72f};
-        core::Point p2{cx + s * 0.78f, cy + s * 0.28f};
-        float thickness = std::max(1.8f, s * 0.12f);
-        core::Color markCol = checkmarkColor_.withAlpha(checkmarkColor_.a * progress);
-
-        float seg1T = std::clamp(progress * 2.0f, 0.0f, 1.0f);
-        core::Point p1Curr = p0 + (p1 - p0) * seg1T;
-        ctx.drawLine(p0, p1Curr, markCol, thickness);
-
-        if (progress > 0.5f) {
-            float seg2T = (progress - 0.5f) * 2.0f;
-            core::Point p2Curr = p1 + (p2 - p1) * seg2T;
-            ctx.drawLine(p1, p2Curr, markCol, thickness);
+        if (auto doc = getSvgDocument(IconId::Check)) {
+            core::Color markCol = checkmarkColor_.withAlpha(checkmarkColor_.a * progress);
+            core::Rect markRect{
+                core::Point{boxRect.origin.x + 2.0f, boxRect.origin.y + 2.0f},
+                core::Size{boxSize_ - 4.0f, boxSize_ - 4.0f}};
+            ctx.drawSvg(*doc, markRect, markCol);
         }
     }
 

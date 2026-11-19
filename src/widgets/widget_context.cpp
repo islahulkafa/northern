@@ -98,6 +98,9 @@ Widget* WidgetContext::hitTest(const core::Point& screenPos) const {
             if (hit) {
                 return hit;
             }
+            if (it->desc.isModal) {
+                return nullptr;
+            }
         }
     }
     if (!rootWidget_) {
@@ -160,12 +163,16 @@ void WidgetContext::handleMouseDown(const platform::MouseEvent& ev) {
 
     if (!overlayStack_.empty()) {
         auto& top = overlayStack_.back();
-        if (top.desc.dismissOnOutsideClick && top.widget) {
+        if (top.widget) {
             core::Rect topRect = top.widget->screenRect();
             if (!topRect.contains(ev.position)) {
-                Widget* owner = top.owner;
-                dismissTopOverlay();
-                if (owner && owner->screenRect().contains(ev.position)) {
+                if (top.desc.dismissOnOutsideClick) {
+                    Widget* owner = top.owner;
+                    dismissTopOverlay();
+                    if (owner && owner->screenRect().contains(ev.position)) {
+                        return;
+                    }
+                } else if (top.desc.isModal) {
                     return;
                 }
             }
@@ -277,6 +284,17 @@ void WidgetContext::handleMouseWheel(const platform::MouseEvent& ev) {
         }
         curr = curr->parent();
     }
+}
+
+void WidgetContext::handleMouseLeave() {
+    flushDeletedWidgets();
+    if (hoveredWidget_) {
+        hoveredWidget_->onMouseLeave();
+        hoveredWidget_ = nullptr;
+    }
+    hoverDurationSeconds_ = 0.0f;
+    dismissTooltip();
+    refreshCursorShape();
 }
 
 void WidgetContext::handleKeyEvent(const platform::KeyEvent& ev) {
@@ -581,6 +599,10 @@ void WidgetContext::render(renderer::PaintContext& ctx, const core::Size& viewpo
     // Render active overlays above the root hierarchy
     for (auto& entry : overlayStack_) {
         if (entry.widget && entry.widget->isVisible()) {
+            if (entry.desc.isModal) {
+                ctx.drawRect(core::Rect{{0.0f, 0.0f}, viewportSize},
+                             core::Color{0.0f, 0.0f, 0.0f, 0.55f});
+            }
             if (entry.widget->isLayoutDirty()) {
                 entry.widget->layoutNode().computeLayout(viewportSize.width, viewportSize.height);
                 core::Size overlaySize = entry.widget->layoutNode().layoutRect().size;

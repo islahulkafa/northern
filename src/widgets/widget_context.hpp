@@ -47,6 +47,7 @@ public:
     void handleMouseDown(const platform::MouseEvent& ev);
     void handleMouseUp(const platform::MouseEvent& ev);
     void handleMouseWheel(const platform::MouseEvent& ev);
+    void handleMouseLeave();
     void handleKeyEvent(const platform::KeyEvent& ev);
     void handleResize(const core::Size& logicalSize);
 

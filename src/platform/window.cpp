@@ -102,6 +102,54 @@ void Window::requestClose() {
     }
 }
 
+bool Window::isCustomTitleBar() const noexcept {
+    return impl_ ? impl_->isCustomTitleBar() : false;
+}
+
+void Window::setCustomTitleBar(bool custom) {
+    if (impl_) {
+        impl_->setCustomTitleBar(custom);
+    }
+}
+
+bool Window::isMaximized() const noexcept {
+    return impl_ ? impl_->isMaximized() : false;
+}
+
+bool Window::isMinimized() const noexcept {
+    return impl_ ? impl_->isMinimized() : false;
+}
+
+void Window::minimize() {
+    if (impl_) {
+        impl_->minimize();
+    }
+}
+
+void Window::maximize() {
+    if (impl_) {
+        impl_->maximize();
+    }
+}
+
+void Window::restore() {
+    if (impl_) {
+        impl_->restore();
+    }
+}
+
+void Window::toggleMaximize() {
+    if (impl_) {
+        impl_->toggleMaximize();
+    }
+}
+
+void Window::setHitTestCallback(HitTestCallback cb) {
+    if (impl_) {
+        impl_->setHitTestCallback(std::move(cb));
+    }
+}
+
 NativeWindowHandle Window::nativeHandle() const noexcept {
     return impl_ ? impl_->nativeHandle() : NativeWindowHandle{0};
 }

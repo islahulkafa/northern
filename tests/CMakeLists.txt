@@ -20,6 +20,21 @@ set(UNIT_TEST_SOURCES
     unit/test_dropdown.cpp
     unit/test_focus_cursor_tooltip.cpp
     unit/test_context_menu.cpp
+    unit/test_divider.cpp
+    unit/test_split_view.cpp
+    unit/test_tab_view.cpp
+    unit/test_accordion.cpp
+    unit/test_item_model.cpp
+    unit/test_item_selection_model.cpp
+    unit/test_header_view.cpp
+    unit/test_list_view.cpp
+    unit/test_table_view.cpp
+    unit/test_tree_view.cpp
+    unit/test_svg.cpp
+    unit/test_icon.cpp
+    unit/test_title_bar.cpp
+    unit/test_dialog.cpp
+    unit/test_file_dialog.cpp
 )
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})

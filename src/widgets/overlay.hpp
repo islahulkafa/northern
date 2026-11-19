@@ -14,7 +14,8 @@ enum class OverlayPlacement {
     Bottom, // Directly below anchor rect (standard for dropdowns)
     Top,    // Above anchor rect
     Right,  // Submenu placement
-    Left
+    Left,
+    Center  // Centered in viewport (standard for modal dialogs)
 };
 
 struct OverlayDesc {
@@ -23,6 +24,7 @@ struct OverlayDesc {
     bool autoFlip{true};              // Flip Top <-> Bottom if clipping viewport
     bool dismissOnOutsideClick{true}; // Light-dismiss
     bool dismissOnEscape{true};       // Dismiss when Escape is pressed
+    bool isModal{false};              // Dim background scrim and block background clicks
     float gap{4.0f};                  // Spacing between anchor and overlay
     std::function<void()> onDismiss{nullptr};
 };
@@ -37,6 +39,12 @@ struct OverlayEntry {
 [[nodiscard]] inline core::Point computeOverlayPosition(const core::Size& viewportSize,
                                                         const core::Size& overlaySize,
                                                         const OverlayDesc& desc) noexcept {
+    if (desc.preferredPlacement == OverlayPlacement::Center) {
+        float cx = std::max(0.0f, (viewportSize.width - overlaySize.width) * 0.5f);
+        float cy = std::max(0.0f, (viewportSize.height - overlaySize.height) * 0.5f);
+        return core::Point{cx, cy};
+    }
+
     core::Point pos{desc.anchorRect.origin.x, 0.0f};
 
     if (desc.preferredPlacement == OverlayPlacement::Bottom) {

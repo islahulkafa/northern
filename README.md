@@ -16,7 +16,10 @@ Built around a retained, parent-owned widget tree, custom 2D SDF batch rendering
 - **GPU-Accelerated 2D Pipeline**: Custom `BatchRenderer` coalesces signed-distance-field (SDF) primitives, rounded hairline borders, and glyph atlas quads into minimal draw calls.
 - **Native Typography**: Full Unicode text shaping with HarfBuzz and subpixel-ready glyph rasterization via FreeType behind a private text subsystem.
 - **Zero-Macro C++20 Signals & Motion**: Type-safe `Signal<Args...>` with `Trackable` lifetime guards alongside an analytical damped-harmonic spring and easing engine.
-- **Desktop-First Ergonomics**: Native `Tab`/`Shift+Tab` focus-visible rings, cursor shape dispatch (`IBeam`, `PointingHand`), 500ms delayed tooltips, and top-level overlay popups (`Dropdown`, `ContextMenu`).
+- **Desktop-First Ergonomics**: Native `Tab`/`Shift+Tab` focus-visible rings, cursor shape dispatch (`IBeam`, `PointingHand`, `ResizeEW`, `ResizeNS`), 500ms delayed tooltips, and top-level overlay popups (`Dropdown`, `ContextMenu`).
+- **Multi-Panel Containers**: Live resizable `SplitView`, 32px workbench `TabBar`/`TabView` with closable tabs and keyboard cycling, and smooth animated `CollapsibleSection`/`Accordion`.
+- **Virtualized Collection Views**: $O(1)$ visible slice `ListView`, 2D grid `TableView` with draggable resizable column `HeaderView`, and hierarchical `TreeView` with vector rotating chevrons, role-based `ItemModel`, and independent `ItemSelectionModel`.
+- **Frameless Window Shell & Modal Dialogs**: Custom DWM title bar with Windows 11 Snap Layouts integration (`HTMAXBUTTON`), resolution-independent SVG vector icon subsystem (`NanoSVG`), in-window modal `Dialog` / `MessageBox` with backdrop scrim and focus trapping, and native OS `FileDialog`.
 
 > [!NOTE]
 > Windows (`Win32`) and `Vulkan 1.3+` are actively implemented and tested. `Direct3D 11`, `Wayland`, and `X11` backends are planned in the module layout and currently deferred.
@@ -41,9 +44,9 @@ cmake --build build
 Expected output:
 
 ```text
-[==========] Running 109 tests from 20 test suites.
+[==========] Running 157 tests from 37 test suites.
 ...
-[  PASSED  ] 109 tests.
+[  PASSED  ] 157 tests.
 ```
 
 Launch the interactive desktop workstation demo:
@@ -133,6 +136,6 @@ flowchart TD
 | :--- | :--- |
 | [Getting Started](docs/getting-started.md) | Toolchain prerequisites, CMake + Ninja build, test verification, and demo launch |
 | [Architecture Overview](docs/architecture.md) | Module dependency graph, repository layout, pImpl encapsulation, and frame lifecycle |
-| [Widgets & UI Systems](docs/widgets.md) | Retained widget catalog, `Tab` focus traversal, cursor dispatch, overlays, tooltips, and animations |
+| [Widgets & UI Systems](docs/widgets.md) | Retained widget catalog, virtualized collection views, `Tab` focus traversal, cursor dispatch, overlays, and animations |
 | [Desktop Design Language](docs/design-languages.md) | Optical Zinc surface ramp, Cobalt accent rules, 4px density grid, and focus/motion specs |
 | [Agent & Engineering Guidelines](AGENTS.md) | Thread ownership boundaries, GPU handle lifetime rules, and coding conventions |

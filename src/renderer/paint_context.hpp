@@ -10,6 +10,8 @@
 
 namespace northern::renderer {
 
+class SvgDocument;
+
 class PaintContext {
 public:
     void drawRect(const core::Rect& rect, const core::Color& color);
@@ -21,6 +23,9 @@ public:
                  const core::Color& borderColor, float borderWidth, const float radii[4]);
     void drawLine(const core::Point& p0, const core::Point& p1, const core::Color& color,
                   float thickness = 1.5f);
+
+    void drawSvg(const SvgDocument& doc, const core::Rect& bounds,
+                 const core::Color& tintColor = core::Color::white());
 
     void drawText(const core::Point& pos, std::string_view text,
                   const std::shared_ptr<text::Font>& font,
