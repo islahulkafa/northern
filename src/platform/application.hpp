@@ -2,6 +2,8 @@
 
 #include "core/error/error.hpp"
 #include "core/error/result.hpp"
+#include "core/signal/signal.hpp"
+#include "platform/events.hpp"
 #include <memory>
 
 namespace northern::platform {
@@ -25,8 +27,17 @@ public:
     // Pump pending window and input messages without blocking
     void pollEvents();
 
+    // Wait for incoming window messages with optional timeout (in milliseconds, 0 = infinite wait)
+    void waitEvents(uint32_t timeoutMs = 0);
+
     // Query global application instance
     [[nodiscard]] static Application* instance() noexcept;
+
+    // System theme detection
+    [[nodiscard]] static bool isDarkMode() noexcept;
+
+    // Global application signals
+    core::Signal<const ThemeChangedEvent&> onThemeChanged;
 
     class Impl;
 

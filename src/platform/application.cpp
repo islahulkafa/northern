@@ -75,6 +75,12 @@ public:
         }
     }
 
+    void waitEvents(uint32_t timeoutMs) {
+        DWORD waitTime = (timeoutMs == 0) ? INFINITE : static_cast<DWORD>(timeoutMs);
+        MsgWaitForMultipleObjectsEx(0, nullptr, waitTime, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        pollEvents();
+    }
+
 private:
     bool quitRequested_{false};
     int exitCode_{0};
@@ -110,8 +116,32 @@ void Application::pollEvents() {
     }
 }
 
+void Application::waitEvents(uint32_t timeoutMs) {
+    if (impl_) {
+        impl_->waitEvents(timeoutMs);
+    }
+}
+
 Application* Application::instance() noexcept {
     return s_instance;
+}
+
+bool Application::isDarkMode() noexcept {
+    HKEY hKey{};
+    LSTATUS status = RegOpenKeyExW(
+        HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0,
+        KEY_READ, &hKey);
+    if (status == ERROR_SUCCESS) {
+        DWORD appsUseLightTheme = 1;
+        DWORD dataSize = sizeof(DWORD);
+        status = RegQueryValueExW(hKey, L"AppsUseLightTheme", nullptr, nullptr,
+                                  reinterpret_cast<LPBYTE>(&appsUseLightTheme), &dataSize);
+        RegCloseKey(hKey);
+        if (status == ERROR_SUCCESS) {
+            return appsUseLightTheme == 0;
+        }
+    }
+    return true; // Default to dark mode per Northern design specifications
 }
 
 } // namespace northern::platform

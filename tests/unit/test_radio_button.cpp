@@ -1,6 +1,6 @@
-#include "widgets/radio_button.hpp"
-#include "widgets/radio_group.hpp"
-#include "widgets/widget_context.hpp"
+#include "widgets/controls/radio_button.hpp"
+#include "widgets/controls/radio_group.hpp"
+#include "widgets/base/widget_context.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;

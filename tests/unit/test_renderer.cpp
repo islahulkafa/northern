@@ -48,6 +48,11 @@ TEST(RendererTest, PaintContextRecordingAndClear) {
 
     ctx.clear();
     EXPECT_EQ(ctx.commands().size(), 0);
+
+    PaintContext other;
+    other.drawRect({{0, 0}, {10, 10}}, core::Color::white());
+    ctx.append(other);
+    EXPECT_EQ(ctx.commands().size(), 1);
 }
 
 TEST(RendererTest, DynamicRingBufferAllocation) {
@@ -135,13 +140,32 @@ TEST(RendererTest, BatchCoalescingAndSplitting) {
     ctx.drawRoundedRect({{60, 10}, {50, 50}}, core::Color::fromRgba8(0, 255, 0), 8.0f);
     ctx.drawBorder({{120, 10}, {50, 50}}, core::Color::fromRgba8(0, 0, 255), 2.0f);
 
+    TextureDesc targetDesc{
+        .width = 800,
+        .height = 600,
+        .format = Format::B8G8R8A8_Unorm,
+        .usage = TextureUsage::ColorAttachment | TextureUsage::Sampled,
+        .debugName = "TestRenderTarget",
+    };
+    auto targetRes = device->createTexture(targetDesc);
+    ASSERT_TRUE(targetRes.isOk());
+    TextureHandle targetTex = targetRes.value();
+
+    RenderingDesc renderingDesc{};
+    renderingDesc.renderArea = {{0, 0}, {800, 600}};
+    renderingDesc.colorAttachment.target = targetTex;
+    renderingDesc.colorAttachment.clear = true;
+    renderingDesc.colorAttachment.clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+
     renderer->begin({800, 600}, 0);
     auto cmdRes = device->createCommandBuffer();
     ASSERT_TRUE(cmdRes.isOk());
     auto cmd = std::move(cmdRes.value());
     cmd->begin();
+    cmd->beginRendering(renderingDesc);
     renderer->render(ctx, *cmd);
     EXPECT_EQ(renderer->batchCount(), 1);
+    cmd->endRendering();
 
     ctx.clear();
     ctx.drawRect({{0, 0}, {100, 100}}, core::Color::fromRgba8(255, 255, 255));
@@ -151,8 +175,11 @@ TEST(RendererTest, BatchCoalescingAndSplitting) {
     ctx.drawRect({{0, 0}, {100, 100}}, core::Color::fromRgba8(0, 255, 0));
 
     renderer->begin({800, 600}, 0);
+    cmd->beginRendering(renderingDesc);
     renderer->render(ctx, *cmd);
     EXPECT_EQ(renderer->batchCount(), 3);
+    cmd->endRendering();
     cmd->end();
     renderer->end();
+    device->destroyTexture(targetTex);
 }

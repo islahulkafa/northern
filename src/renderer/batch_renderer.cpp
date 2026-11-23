@@ -313,8 +313,23 @@ void BatchRenderer::emitGlyphs(const DrawGlyphsCommand& cmd) {
     core::RectI activeScissor = currentScissor();
     graphics::TextureHandle atlasTex = glyphAtlas_->texture();
 
+    struct PendingGlyph {
+        text::CachedGlyph cached;
+        float basePixelX;
+        float targetY;
+    };
+
+    std::vector<PendingGlyph> pending;
+    pending.reserve(cmd.glyphs.size());
+
     for (const auto& g : cmd.glyphs) {
-        auto gRes = glyphAtlas_->getOrInsert(*cmd.font, g.glyphId);
+        float targetX = cmd.origin.x + g.position.x;
+        float targetY = cmd.origin.y + g.position.y;
+        float basePixelX = std::floor(targetX);
+        float fractX = targetX - basePixelX;
+        uint8_t subpixelBin = static_cast<uint8_t>(std::clamp(static_cast<int>(fractX * 4.0f), 0, 3));
+
+        auto gRes = glyphAtlas_->getOrInsert(*cmd.font, g.glyphId, subpixelBin);
         if (gRes.isErr()) {
             continue;
         }
@@ -322,39 +337,49 @@ void BatchRenderer::emitGlyphs(const DrawGlyphsCommand& cmd) {
         if (cached.size.width <= 0.0f || cached.size.height <= 0.0f) {
             continue;
         }
+        pending.push_back({cached, basePixelX, targetY});
+    }
 
-        auto allocRes = ringBuffer_->allocate(4, 6);
-        if (allocRes.isErr()) {
-            break;
-        }
-        auto alloc = allocRes.value();
+    if (pending.empty()) {
+        return;
+    }
 
-        float originX = std::round(cmd.origin.x);
-        float originY = std::round(cmd.origin.y);
-        float x = std::round(originX + g.position.x + cached.offset.x);
-        float y = std::round(originY + g.position.y - cached.offset.y);
-        float w = std::round(cached.size.width);
-        float h = std::round(cached.size.height);
+    uint32_t count = static_cast<uint32_t>(pending.size());
+    auto allocRes = ringBuffer_->allocate(count * 4, count * 6);
+    if (allocRes.isErr()) {
+        return;
+    }
+    auto alloc = allocRes.value();
 
-        float u0 = cached.uvRect.origin.x;
-        float v0 = cached.uvRect.origin.y;
-        float u1 = u0 + cached.uvRect.size.width;
-        float v1 = v0 + cached.uvRect.size.height;
+    if (batches_.empty() || batches_.back().scissorRect != activeScissor ||
+        batches_.back().type != BatchType::Text || batches_.back().texture != atlasTex) {
+        DrawBatch batch{};
+        batch.type = BatchType::Text;
+        batch.firstIndex = alloc.firstIndex;
+        batch.indexCount = count * 6;
+        batch.scissorRect = activeScissor;
+        batch.texture = atlasTex;
+        batches_.push_back(batch);
+    } else {
+        batches_.back().indexCount += count * 6;
+    }
 
-        if (batches_.empty() || batches_.back().scissorRect != activeScissor ||
-            batches_.back().type != BatchType::Text || batches_.back().texture != atlasTex) {
-            DrawBatch batch{};
-            batch.type = BatchType::Text;
-            batch.firstIndex = alloc.firstIndex;
-            batch.indexCount = 6;
-            batch.scissorRect = activeScissor;
-            batch.texture = atlasTex;
-            batches_.push_back(batch);
-        } else {
-            batches_.back().indexCount += 6;
-        }
+    Vertex2D* v = alloc.vertexData;
+    uint32_t* idx = alloc.indexData;
+    uint32_t baseV = alloc.firstVertex;
 
-        Vertex2D* v = alloc.vertexData;
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto& pg = pending[i];
+        float x = pg.basePixelX + pg.cached.offset.x;
+        float y = std::round(pg.targetY) - pg.cached.offset.y;
+        float w = pg.cached.size.width;
+        float h = pg.cached.size.height;
+
+        float u0 = pg.cached.uvRect.origin.x;
+        float v0 = pg.cached.uvRect.origin.y;
+        float u1 = u0 + pg.cached.uvRect.size.width;
+        float v1 = v0 + pg.cached.uvRect.size.height;
+
         v[0].position = {x, y};
         v[0].color = cmd.color;
         v[0].localPos = {u0, v0};
@@ -371,13 +396,16 @@ void BatchRenderer::emitGlyphs(const DrawGlyphsCommand& cmd) {
         v[3].color = cmd.color;
         v[3].localPos = {u0, v1};
 
-        uint32_t baseV = alloc.firstVertex;
-        alloc.indexData[0] = baseV + 0;
-        alloc.indexData[1] = baseV + 1;
-        alloc.indexData[2] = baseV + 2;
-        alloc.indexData[3] = baseV + 2;
-        alloc.indexData[4] = baseV + 3;
-        alloc.indexData[5] = baseV + 0;
+        uint32_t curBase = baseV + i * 4;
+        idx[0] = curBase + 0;
+        idx[1] = curBase + 1;
+        idx[2] = curBase + 2;
+        idx[3] = curBase + 2;
+        idx[4] = curBase + 3;
+        idx[5] = curBase + 0;
+
+        v += 4;
+        idx += 6;
     }
 }
 
@@ -399,6 +427,10 @@ void BatchRenderer::render(const PaintContext& context, graphics::CommandBuffer&
                 }
             },
             cmd);
+    }
+
+    if (glyphAtlas_) {
+        (void)glyphAtlas_->flush();
     }
 
     if (batches_.empty()) {

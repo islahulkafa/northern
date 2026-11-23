@@ -4,12 +4,14 @@
 #include "core/error/result.hpp"
 #include "core/math/geometry.hpp"
 #include "core/signal/signal.hpp"
+#include "platform/display.hpp"
 #include "platform/events.hpp"
 #include "platform/mouse_types.hpp"
 #include "platform/native_handle.hpp"
 #include "platform/window_desc.hpp"
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string_view>
 
 namespace northern::platform {
@@ -40,6 +42,10 @@ public:
     Window& operator=(Window&&) noexcept;
 
     // Geometry and DPI
+    [[nodiscard]] core::Point position() const noexcept;
+    void setPosition(core::Point logicalPos);
+    void centerOnScreen(std::optional<Display> display = std::nullopt);
+
     [[nodiscard]] core::Size size() const noexcept;
     [[nodiscard]] core::SizeI physicalSize() const noexcept;
     [[nodiscard]] float dpiScale() const noexcept;
@@ -66,10 +72,13 @@ public:
     void setCustomTitleBar(bool custom);
     [[nodiscard]] bool isMaximized() const noexcept;
     [[nodiscard]] bool isMinimized() const noexcept;
+    [[nodiscard]] bool isFullscreen() const noexcept;
     void minimize();
     void maximize();
     void restore();
     void toggleMaximize();
+    void setFullscreen(bool fullscreen);
+    void toggleFullscreen();
 
     void setHitTestCallback(HitTestCallback cb);
 
@@ -82,6 +91,8 @@ public:
     core::Signal<const ResizeEvent&> onResize;
     core::Signal<const DpiChangedEvent&> onDpiChanged;
     core::Signal<const FocusChangedEvent&> onFocusChanged;
+    core::Signal<const FileDropEvent&> onFileDrop;
+    core::Signal<const ThemeChangedEvent&> onThemeChanged;
     core::Signal<> onCloseRequested;
 
     class Impl;

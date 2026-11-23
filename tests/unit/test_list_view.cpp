@@ -1,4 +1,4 @@
-#include "widgets/list_view.hpp"
+#include "widgets/views/list_view.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;

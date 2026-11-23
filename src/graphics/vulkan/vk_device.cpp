@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <utility>
@@ -28,6 +29,28 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc) noexcept : desc_(desc) {}
 VulkanDevice::~VulkanDevice() {
     waitIdle();
 
+    if (pipelineCache_ != VK_NULL_HANDLE) {
+        size_t cacheSize = 0;
+        if (vkGetPipelineCacheData(device_, pipelineCache_, &cacheSize, nullptr) == VK_SUCCESS && cacheSize > 0) {
+            std::vector<char> cacheBuf(cacheSize);
+            if (vkGetPipelineCacheData(device_, pipelineCache_, &cacheSize, cacheBuf.data()) == VK_SUCCESS) {
+                std::ofstream outFile("build/pipeline_cache.bin", std::ios::binary);
+                if (outFile.is_open()) {
+                    outFile.write(cacheBuf.data(), static_cast<std::streamsize>(cacheSize));
+                }
+            }
+        }
+        vkDestroyPipelineCache(device_, pipelineCache_, nullptr);
+        pipelineCache_ = VK_NULL_HANDLE;
+    }
+
+    stagingPool_.reset();
+
+    for (auto& r : retiredResources_) {
+        if (r.cmdBuffer != VK_NULL_HANDLE && commandPool_ != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(device_, commandPool_, 1, &r.cmdBuffer);
+        }
+    }
     retiredResources_.clear();
     bufferPool_ = {};
     texturePool_ = {};
@@ -103,6 +126,13 @@ VulkanDevice::create(const DeviceDesc& desc) {
     if (res.isErr()) {
         return res.error();
     }
+
+    res = device->createPipelineCache();
+    if (res.isErr()) {
+        return res.error();
+    }
+
+    device->stagingPool_ = std::make_unique<VulkanStagingPool>(device->device_, *device->allocator_);
 
     return device;
 }
@@ -345,6 +375,36 @@ core::Result<void, core::Error> VulkanDevice::createTimelineSemaphore() {
     return {};
 }
 
+core::Result<void, core::Error> VulkanDevice::createPipelineCache() {
+    VkPipelineCacheCreateInfo cacheInfo{};
+    cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+
+    std::vector<char> cacheData;
+    std::ifstream inFile("build/pipeline_cache.bin", std::ios::binary | std::ios::ate);
+    if (inFile.is_open()) {
+        std::streamsize size = inFile.tellg();
+        if (size > 0) {
+            cacheData.resize(static_cast<size_t>(size));
+            inFile.seekg(0, std::ios::beg);
+            if (inFile.read(cacheData.data(), size)) {
+                cacheInfo.initialDataSize = cacheData.size();
+                cacheInfo.pInitialData = cacheData.data();
+            }
+        }
+    }
+
+    VkResult res = vkCreatePipelineCache(device_, &cacheInfo, nullptr, &pipelineCache_);
+    if (res != VK_SUCCESS) {
+        cacheInfo.initialDataSize = 0;
+        cacheInfo.pInitialData = nullptr;
+        res = vkCreatePipelineCache(device_, &cacheInfo, nullptr, &pipelineCache_);
+        if (res != VK_SUCCESS) {
+            return makeVkError(res, "Failed to create Vulkan pipeline cache");
+        }
+    }
+    return {};
+}
+
 core::Result<std::unique_ptr<Swapchain>, core::Error>
 VulkanDevice::createSwapchain(const SwapchainDesc& desc) {
     auto swapchainRes = VulkanSwapchain::create(this, desc);
@@ -439,17 +499,16 @@ core::Result<void, core::Error> VulkanDevice::writeTexture(TextureHandle handle,
 
     uint64_t uploadSize = static_cast<uint64_t>(width) * height * bytesPerPixel;
 
-    BufferDesc stagingDesc{
-        .size = uploadSize,
-        .usage = BufferUsage::TransferSrc,
-        .memoryUsage = MemoryUsage::CpuToGpu,
-    };
+    currentTimelineValue_++;
+    uint64_t submitTimeline = currentTimelineValue_;
 
-    auto stagingRes = VulkanBuffer::create(device_, *allocator_, stagingDesc, data);
-    if (stagingRes.isErr()) {
-        return stagingRes.error();
+    StagingSlice slice = stagingPool_->allocate(uploadSize, submitTimeline, 16);
+    if (!slice.buffer || !slice.mappedData) {
+        return core::Error(core::ErrorCode::OutOfMemory,
+                           "Failed to allocate staging slice for writeTexture");
     }
-    auto stagingBuf = std::move(stagingRes.value());
+
+    std::memcpy(slice.mappedData, data, uploadSize);
 
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -493,7 +552,7 @@ core::Result<void, core::Error> VulkanDevice::writeTexture(TextureHandle handle,
                          1, &barrier);
 
     VkBufferImageCopy region{};
-    region.bufferOffset = 0;
+    region.bufferOffset = slice.offset;
     region.bufferRowLength = 0;
     region.bufferImageHeight = 0;
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -503,7 +562,7 @@ core::Result<void, core::Error> VulkanDevice::writeTexture(TextureHandle handle,
     region.imageOffset = {static_cast<int32_t>(x), static_cast<int32_t>(y), 0};
     region.imageExtent = {width, height, 1};
 
-    vkCmdCopyBufferToImage(cmd, stagingBuf->handle(), tex->image(),
+    vkCmdCopyBufferToImage(cmd, slice.buffer, tex->image(),
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -518,10 +577,18 @@ core::Result<void, core::Error> VulkanDevice::writeTexture(TextureHandle handle,
 
     vkEndCommandBuffer(cmd);
 
+    VkTimelineSemaphoreSubmitInfo timelineInfo{};
+    timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    timelineInfo.signalSemaphoreValueCount = 1;
+    timelineInfo.pSignalSemaphoreValues = &submitTimeline;
+
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.pNext = &timelineInfo;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cmd;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &timelineSemaphore_;
 
     res = vkQueueSubmit(graphicsQueue_, 1, &submitInfo, VK_NULL_HANDLE);
     if (res != VK_SUCCESS) {
@@ -529,14 +596,16 @@ core::Result<void, core::Error> VulkanDevice::writeTexture(TextureHandle handle,
         return makeVkError(res, "Failed to submit writeTexture command buffer");
     }
 
-    vkQueueWaitIdle(graphicsQueue_);
-    vkFreeCommandBuffers(device_, commandPool_, 1, &cmd);
+    RetiredResource retired{};
+    retired.timelineValue = submitTimeline;
+    retired.cmdBuffer = cmd;
+    retiredResources_.push_back(std::move(retired));
 
     return {};
 }
 
 core::Result<PipelineHandle, core::Error> VulkanDevice::createPipeline(const PipelineDesc& desc) {
-    auto pipeRes = VulkanPipeline::create(device_, desc);
+    auto pipeRes = VulkanPipeline::create(device_, desc, pipelineCache_);
     if (pipeRes.isErr()) {
         return pipeRes.error();
     }
@@ -716,7 +785,7 @@ void VulkanDevice::advanceFrame() {
 }
 
 void VulkanDevice::retireResources() {
-    if (retiredResources_.empty() || timelineSemaphore_ == VK_NULL_HANDLE) {
+    if (timelineSemaphore_ == VK_NULL_HANDLE) {
         return;
     }
 
@@ -726,10 +795,23 @@ void VulkanDevice::retireResources() {
         return;
     }
 
-    auto it = std::remove_if(
-        retiredResources_.begin(), retiredResources_.end(),
-        [completedValue](const RetiredResource& r) { return r.timelineValue <= completedValue; });
-    retiredResources_.erase(it, retiredResources_.end());
+    if (stagingPool_) {
+        stagingPool_->retire(completedValue);
+    }
+
+    if (!retiredResources_.empty()) {
+        for (auto& r : retiredResources_) {
+            if (r.timelineValue <= completedValue && r.cmdBuffer != VK_NULL_HANDLE &&
+                commandPool_ != VK_NULL_HANDLE) {
+                vkFreeCommandBuffers(device_, commandPool_, 1, &r.cmdBuffer);
+                r.cmdBuffer = VK_NULL_HANDLE;
+            }
+        }
+        auto it = std::remove_if(
+            retiredResources_.begin(), retiredResources_.end(),
+            [completedValue](const RetiredResource& r) { return r.timelineValue <= completedValue; });
+        retiredResources_.erase(it, retiredResources_.end());
+    }
 }
 
 void VulkanDevice::waitIdle() {

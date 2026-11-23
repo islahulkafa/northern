@@ -1,14 +1,29 @@
 add_library(northern_core STATIC
+    core/concurrency/task_queue.hpp
+    core/concurrency/task_queue.cpp
+    core/concurrency/thread_pool.hpp
+    core/concurrency/thread_pool.cpp
     core/error/error.hpp
     core/error/error.cpp
     core/error/result.hpp
+    core/logging/log_level.hpp
+    core/logging/log_message.hpp
+    core/logging/log_sink.hpp
+    core/logging/log_sink.cpp
+    core/logging/logger.hpp
+    core/logging/logger.cpp
     core/math/geometry.hpp
     core/math/geometry.cpp
     core/math/color.hpp
     core/math/color.cpp
+    core/math/math_utils.hpp
+    core/math/transform2d.hpp
+    core/math/transform2d.cpp
     core/memory/handle.hpp
     core/memory/handle_pool.hpp
     core/memory/native_handle.hpp
+    core/memory/arena.hpp
+    core/memory/arena.cpp
     core/signal/connection.hpp
     core/signal/trackable.hpp
     core/signal/trackable.cpp
@@ -31,6 +46,7 @@ add_library(northern_platform STATIC
     platform/key_codes.hpp
     platform/mouse_types.hpp
     platform/events.hpp
+    platform/display.hpp
     platform/window_desc.hpp
     platform/native_handle.hpp
     platform/window.hpp
@@ -40,6 +56,7 @@ add_library(northern_platform STATIC
     platform/application.cpp
     platform/clipboard.hpp
     platform/clipboard.cpp
+    platform/win32/win32_display.cpp
     platform/win32/win32_window.hpp
     platform/win32/win32_window.cpp
     platform/win32/win32_key_map.hpp
@@ -73,7 +90,11 @@ add_library(northern_graphics STATIC
     graphics/swapchain.hpp
     graphics/device.hpp
     graphics/device.cpp
+    graphics/mock/mock_device.hpp
+    graphics/mock/mock_device.cpp
     graphics/vulkan/vk_common.hpp
+    graphics/vulkan/vk_staging_pool.hpp
+    graphics/vulkan/vk_staging_pool.cpp
     graphics/vulkan/vk_mem_alloc.hpp
     graphics/vulkan/vk_mem_alloc.cpp
     graphics/vulkan/vk_buffer.hpp
@@ -181,76 +202,87 @@ target_link_libraries(northern_renderer
 )
 
 add_library(northern_widgets STATIC
-    widgets/widget_events.hpp
-    widgets/widget.hpp
-    widgets/widget.cpp
-    widgets/widget_context.hpp
-    widgets/widget_context.cpp
-    widgets/icons.hpp
-    widgets/icons.cpp
-    widgets/icon.hpp
-    widgets/icon.cpp
-    widgets/title_bar.hpp
-    widgets/title_bar.cpp
-    widgets/dialog.hpp
-    widgets/dialog.cpp
-    widgets/message_box.hpp
-    widgets/message_box.cpp
-    widgets/container.hpp
-    widgets/container.cpp
-    widgets/label.hpp
-    widgets/label.cpp
-    widgets/button.hpp
-    widgets/button.cpp
-    widgets/text_input.hpp
-    widgets/text_input.cpp
-    widgets/scroll_view.hpp
-    widgets/scroll_view.cpp
-    widgets/checkbox.hpp
-    widgets/checkbox.cpp
-    widgets/slider.hpp
-    widgets/slider.cpp
-    widgets/switch.hpp
-    widgets/switch.cpp
-    widgets/radio_button.hpp
-    widgets/radio_button.cpp
-    widgets/radio_group.hpp
-    widgets/radio_group.cpp
-    widgets/progress_bar.hpp
-    widgets/progress_bar.cpp
-    widgets/overlay.hpp
-    widgets/tooltip.hpp
-    widgets/tooltip.cpp
-    widgets/context_menu.hpp
-    widgets/context_menu.cpp
-    widgets/dropdown.hpp
-    widgets/dropdown.cpp
-    widgets/divider.hpp
-    widgets/divider.cpp
-    widgets/split_view.hpp
-    widgets/split_view.cpp
-    widgets/tab_view.hpp
-    widgets/tab_view.cpp
-    widgets/accordion.hpp
-    widgets/accordion.cpp
-    widgets/item_model.hpp
-    widgets/item_model.cpp
-    widgets/item_selection_model.hpp
-    widgets/item_selection_model.cpp
-    widgets/item_delegate.hpp
-    widgets/item_delegate.cpp
-    widgets/header_view.hpp
-    widgets/header_view.cpp
-    widgets/list_view.hpp
-    widgets/list_view.cpp
-    widgets/table_view.hpp
-    widgets/table_view.cpp
-    widgets/tree_view.hpp
-    widgets/tree_view.cpp
+    # Base
+    widgets/base/widget_events.hpp
+    widgets/base/theme.hpp
+    widgets/base/overlay.hpp
+    widgets/base/widget.hpp
+    widgets/base/widget.cpp
+    widgets/base/widget_context.hpp
+    widgets/base/widget_context.cpp
+
+    # Controls
+    widgets/controls/label.hpp
+    widgets/controls/label.cpp
+    widgets/controls/button.hpp
+    widgets/controls/button.cpp
+    widgets/controls/checkbox.hpp
+    widgets/controls/checkbox.cpp
+    widgets/controls/radio_button.hpp
+    widgets/controls/radio_button.cpp
+    widgets/controls/radio_group.hpp
+    widgets/controls/radio_group.cpp
+    widgets/controls/switch.hpp
+    widgets/controls/switch.cpp
+    widgets/controls/slider.hpp
+    widgets/controls/slider.cpp
+    widgets/controls/text_input.hpp
+    widgets/controls/text_input.cpp
+    widgets/controls/progress_bar.hpp
+    widgets/controls/progress_bar.cpp
+    widgets/controls/divider.hpp
+    widgets/controls/divider.cpp
+    widgets/controls/icon.hpp
+    widgets/controls/icon.cpp
+    widgets/controls/icons.hpp
+    widgets/controls/icons.cpp
+    widgets/controls/tooltip.hpp
+    widgets/controls/tooltip.cpp
+
+    # Containers
+    widgets/containers/container.hpp
+    widgets/containers/container.cpp
+    widgets/containers/scroll_view.hpp
+    widgets/containers/scroll_view.cpp
+    widgets/containers/split_view.hpp
+    widgets/containers/split_view.cpp
+    widgets/containers/tab_view.hpp
+    widgets/containers/tab_view.cpp
+    widgets/containers/accordion.hpp
+    widgets/containers/accordion.cpp
+    widgets/containers/dropdown.hpp
+    widgets/containers/dropdown.cpp
+    widgets/containers/context_menu.hpp
+    widgets/containers/context_menu.cpp
+
+    # Views
+    widgets/views/item_model.hpp
+    widgets/views/item_model.cpp
+    widgets/views/item_selection_model.hpp
+    widgets/views/item_selection_model.cpp
+    widgets/views/item_delegate.hpp
+    widgets/views/item_delegate.cpp
+    widgets/views/header_view.hpp
+    widgets/views/header_view.cpp
+    widgets/views/list_view.hpp
+    widgets/views/list_view.cpp
+    widgets/views/table_view.hpp
+    widgets/views/table_view.cpp
+    widgets/views/tree_view.hpp
+    widgets/views/tree_view.cpp
+
+    # Window Shell
+    widgets/dialogs/title_bar.hpp
+    widgets/dialogs/title_bar.cpp
 )
 target_include_directories(northern_widgets PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/widgets
+    ${CMAKE_CURRENT_SOURCE_DIR}/widgets/base
+    ${CMAKE_CURRENT_SOURCE_DIR}/widgets/controls
+    ${CMAKE_CURRENT_SOURCE_DIR}/widgets/containers
+    ${CMAKE_CURRENT_SOURCE_DIR}/widgets/views
+    ${CMAKE_CURRENT_SOURCE_DIR}/widgets/dialogs
 )
 target_compile_features(northern_widgets PUBLIC cxx_std_20)
 target_link_libraries(northern_widgets
@@ -262,29 +294,4 @@ target_link_libraries(northern_widgets
         northern_text
     PRIVATE
         northern_warnings
-)
-
-add_library(northern_richtext INTERFACE)
-target_include_directories(northern_richtext INTERFACE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/richtext
-)
-target_compile_features(northern_richtext INTERFACE cxx_std_20)
-target_link_libraries(northern_richtext INTERFACE
-    northern_widgets
-    northern_text
-    northern_renderer
-    northern_core
-)
-
-add_library(northern_devtools INTERFACE)
-target_include_directories(northern_devtools INTERFACE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/devtools
-)
-target_compile_features(northern_devtools INTERFACE cxx_std_20)
-target_link_libraries(northern_devtools INTERFACE
-    northern_widgets
-    northern_renderer
-    northern_core
 )

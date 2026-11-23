@@ -3,6 +3,7 @@
 #include "core/math/geometry.hpp"
 #include "layout/style.hpp"
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <span>
@@ -46,9 +47,10 @@ public:
     [[nodiscard]] bool hasMeasureFunc() const noexcept { return static_cast<bool>(measureFunc_); }
     [[nodiscard]] core::Size measure(float availableWidth, float availableHeight) const;
 
-    // Dirty tracking
+    // Dirty tracking & caching
     void markDirty() noexcept;
     [[nodiscard]] bool isDirty() const noexcept { return isDirty_; }
+    void invalidateCache() noexcept;
 
     // Layout computation entry point
     void computeLayout(float availableWidth, float availableHeight);
@@ -63,6 +65,14 @@ public:
     void setUserData(void* data) noexcept { userData_ = data; }
 
 private:
+    struct MeasureCacheEntry {
+        float availableWidth{-1.0f};
+        float availableHeight{-1.0f};
+        core::Size measuredSize{};
+    };
+
+    static constexpr size_t kMeasureCacheCapacity = 2;
+
     Style style_{};
     LayoutNode* parent_{nullptr};
     std::vector<std::unique_ptr<LayoutNode>> ownedChildren_;
@@ -71,6 +81,15 @@ private:
     core::Rect layoutRect_{};
     void* userData_{nullptr};
     bool isDirty_{true};
+
+    // Subtree layout cache
+    float cachedAvailableWidth_{-1.0f};
+    float cachedAvailableHeight_{-1.0f};
+    bool hasCachedLayout_{false};
+
+    // Intrinsic measure memoization cache
+    mutable std::array<MeasureCacheEntry, kMeasureCacheCapacity> measureCache_{};
+    mutable size_t measureCacheCount_{0};
 };
 
 } // namespace northern::layout

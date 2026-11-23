@@ -1,4 +1,4 @@
-#include "widgets/header_view.hpp"
+#include "widgets/views/header_view.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern::widgets;

@@ -15,6 +15,7 @@ TEST(TextTest, FontLoadingAndMetrics) {
     auto fontRes = Font::fromFile("C:/Windows/Fonts/segoeui.ttf", 16.0f);
     ASSERT_TRUE(fontRes.isOk());
     auto font = fontRes.value();
+    EXPECT_GT(font->id(), 0u);
     EXPECT_GT(font->ascender(), 0.0f);
     EXPECT_LT(font->descender(), 0.0f);
     EXPECT_GT(font->lineHeight(), 0.0f);
@@ -82,6 +83,58 @@ TEST(TextTest, GlyphAtlasRasterizationAndPacking) {
     EXPECT_GT(gRes.value().size.width, 0.0f);
     EXPECT_GT(gRes.value().size.height, 0.0f);
     EXPECT_GT(gRes.value().uvRect.size.width, 0.0f);
+
+    EXPECT_TRUE(atlas->isDirty());
+    auto flushRes = atlas->flush();
+    EXPECT_TRUE(flushRes.isOk());
+    EXPECT_FALSE(atlas->isDirty());
+}
+
+TEST(TextTest, SubpixelGlyphBinning) {
+    using namespace northern;
+    using namespace northern::graphics;
+    using namespace northern::text;
+
+    auto devRes = Device::create();
+    ASSERT_TRUE(devRes.isOk());
+    auto device = std::move(devRes.value());
+
+    auto fontRes = FontManager::instance().defaultFont(16.0f);
+    ASSERT_TRUE(fontRes.isOk());
+    auto font = fontRes.value();
+
+    auto atlasRes = GlyphAtlas::create(*device, 512, 512);
+    ASSERT_TRUE(atlasRes.isOk());
+    auto atlas = std::move(atlasRes.value());
+
+    auto shaped = TextShaper::shape(*font, "e");
+    ASSERT_FALSE(shaped.empty());
+    uint32_t glyphId = shaped[0].glyphId;
+
+    auto bin0 = atlas->getOrInsert(*font, glyphId, 0);
+    auto bin1 = atlas->getOrInsert(*font, glyphId, 1);
+    auto bin2 = atlas->getOrInsert(*font, glyphId, 2);
+    auto bin3 = atlas->getOrInsert(*font, glyphId, 3);
+
+    ASSERT_TRUE(bin0.isOk());
+    ASSERT_TRUE(bin1.isOk());
+    ASSERT_TRUE(bin2.isOk());
+    ASSERT_TRUE(bin3.isOk());
+
+    EXPECT_EQ(bin0.value().subpixelBin, 0);
+    EXPECT_EQ(bin1.value().subpixelBin, 1);
+    EXPECT_EQ(bin2.value().subpixelBin, 2);
+    EXPECT_EQ(bin3.value().subpixelBin, 3);
+
+    // Bins must have distinct texture locations
+    EXPECT_NE(bin0.value().uvRect.origin.x, bin1.value().uvRect.origin.x);
+    EXPECT_NE(bin1.value().uvRect.origin.x, bin2.value().uvRect.origin.x);
+    EXPECT_NE(bin2.value().uvRect.origin.x, bin3.value().uvRect.origin.x);
+
+    EXPECT_TRUE(atlas->isDirty());
+    auto flushRes = atlas->flush();
+    EXPECT_TRUE(flushRes.isOk());
+    EXPECT_FALSE(atlas->isDirty());
 }
 
 TEST(TextTest, TextPipelineAndDescriptorBinding) {
@@ -105,6 +158,10 @@ TEST(TextTest, TextPipelineAndDescriptorBinding) {
         {0, 0, Format::R32G32_Sfloat, offsetof(Vertex2D, position)},
         {1, 0, Format::R32G32B32A32_Sfloat, offsetof(Vertex2D, color)},
         {2, 0, Format::R32G32_Sfloat, offsetof(Vertex2D, localPos)},
+        {3, 0, Format::R32G32_Sfloat, offsetof(Vertex2D, boxSize)},
+        {4, 0, Format::R32G32B32A32_Sfloat, offsetof(Vertex2D, cornerRadii)},
+        {5, 0, Format::R32G32B32A32_Sfloat, offsetof(Vertex2D, borderColor)},
+        {6, 0, Format::R32_Sfloat, offsetof(Vertex2D, borderWidth)},
     };
 
     auto pipeRes = device->createPipeline(pipeDesc);

@@ -12,9 +12,15 @@ LayoutNode::~LayoutNode() = default;
 LayoutNode::LayoutNode(LayoutNode&& other) noexcept
     : style_(other.style_), parent_(other.parent_), ownedChildren_(std::move(other.ownedChildren_)),
       children_(std::move(other.children_)), measureFunc_(std::move(other.measureFunc_)),
-      layoutRect_(other.layoutRect_), userData_(other.userData_), isDirty_(other.isDirty_) {
+      layoutRect_(other.layoutRect_), userData_(other.userData_), isDirty_(other.isDirty_),
+      cachedAvailableWidth_(other.cachedAvailableWidth_),
+      cachedAvailableHeight_(other.cachedAvailableHeight_),
+      hasCachedLayout_(other.hasCachedLayout_), measureCache_(other.measureCache_),
+      measureCacheCount_(other.measureCacheCount_) {
     other.parent_ = nullptr;
     other.userData_ = nullptr;
+    other.hasCachedLayout_ = false;
+    other.measureCacheCount_ = 0;
     for (auto* child : children_) {
         if (child) {
             child->parent_ = this;
@@ -32,9 +38,16 @@ LayoutNode& LayoutNode::operator=(LayoutNode&& other) noexcept {
         layoutRect_ = other.layoutRect_;
         userData_ = other.userData_;
         isDirty_ = other.isDirty_;
+        cachedAvailableWidth_ = other.cachedAvailableWidth_;
+        cachedAvailableHeight_ = other.cachedAvailableHeight_;
+        hasCachedLayout_ = other.hasCachedLayout_;
+        measureCache_ = other.measureCache_;
+        measureCacheCount_ = other.measureCacheCount_;
 
         other.parent_ = nullptr;
         other.userData_ = nullptr;
+        other.hasCachedLayout_ = false;
+        other.measureCacheCount_ = 0;
         for (auto* child : children_) {
             if (child) {
                 child->parent_ = this;
@@ -132,21 +145,54 @@ void LayoutNode::setMeasureFunc(MeasureFunc func) {
 }
 
 core::Size LayoutNode::measure(float availableWidth, float availableHeight) const {
-    if (measureFunc_) {
-        return measureFunc_(*this, availableWidth, availableHeight);
+    if (!measureFunc_) {
+        return core::Size{0.0f, 0.0f};
     }
-    return core::Size{0.0f, 0.0f};
+
+    for (size_t i = 0; i < measureCacheCount_; ++i) {
+        if (measureCache_[i].availableWidth == availableWidth &&
+            measureCache_[i].availableHeight == availableHeight) {
+            return measureCache_[i].measuredSize;
+        }
+    }
+
+    core::Size result = measureFunc_(*this, availableWidth, availableHeight);
+
+    if (measureCacheCount_ < kMeasureCacheCapacity) {
+        measureCache_[measureCacheCount_] = {availableWidth, availableHeight, result};
+        ++measureCacheCount_;
+    } else {
+        measureCache_[1] = measureCache_[0];
+        measureCache_[0] = {availableWidth, availableHeight, result};
+    }
+
+    return result;
 }
 
 void LayoutNode::markDirty() noexcept {
     isDirty_ = true;
+    hasCachedLayout_ = false;
+    measureCacheCount_ = 0;
     if (parent_) {
         parent_->markDirty();
     }
 }
 
+void LayoutNode::invalidateCache() noexcept {
+    hasCachedLayout_ = false;
+    measureCacheCount_ = 0;
+}
+
 void LayoutNode::computeLayout(float availableWidth, float availableHeight) {
+    if (!isDirty_ && hasCachedLayout_ && cachedAvailableWidth_ == availableWidth &&
+        cachedAvailableHeight_ == availableHeight) {
+        return;
+    }
+
     FlexSolver::solve(*this, availableWidth, availableHeight);
+    cachedAvailableWidth_ = availableWidth;
+    cachedAvailableHeight_ = availableHeight;
+    hasCachedLayout_ = true;
     isDirty_ = false;
 }
 

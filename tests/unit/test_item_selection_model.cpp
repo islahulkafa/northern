@@ -1,4 +1,4 @@
-#include "widgets/item_selection_model.hpp"
+#include "widgets/views/item_selection_model.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern::widgets;

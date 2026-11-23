@@ -1,6 +1,6 @@
-#include "widgets/container.hpp"
-#include "widgets/overlay.hpp"
-#include "widgets/widget_context.hpp"
+#include "widgets/containers/container.hpp"
+#include "widgets/base/overlay.hpp"
+#include "widgets/base/widget_context.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;
@@ -141,4 +141,30 @@ TEST(OverlayTest, DismissOverlaysForOwnerCleanup) {
     ctx.dismissOverlaysForOwner(ownerPtr);
     EXPECT_FALSE(ctx.hasOverlays());
     EXPECT_TRUE(dismissed);
+}
+
+TEST(OverlayTest, SubmenuPlacementRightAndAutoFlip) {
+    core::Size viewport{800.0f, 600.0f};
+    core::Size overlaySize{160.0f, 120.0f};
+
+    OverlayDesc desc{};
+    desc.anchorRect = core::Rect{core::Point{100.0f, 150.0f}, core::Size{140.0f, 28.0f}};
+    desc.preferredPlacement = OverlayPlacement::Right;
+    desc.autoFlip = true;
+    desc.gap = -2.0f; // Overlap border slightly
+
+    // Standard placement: to the right
+    core::Point pos = computeOverlayPosition(viewport, overlaySize, desc);
+    EXPECT_FLOAT_EQ(pos.x, 100.0f + 140.0f - 2.0f); // 238.0f
+    EXPECT_FLOAT_EQ(pos.y, 150.0f - 4.0f);          // 146.0f (aligned with anchor top padding)
+
+    // Near right edge: 700 + 140 - 2 + 160 = 998 > 800 -> AutoFlip to Left!
+    desc.anchorRect.origin.x = 650.0f;
+    pos = computeOverlayPosition(viewport, overlaySize, desc);
+    EXPECT_FLOAT_EQ(pos.x, 650.0f - 160.0f - (-2.0f)); // 492.0f
+
+    // Vertical clamping: near bottom edge
+    desc.anchorRect.origin.y = 520.0f;
+    pos = computeOverlayPosition(viewport, overlaySize, desc);
+    EXPECT_LE(pos.y + overlaySize.height, 600.0f);
 }

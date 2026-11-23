@@ -21,9 +21,7 @@ void main() {
     vec2 q = abs(p) - b + vec2(r);
     float dist = min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
 
-    vec2 grad = vec2(dFdx(dist), dFdy(dist));
-    float aa = length(grad);
-    aa = max(aa, 0.0001);
+    float aa = clamp(fwidth(dist), 0.7, 1.4);
 
     float outerAlpha = clamp(0.5 - dist / aa, 0.0, 1.0);
     if (outerAlpha <= 0.0) {
@@ -40,8 +38,9 @@ void main() {
         float innerAlpha = clamp(0.5 - innerDist / aa, 0.0, 1.0);
 
         float borderAlpha = inBorderColor.a * (1.0 - innerAlpha);
-        float outAlpha = borderAlpha + inColor.a * (1.0 - borderAlpha);
-        vec3 outRgb = (inBorderColor.rgb * borderAlpha + inColor.rgb * inColor.a * (1.0 - borderAlpha)) / max(outAlpha, 0.0001);
+        float fillAlpha = inColor.a * innerAlpha;
+        float outAlpha = borderAlpha + fillAlpha;
+        vec3 outRgb = (inBorderColor.rgb * borderAlpha + inColor.rgb * fillAlpha) / max(outAlpha, 0.0001);
 
         outColor = vec4(outRgb, outAlpha * outerAlpha);
     } else {

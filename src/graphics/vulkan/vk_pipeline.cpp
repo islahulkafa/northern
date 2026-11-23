@@ -69,7 +69,7 @@ VulkanPipeline& VulkanPipeline::operator=(VulkanPipeline&& other) noexcept {
 }
 
 core::Result<std::unique_ptr<VulkanPipeline>, core::Error>
-VulkanPipeline::create(VkDevice device, const PipelineDesc& desc) {
+VulkanPipeline::create(VkDevice device, const PipelineDesc& desc, VkPipelineCache pipelineCache) {
     auto pipeline = std::unique_ptr<VulkanPipeline>(new VulkanPipeline(device, desc));
 
     VkShaderModule vertShaderModule = createShaderModule(device, desc.vertexShader.spirv);
@@ -240,7 +240,7 @@ VulkanPipeline::create(VkDevice device, const PipelineDesc& desc) {
     pipelineInfo.layout = pipeline->layout_;
     pipelineInfo.renderPass = VK_NULL_HANDLE;
 
-    res = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
+    res = vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineInfo, nullptr,
                                     &pipeline->pipeline_);
 
     vkDestroyShaderModule(device, vertShaderModule, nullptr);

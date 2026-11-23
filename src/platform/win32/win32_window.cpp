@@ -1,9 +1,12 @@
 #include "platform/win32/win32_window.hpp"
+#include "platform/application.hpp"
 #include "platform/win32/win32_key_map.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <dwmapi.h>
 #include <mutex>
+#include <shellapi.h>
 #include <vector>
 #include <windowsx.h>
 
@@ -132,6 +135,17 @@ Window::Impl::create(Window* owner, const WindowDesc& desc) {
     impl->hwnd_ = hwnd;
     impl->updateDpi();
 
+    DragAcceptFiles(hwnd, TRUE);
+
+    BOOL useDarkMode = Application::isDarkMode() ? TRUE : FALSE;
+    const DWORD DWMWA_USE_IMMERSIVE_DARK_MODE_ATTR = 20;
+    const DWORD DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
+    if (FAILED(DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_ATTR, &useDarkMode,
+                                     sizeof(useDarkMode)))) {
+        DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, &useDarkMode,
+                              sizeof(useDarkMode));
+    }
+
     if (impl->customTitleBar_) {
         MARGINS margins = {1, 1, 1, 1};
         DwmExtendFrameIntoClientArea(hwnd, &margins);
@@ -167,6 +181,45 @@ void Window::Impl::updateDpi() {
     }
     dpi_ = dpi;
     dpiScale_ = static_cast<float>(dpi) / 96.0f;
+}
+
+core::Point Window::Impl::position() const noexcept {
+    if (!hwnd_ || !IsWindow(hwnd_)) {
+        return core::Point{0.0f, 0.0f};
+    }
+    RECT rc{};
+    GetWindowRect(hwnd_, &rc);
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    return core::Point{static_cast<float>(rc.left) / scale, static_cast<float>(rc.top) / scale};
+}
+
+void Window::Impl::setPosition(core::Point logicalPos) {
+    if (!hwnd_ || !IsWindow(hwnd_)) {
+        return;
+    }
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    int physX = static_cast<int>(std::round(logicalPos.x * scale));
+    int physY = static_cast<int>(std::round(logicalPos.y * scale));
+    SetWindowPos(hwnd_, nullptr, physX, physY, 0, 0, SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+void Window::Impl::centerOnScreen(std::optional<Display> display) {
+    if (!hwnd_ || !IsWindow(hwnd_)) {
+        return;
+    }
+    Display target = display.value_or(owner_ ? Display::forWindow(*owner_) : Display::primary());
+    core::Rect workArea = target.workArea;
+
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    float currentW = logicalSize_.width;
+    float currentH = logicalSize_.height;
+
+    float centeredX = workArea.origin.x + std::max(0.0f, (workArea.size.width - currentW) * 0.5f);
+    float centeredY = workArea.origin.y + std::max(0.0f, (workArea.size.height - currentH) * 0.5f);
+
+    int physX = static_cast<int>(std::round(centeredX * scale));
+    int physY = static_cast<int>(std::round(centeredY * scale));
+    SetWindowPos(hwnd_, nullptr, physX, physY, 0, 0, SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
 void Window::Impl::setSize(core::Size logicalSize) {
@@ -340,6 +393,45 @@ void Window::Impl::toggleMaximize() {
     } else {
         maximize();
     }
+}
+
+void Window::Impl::setFullscreen(bool fullscreen) {
+    if (isFullscreen_ == fullscreen || !hwnd_ || !IsWindow(hwnd_)) {
+        return;
+    }
+
+    if (fullscreen) {
+        savedPlacement_.length = sizeof(WINDOWPLACEMENT);
+        GetWindowPlacement(hwnd_, &savedPlacement_);
+        savedStyle_ = static_cast<LONG>(GetWindowLongPtrW(hwnd_, GWL_STYLE));
+
+        HMONITOR hMon = MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi{};
+        mi.cbSize = sizeof(MONITORINFO);
+        if (GetMonitorInfoW(hMon, &mi)) {
+            LONG newStyle = savedStyle_ & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX |
+                                            WS_MAXIMIZEBOX | WS_SYSMENU);
+            SetWindowLongPtrW(hwnd_, GWL_STYLE, newStyle);
+
+            int x = mi.rcMonitor.left;
+            int y = mi.rcMonitor.top;
+            int w = mi.rcMonitor.right - mi.rcMonitor.left;
+            int h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+
+            SetWindowPos(hwnd_, HWND_TOP, x, y, w, h, SWP_FRAMECHANGED | SWP_NOACTIVATE);
+            isFullscreen_ = true;
+        }
+    } else {
+        SetWindowLongPtrW(hwnd_, GWL_STYLE, savedStyle_);
+        SetWindowPlacement(hwnd_, &savedPlacement_);
+        SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+        isFullscreen_ = false;
+    }
+}
+
+void Window::Impl::toggleFullscreen() {
+    setFullscreen(!isFullscreen_);
 }
 
 LRESULT CALLBACK Window::Impl::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -731,6 +823,66 @@ LRESULT Window::Impl::wndProc(UINT msg, WPARAM wParam, LPARAM lParam) {
         if (LOWORD(lParam) == HTCLIENT) {
             updateCursor();
             return TRUE;
+        }
+        break;
+    }
+
+    case WM_DROPFILES: {
+        HDROP hDrop = reinterpret_cast<HDROP>(wParam);
+        if (hDrop) {
+            UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+            std::vector<std::string> droppedPaths;
+            droppedPaths.reserve(count);
+
+            for (UINT i = 0; i < count; ++i) {
+                UINT len = DragQueryFileW(hDrop, i, nullptr, 0);
+                if (len > 0) {
+                    std::wstring widePath(static_cast<size_t>(len + 1), L'\0');
+                    DragQueryFileW(hDrop, i, widePath.data(), len + 1);
+                    widePath.resize(len);
+
+                    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, widePath.data(), -1, nullptr, 0,
+                                                      nullptr, nullptr);
+                    if (utf8Len > 1) {
+                        std::string u8Path(static_cast<size_t>(utf8Len - 1), '\0');
+                        WideCharToMultiByte(CP_UTF8, 0, widePath.data(), -1, u8Path.data(), utf8Len,
+                                            nullptr, nullptr);
+                        droppedPaths.push_back(std::move(u8Path));
+                    }
+                }
+            }
+
+            POINT pt{};
+            DragQueryPoint(hDrop, &pt);
+            DragFinish(hDrop);
+
+            float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+            core::Point dropPos{static_cast<float>(pt.x) / scale, static_cast<float>(pt.y) / scale};
+
+            if (owner_) {
+                owner_->onFileDrop.emit(FileDropEvent{std::move(droppedPaths), dropPos});
+            }
+        }
+        return 0;
+    }
+
+    case WM_SETTINGCHANGE:
+    case WM_THEMECHANGED: {
+        BOOL useDarkMode = Application::isDarkMode() ? TRUE : FALSE;
+        const DWORD DWMWA_USE_IMMERSIVE_DARK_MODE_ATTR = 20;
+        const DWORD DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
+        if (FAILED(DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE_ATTR, &useDarkMode,
+                                         sizeof(useDarkMode)))) {
+            DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, &useDarkMode,
+                                  sizeof(useDarkMode));
+        }
+
+        ThemeChangedEvent ev{useDarkMode == TRUE};
+        if (owner_) {
+            owner_->onThemeChanged.emit(ev);
+        }
+        if (Application::instance()) {
+            Application::instance()->onThemeChanged.emit(ev);
         }
         break;
     }

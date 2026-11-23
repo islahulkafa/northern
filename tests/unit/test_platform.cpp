@@ -1,5 +1,6 @@
 #include "platform/application.hpp"
 #include "platform/clipboard.hpp"
+#include "platform/display.hpp"
 #include "platform/events.hpp"
 #include "platform/key_codes.hpp"
 #include "platform/mouse_types.hpp"
@@ -7,6 +8,7 @@
 #include "platform/window.hpp"
 #include <gtest/gtest.h>
 
+using namespace northern;
 using namespace northern::platform;
 
 TEST(PlatformTest, KeyModifiersBitwiseOperations) {
@@ -109,6 +111,9 @@ TEST(PlatformTest, HiddenWindowLifecycle) {
 
     // Poll events non-blockingly
     app.pollEvents();
+
+    // Wait events with timeout
+    app.waitEvents(10);
 }
 
 TEST(PlatformTest, ClipboardTextRoundtrip) {
@@ -122,4 +127,136 @@ TEST(PlatformTest, ClipboardTextRoundtrip) {
     auto getResult = Clipboard::getText();
     ASSERT_TRUE(getResult.isOk());
     EXPECT_EQ(getResult.value(), testPayload);
+}
+
+TEST(PlatformTest, DisplayEnumerationAndPrimary) {
+    auto displays = Display::all();
+    EXPECT_FALSE(displays.empty());
+
+    Display primary = Display::primary();
+    EXPECT_TRUE(primary.isPrimary);
+    EXPECT_GT(primary.bounds.size.width, 0.0f);
+    EXPECT_GT(primary.bounds.size.height, 0.0f);
+    EXPECT_GT(primary.workArea.size.width, 0.0f);
+    EXPECT_GT(primary.workArea.size.height, 0.0f);
+    EXPECT_GE(primary.scale, 1.0f);
+    EXPECT_FALSE(primary.name.empty());
+}
+
+TEST(PlatformTest, DisplayForWindow) {
+    Application app;
+    WindowDesc desc;
+    desc.title = "TestDisplayWindow";
+    desc.visible = false;
+
+    auto winResult = Window::create(desc);
+    ASSERT_TRUE(winResult.isOk());
+    auto window = std::move(winResult.value());
+
+    Display d = Display::forWindow(*window);
+    EXPECT_GT(d.bounds.size.width, 0.0f);
+    EXPECT_GT(d.bounds.size.height, 0.0f);
+    EXPECT_GE(d.scale, 1.0f);
+}
+
+TEST(PlatformTest, WindowPositionAndSetPosition) {
+    Application app;
+    WindowDesc desc;
+    desc.title = "TestPosWindow";
+    desc.size = {400.0f, 300.0f};
+    desc.visible = false;
+
+    auto winResult = Window::create(desc);
+    ASSERT_TRUE(winResult.isOk());
+    auto window = std::move(winResult.value());
+
+    core::Point initialPos = window->position();
+    (void)initialPos;
+
+    core::Point targetPos{120.0f, 140.0f};
+    window->setPosition(targetPos);
+    core::Point newPos = window->position();
+    EXPECT_NEAR(newPos.x, targetPos.x, 5.0f);
+    EXPECT_NEAR(newPos.y, targetPos.y, 5.0f);
+}
+
+TEST(PlatformTest, WindowCenterOnScreen) {
+    Application app;
+    WindowDesc desc;
+    desc.title = "TestCenterWindow";
+    desc.size = {400.0f, 300.0f};
+    desc.visible = false;
+
+    auto winResult = Window::create(desc);
+    ASSERT_TRUE(winResult.isOk());
+    auto window = std::move(winResult.value());
+
+    Display primary = Display::primary();
+    window->centerOnScreen(primary);
+
+    core::Point pos = window->position();
+    EXPECT_GE(pos.x, primary.workArea.origin.x - 5.0f);
+    EXPECT_GE(pos.y, primary.workArea.origin.y - 5.0f);
+}
+
+TEST(PlatformTest, WindowFullscreenToggle) {
+    Application app;
+    WindowDesc desc;
+    desc.title = "TestFullscreenWindow";
+    desc.size = {640.0f, 480.0f};
+    desc.visible = false;
+
+    auto winResult = Window::create(desc);
+    ASSERT_TRUE(winResult.isOk());
+    auto window = std::move(winResult.value());
+
+    EXPECT_FALSE(window->isFullscreen());
+
+    window->setFullscreen(true);
+    EXPECT_TRUE(window->isFullscreen());
+
+    window->setFullscreen(false);
+    EXPECT_FALSE(window->isFullscreen());
+
+    window->toggleFullscreen();
+    EXPECT_TRUE(window->isFullscreen());
+
+    window->toggleFullscreen();
+    EXPECT_FALSE(window->isFullscreen());
+}
+
+TEST(PlatformTest, FileDropAndThemeEvents) {
+    Application app;
+    WindowDesc desc;
+    desc.title = "TestEventWindow";
+    desc.visible = false;
+
+    auto winResult = Window::create(desc);
+    ASSERT_TRUE(winResult.isOk());
+    auto window = std::move(winResult.value());
+
+    // FileDropEvent signal verification
+    bool dropReceived = false;
+    std::string receivedPath;
+    auto dropConn = window->onFileDrop.connect([&](const FileDropEvent& ev) {
+        dropReceived = true;
+        if (!ev.paths.empty()) {
+            receivedPath = ev.paths[0];
+        }
+    });
+
+    FileDropEvent testDrop{{"C:/test/file.png"}, {50.0f, 60.0f}};
+    window->onFileDrop.emit(testDrop);
+    EXPECT_TRUE(dropReceived);
+    EXPECT_EQ(receivedPath, "C:/test/file.png");
+
+    // Theme detection and ThemeChangedEvent signal
+    bool isDark = Application::isDarkMode();
+    (void)isDark; // Query succeeds without exception
+
+    bool themeChanged = false;
+    auto themeConn =
+        window->onThemeChanged.connect([&](const ThemeChangedEvent&) { themeChanged = true; });
+    window->onThemeChanged.emit(ThemeChangedEvent{true});
+    EXPECT_TRUE(themeChanged);
 }

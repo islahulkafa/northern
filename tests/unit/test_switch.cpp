@@ -1,4 +1,4 @@
-#include "widgets/switch.hpp"
+#include "widgets/controls/switch.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;

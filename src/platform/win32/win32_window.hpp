@@ -3,6 +3,7 @@
 #include "core/error/error.hpp"
 #include "core/error/result.hpp"
 #include "core/math/geometry.hpp"
+#include "platform/display.hpp"
 #include "platform/events.hpp"
 #include "platform/native_handle.hpp"
 #include "platform/window.hpp"
@@ -15,6 +16,7 @@
 #define NOMINMAX
 #endif
 #include <memory>
+#include <optional>
 #include <string>
 #include <windows.h>
 
@@ -30,6 +32,10 @@ public:
 
     static core::Result<std::unique_ptr<Window::Impl>, core::Error> create(Window* owner,
                                                                            const WindowDesc& desc);
+
+    [[nodiscard]] core::Point position() const noexcept;
+    void setPosition(core::Point logicalPos);
+    void centerOnScreen(std::optional<Display> display);
 
     [[nodiscard]] core::Size size() const noexcept { return logicalSize_; }
     [[nodiscard]] core::SizeI physicalSize() const noexcept { return physicalSize_; }
@@ -54,10 +60,13 @@ public:
     void setCustomTitleBar(bool custom);
     [[nodiscard]] bool isMaximized() const noexcept;
     [[nodiscard]] bool isMinimized() const noexcept;
+    [[nodiscard]] bool isFullscreen() const noexcept { return isFullscreen_; }
     void minimize();
     void maximize();
     void restore();
     void toggleMaximize();
+    void setFullscreen(bool fullscreen);
+    void toggleFullscreen();
 
     void setHitTestCallback(HitTestCallback cb) { hitTestCallback_ = std::move(cb); }
 
@@ -90,6 +99,9 @@ private:
     HCURSOR hCurrentCursor_{nullptr};
     bool customTitleBar_{false};
     bool resizable_{true};
+    bool isFullscreen_{false};
+    WINDOWPLACEMENT savedPlacement_{};
+    LONG savedStyle_{0};
     HitTestCallback hitTestCallback_{};
 };
 

@@ -8,7 +8,8 @@ namespace northern::text {
 
 GlyphAtlas::GlyphAtlas(graphics::Device& device, graphics::TextureHandle texture, uint32_t width,
                        uint32_t height) noexcept
-    : device_(device), texture_(texture), width_(width), height_(height) {}
+    : device_(device), texture_(texture), width_(width), height_(height),
+      cpuAtlas_(width * height, 0), dirtyMinY_(height), dirtyMaxY_(0) {}
 
 GlyphAtlas::~GlyphAtlas() {
     if (texture_.isValid()) {
@@ -35,8 +36,11 @@ GlyphAtlas::create(graphics::Device& device, uint32_t width, uint32_t height) {
     return std::unique_ptr<GlyphAtlas>(new GlyphAtlas(device, texRes.value(), width, height));
 }
 
-core::Result<CachedGlyph, core::Error> GlyphAtlas::getOrInsert(const Font& font, uint32_t glyphId) {
-    uint64_t key = (reinterpret_cast<uint64_t>(&font) ^ (static_cast<uint64_t>(glyphId) << 32));
+core::Result<CachedGlyph, core::Error> GlyphAtlas::getOrInsert(const Font& font, uint32_t glyphId,
+                                                               uint8_t subpixelBin) {
+    uint64_t fontId = font.id();
+    uint64_t bin = subpixelBin & 0x03;
+    uint64_t key = (fontId << 34) | (static_cast<uint64_t>(glyphId) << 2) | bin;
     auto it = cache_.find(key);
     if (it != cache_.end()) {
         return it->second;
@@ -47,17 +51,27 @@ core::Result<CachedGlyph, core::Error> GlyphAtlas::getOrInsert(const Font& font,
     }
 
     FT_Face face = font.impl()->ftFace;
-    FT_Error err = FT_Load_Glyph(face, glyphId, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL);
+    FT_Error err = FT_Load_Glyph(face, glyphId, FT_LOAD_NO_BITMAP | FT_LOAD_TARGET_LIGHT);
     if (err != 0) {
-        return core::Error(core::ErrorCode::InternalError, "Failed to load and render glyph");
+        return core::Error(core::ErrorCode::InternalError, "Failed to load glyph outline");
     }
 
     FT_GlyphSlot slot = face->glyph;
+    if (slot->format == FT_GLYPH_FORMAT_OUTLINE && bin > 0) {
+        FT_Outline_Translate(&slot->outline, static_cast<FT_Pos>(bin * 16), 0);
+    }
+
+    err = FT_Render_Glyph(slot, FT_RENDER_MODE_NORMAL);
+    if (err != 0) {
+        return core::Error(core::ErrorCode::InternalError, "Failed to render glyph");
+    }
+
     FT_Bitmap& bitmap = slot->bitmap;
 
     CachedGlyph cached{};
     cached.offset = {static_cast<float>(slot->bitmap_left), static_cast<float>(slot->bitmap_top)};
     cached.size = {static_cast<float>(bitmap.width), static_cast<float>(bitmap.rows)};
+    cached.subpixelBin = static_cast<uint8_t>(bin);
 
     if (bitmap.width == 0 || bitmap.rows == 0) {
         cache_[key] = cached;
@@ -84,21 +98,15 @@ core::Result<CachedGlyph, core::Error> GlyphAtlas::getOrInsert(const Font& font,
     currentShelfX_ += w + pad;
     shelfHeight_ = std::max(shelfHeight_, h);
 
-    if (bitmap.pitch == static_cast<int>(w)) {
-        auto writeRes = device_.writeTexture(texture_, x, y, w, h, bitmap.buffer);
-        if (writeRes.isErr()) {
-            return writeRes.error();
-        }
-    } else {
-        std::vector<uint8_t> tightlyPacked(w * h);
-        for (uint32_t r = 0; r < h; ++r) {
-            std::memcpy(tightlyPacked.data() + r * w, bitmap.buffer + r * bitmap.pitch, w);
-        }
-        auto writeRes = device_.writeTexture(texture_, x, y, w, h, tightlyPacked.data());
-        if (writeRes.isErr()) {
-            return writeRes.error();
-        }
+    for (uint32_t r = 0; r < h; ++r) {
+        const uint8_t* srcRow = bitmap.buffer + r * bitmap.pitch;
+        uint8_t* dstRow = cpuAtlas_.data() + (y + r) * width_ + x;
+        std::memcpy(dstRow, srcRow, w);
     }
+
+    dirty_ = true;
+    dirtyMinY_ = std::min(dirtyMinY_, y);
+    dirtyMaxY_ = std::max(dirtyMaxY_, y + h);
 
     cached.uvRect = {
         static_cast<float>(x) / static_cast<float>(width_),
@@ -109,6 +117,27 @@ core::Result<CachedGlyph, core::Error> GlyphAtlas::getOrInsert(const Font& font,
 
     cache_[key] = cached;
     return cached;
+}
+
+core::Result<void, core::Error> GlyphAtlas::flush() {
+    if (!dirty_ || dirtyMinY_ >= dirtyMaxY_) {
+        return {};
+    }
+
+    uint32_t y = dirtyMinY_;
+    uint32_t h = dirtyMaxY_ - dirtyMinY_;
+    const uint8_t* sliceData = cpuAtlas_.data() + y * width_;
+
+    auto writeRes = device_.writeTexture(texture_, 0, y, width_, h, sliceData);
+    if (writeRes.isErr()) {
+        return writeRes.error();
+    }
+
+    dirty_ = false;
+    dirtyMinY_ = height_;
+    dirtyMaxY_ = 0;
+
+    return {};
 }
 
 } // namespace northern::text

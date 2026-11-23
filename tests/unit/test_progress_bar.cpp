@@ -1,4 +1,4 @@
-#include "widgets/progress_bar.hpp"
+#include "widgets/controls/progress_bar.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;

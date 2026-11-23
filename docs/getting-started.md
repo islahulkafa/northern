@@ -48,10 +48,13 @@ Execute the headless GoogleTest binary directly to verify all subsystems (`core`
 Expected output:
 
 ```text
-[==========] Running 109 tests from 20 test suites.
+[==========] Running 186 tests from 44 test suites.
 ...
-[  PASSED  ] 109 tests.
+[  PASSED  ] 186 tests.
 ```
+
+> [!TIP]
+> Headless CI runners and environments lacking Vulkan hardware acceleration run all tests using Northern's pure-CPU [MockDevice](../src/graphics/mock/mock_device.hpp).
 
 ## Launch the desktop demo
 
@@ -66,5 +69,5 @@ Run the interactive Vulkan windowing showcase to inspect focus traversal, cursor
 Verify formatting compliance against [.clang-format](../.clang-format) before opening a pull request:
 
 ```powershell
-clang-format --dry-run --Werror src/widgets/*.hpp src/widgets/*.cpp
+clang-format --dry-run --Werror src/widgets/**/*.hpp src/widgets/**/*.cpp
 ```

@@ -36,6 +36,7 @@ public:
     void pushClip(const core::Rect& rect);
     void popClip();
 
+    void append(const PaintContext& other);
     void clear() noexcept;
     [[nodiscard]] const std::vector<DrawCommand>& commands() const noexcept { return commands_; }
 

@@ -123,6 +123,10 @@ void PaintContext::popClip() {
     commands_.push_back(PopClipCommand{});
 }
 
+void PaintContext::append(const PaintContext& other) {
+    commands_.insert(commands_.end(), other.commands_.begin(), other.commands_.end());
+}
+
 void PaintContext::clear() noexcept {
     commands_.clear();
 }

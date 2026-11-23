@@ -1,4 +1,4 @@
-#include "widgets/tree_view.hpp"
+#include "widgets/views/tree_view.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;

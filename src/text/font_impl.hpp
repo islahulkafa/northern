@@ -3,6 +3,7 @@
 #include "text/font.hpp"
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_OUTLINE_H
 #include <hb-ft.h>
 #include <hb.h>
 #include <vector>
@@ -10,6 +11,7 @@
 namespace northern::text {
 
 struct Font::Impl {
+    uint32_t id{0};
     FT_Face ftFace{nullptr};
     hb_font_t* hbFont{nullptr};
     float pointSize{14.0f};

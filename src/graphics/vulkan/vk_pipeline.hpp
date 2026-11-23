@@ -11,7 +11,7 @@ namespace northern::graphics {
 class VulkanPipeline {
 public:
     static core::Result<std::unique_ptr<VulkanPipeline>, core::Error>
-    create(VkDevice device, const PipelineDesc& desc);
+    create(VkDevice device, const PipelineDesc& desc, VkPipelineCache pipelineCache = VK_NULL_HANDLE);
 
     ~VulkanPipeline();
 

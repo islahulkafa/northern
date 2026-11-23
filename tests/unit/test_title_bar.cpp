@@ -1,4 +1,4 @@
-#include "widgets/title_bar.hpp"
+#include "widgets/dialogs/title_bar.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;

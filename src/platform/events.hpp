@@ -4,6 +4,8 @@
 #include "platform/key_codes.hpp"
 #include "platform/mouse_types.hpp"
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace northern::platform {
 
@@ -38,6 +40,15 @@ struct DpiChangedEvent {
 
 struct FocusChangedEvent {
     bool hasFocus{false};
+};
+
+struct FileDropEvent {
+    std::vector<std::string> paths{};
+    core::Point position{0.0f, 0.0f};
+};
+
+struct ThemeChangedEvent {
+    bool isDarkMode{true};
 };
 
 } // namespace northern::platform

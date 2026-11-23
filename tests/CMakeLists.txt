@@ -23,7 +23,9 @@ set(UNIT_TEST_SOURCES
     unit/test_divider.cpp
     unit/test_split_view.cpp
     unit/test_tab_view.cpp
+    unit/test_scroll_view.cpp
     unit/test_accordion.cpp
+    unit/test_container.cpp
     unit/test_item_model.cpp
     unit/test_item_selection_model.cpp
     unit/test_header_view.cpp
@@ -33,8 +35,13 @@ set(UNIT_TEST_SOURCES
     unit/test_svg.cpp
     unit/test_icon.cpp
     unit/test_title_bar.cpp
-    unit/test_dialog.cpp
     unit/test_file_dialog.cpp
+    unit/test_transform2d.cpp
+    unit/test_arena.cpp
+    unit/test_logging.cpp
+    unit/test_task_queue.cpp
+    unit/test_thread_pool.cpp
+    unit/test_mock_device.cpp
 )
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})

@@ -1,5 +1,5 @@
-#include "widgets/icon.hpp"
-#include "widgets/icons.hpp"
+#include "widgets/controls/icon.hpp"
+#include "widgets/controls/icons.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;

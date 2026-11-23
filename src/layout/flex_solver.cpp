@@ -1,12 +1,23 @@
 #include "layout/flex_solver.hpp"
+#include "core/memory/arena.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <vector>
 
 namespace northern::layout {
 
 namespace {
+
+thread_local core::Arena s_scratchArena{64 * 1024};
+thread_local int s_solverDepth{0};
+
+struct DepthGuard {
+    int& depth;
+    explicit DepthGuard(int& d) noexcept : depth(d) { ++depth; }
+    ~DepthGuard() noexcept { --depth; }
+};
 
 float clampDimension(float val, float minVal, float maxVal) {
     if (maxVal < minVal) {
@@ -15,20 +26,73 @@ float clampDimension(float val, float minVal, float maxVal) {
     return std::clamp(val, minVal, maxVal);
 }
 
+struct FlexItem {
+    LayoutNode* node{nullptr};
+    float baseMain{0.0f};
+    float finalMain{0.0f};
+    float finalCross{0.0f};
+    float mainMarginStart{0.0f};
+    float mainMarginEnd{0.0f};
+    float crossMarginStart{0.0f};
+    float crossMarginEnd{0.0f};
+    float minMain{0.0f};
+    float maxMain{1e9f};
+    float minCross{0.0f};
+    float maxCross{1e9f};
+    float mainPos{0.0f};
+    float crossPos{0.0f};
+    bool frozen{false};
+
+    [[nodiscard]] float outerBaseMain() const noexcept {
+        return baseMain + mainMarginStart + mainMarginEnd;
+    }
+    [[nodiscard]] float outerFinalMain() const noexcept {
+        return finalMain + mainMarginStart + mainMarginEnd;
+    }
+    [[nodiscard]] float outerFinalCross() const noexcept {
+        return finalCross + crossMarginStart + crossMarginEnd;
+    }
+};
+
+using ItemAllocator = core::ArenaAllocator<FlexItem>;
+using FlexItemVector = std::vector<FlexItem, ItemAllocator>;
+
+struct FlexLine {
+    FlexItemVector items;
+    float crossSize{0.0f};
+    float crossPos{0.0f};
+
+    explicit FlexLine(core::Arena& arena) : items(ItemAllocator(arena)) {}
+};
+
+using LineAllocator = core::ArenaAllocator<FlexLine>;
+using FlexLineVector = std::vector<FlexLine, LineAllocator>;
+
+using NodePtrAllocator = core::ArenaAllocator<LayoutNode*>;
+using NodePtrVector = std::vector<LayoutNode*, NodePtrAllocator>;
+
 } // namespace
 
 void FlexSolver::solve(LayoutNode& root, float availableWidth, float availableHeight) {
-    solveNode(root, availableWidth, availableHeight);
+    if (s_solverDepth == 0) {
+        core::ScopedArena scoped(s_scratchArena);
+        DepthGuard guard(s_solverDepth);
+        solveNode(root, availableWidth, availableHeight, s_scratchArena);
+    } else {
+        DepthGuard guard(s_solverDepth);
+        solveNode(root, availableWidth, availableHeight, s_scratchArena);
+    }
 }
 
-void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availableHeight) {
+void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availableHeight,
+                           core::Arena& arena) {
     const Style& style = node.style();
     if (style.display == Display::None) {
         node.setLayoutRect(core::Rect{0.0f, 0.0f, 0.0f, 0.0f});
         return;
     }
 
-    // 1. Determine container size
+    // Determine container size
     float parentW = (availableWidth > 0.0f) ? availableWidth : 0.0f;
     float parentH = (availableHeight > 0.0f) ? availableHeight : 0.0f;
 
@@ -62,7 +126,7 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
         if (style.width.isPoints() || style.width.isPercent()) {
             containerW = clampDimension(style.width.resolve(parentW), minW, maxW);
             fixedW = true;
-        } else if (availableWidth > 0.0f) {
+        } else if (!node.hasMeasureFunc() && availableWidth > 0.0f) {
             containerW = clampDimension(availableWidth, minW, maxW);
             fixedW = true;
         }
@@ -70,9 +134,20 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
         if (style.height.isPoints() || style.height.isPercent()) {
             containerH = clampDimension(style.height.resolve(parentH), minH, maxH);
             fixedH = true;
-        } else if (availableHeight > 0.0f) {
+        } else if (!node.hasMeasureFunc() && availableHeight > 0.0f) {
             containerH = clampDimension(availableHeight, minH, maxH);
             fixedH = true;
+        }
+    }
+
+    if (style.aspectRatio.has_value() && *style.aspectRatio > 0.0f) {
+        float ratio = *style.aspectRatio;
+        if (fixedW && !fixedH) {
+            containerH = clampDimension(containerW / ratio, minH, maxH);
+            fixedH = true;
+        } else if (!fixedW && fixedH) {
+            containerW = clampDimension(containerH * ratio, minW, maxW);
+            fixedW = true;
         }
     }
 
@@ -85,6 +160,14 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
         }
         if (!fixedH) {
             containerH = clampDimension(measured.height, minH, maxH);
+        }
+        if (style.aspectRatio.has_value() && *style.aspectRatio > 0.0f) {
+            float ratio = *style.aspectRatio;
+            if (fixedW && !fixedH) {
+                containerH = clampDimension(containerW / ratio, minH, maxH);
+            } else if (!fixedW && fixedH) {
+                containerW = clampDimension(containerH * ratio, minW, maxW);
+            }
         }
         node.setLayoutRect(core::Rect{node.layoutRect().origin, {containerW, containerH}});
         return;
@@ -110,8 +193,8 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
     float crossGap = isRow ? style.rowGap : style.columnGap;
 
     // Collect in-flow and out-of-flow children
-    std::vector<FlexItem> items;
-    std::vector<LayoutNode*> absoluteChildren;
+    FlexItemVector items{ItemAllocator(arena)};
+    NodePtrVector absoluteChildren{NodePtrAllocator(arena)};
 
     for (LayoutNode* child : node.children()) {
         if (child->style().display == Display::None) {
@@ -155,12 +238,33 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
         } else if ((isRow && (cs.width.isPoints() || cs.width.isPercent())) ||
                    (!isRow && (cs.height.isPoints() || cs.height.isPercent()))) {
             item.baseMain = isRow ? cs.width.resolve(mainInner) : cs.height.resolve(mainInner);
+        } else if (cs.aspectRatio.has_value() && *cs.aspectRatio > 0.0f) {
+            float ratio = *cs.aspectRatio;
+            if (isRow && (cs.height.isPoints() || cs.height.isPercent())) {
+                float definiteCross = cs.height.resolve(crossInner);
+                item.baseMain = definiteCross * ratio;
+                item.finalCross = definiteCross;
+            } else if (!isRow && (cs.width.isPoints() || cs.width.isPercent())) {
+                float definiteCross = cs.width.resolve(crossInner);
+                item.baseMain = definiteCross / ratio;
+                item.finalCross = definiteCross;
+            } else if (child->hasMeasureFunc()) {
+                core::Size m = child->measure(isRow ? 0.0f : crossInner, isRow ? crossInner : 0.0f);
+                item.baseMain = isRow ? m.width : m.height;
+                item.finalCross = isRow ? m.height : m.width;
+            } else if (child->childCount() > 0) {
+                solveNode(*child, isRow ? 0.0f : crossInner, isRow ? crossInner : 0.0f, arena);
+                item.baseMain =
+                    isRow ? child->layoutRect().size.width : child->layoutRect().size.height;
+                item.finalCross =
+                    isRow ? child->layoutRect().size.height : child->layoutRect().size.width;
+            }
         } else if (child->hasMeasureFunc()) {
             core::Size m = child->measure(isRow ? 0.0f : crossInner, isRow ? crossInner : 0.0f);
             item.baseMain = isRow ? m.width : m.height;
             item.finalCross = isRow ? m.height : m.width;
         } else if (child->childCount() > 0) {
-            solveNode(*child, isRow ? 0.0f : crossInner, isRow ? crossInner : 0.0f);
+            solveNode(*child, isRow ? 0.0f : crossInner, isRow ? crossInner : 0.0f, arena);
             item.baseMain =
                 isRow ? child->layoutRect().size.width : child->layoutRect().size.height;
             item.finalCross =
@@ -174,10 +278,14 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
         if (isRow) {
             if (cs.height.isPoints() || cs.height.isPercent()) {
                 item.finalCross = cs.height.resolve(crossInner);
+            } else if (cs.aspectRatio.has_value() && *cs.aspectRatio > 0.0f) {
+                item.finalCross = item.baseMain / (*cs.aspectRatio);
             }
         } else {
             if (cs.width.isPoints() || cs.width.isPercent()) {
                 item.finalCross = cs.width.resolve(crossInner);
+            } else if (cs.aspectRatio.has_value() && *cs.aspectRatio > 0.0f) {
+                item.finalCross = item.baseMain * (*cs.aspectRatio);
             }
         }
         item.finalCross = clampDimension(item.finalCross, item.minCross, item.maxCross);
@@ -185,17 +293,16 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
         items.push_back(item);
     }
 
-    // 2. Break into flex lines (Wrap)
-    std::vector<FlexLine> lines;
+    // Break into flex lines (Wrap)
+    FlexLineVector lines{LineAllocator(arena)};
     if (items.empty()) {
-        FlexLine emptyLine;
-        lines.push_back(emptyLine);
+        lines.emplace_back(arena);
     } else if (style.flexWrap == FlexWrap::NoWrap) {
-        FlexLine line;
+        FlexLine line{arena};
         line.items = std::move(items);
         lines.push_back(std::move(line));
     } else {
-        FlexLine currentLine;
+        FlexLine currentLine{arena};
         float currentLineMain = 0.0f;
 
         for (auto& item : items) {
@@ -205,7 +312,7 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
 
             if (!currentLine.items.empty() && mainInner < 1e8f && spaceWithItem > mainInner) {
                 lines.push_back(std::move(currentLine));
-                currentLine = FlexLine{};
+                currentLine = FlexLine{arena};
                 currentLine.items.push_back(item);
                 currentLineMain = itemOuter;
             } else {
@@ -308,9 +415,20 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
             }
         }
 
-        // Measure children again if main size changed and they have measure callbacks
+        // Measure children again if main size changed and they have measure callbacks or aspect
+        // ratio
         for (auto& itm : line.items) {
-            if (itm.node->hasMeasureFunc()) {
+            const Style& cs = itm.node->style();
+            if (cs.aspectRatio.has_value() && *cs.aspectRatio > 0.0f) {
+                float ratio = *cs.aspectRatio;
+                if (isRow && !cs.height.isPoints() && !cs.height.isPercent()) {
+                    itm.finalCross =
+                        clampDimension(itm.finalMain / ratio, itm.minCross, itm.maxCross);
+                } else if (!isRow && !cs.width.isPoints() && !cs.width.isPercent()) {
+                    itm.finalCross =
+                        clampDimension(itm.finalMain * ratio, itm.minCross, itm.maxCross);
+                }
+            } else if (itm.node->hasMeasureFunc()) {
                 core::Size m = itm.node->measure(isRow ? itm.finalMain : crossInner,
                                                  isRow ? crossInner : itm.finalMain);
                 if (isRow && !itm.node->style().height.isPoints() &&
@@ -365,6 +483,27 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
             crossInner = innerH;
         } else {
             mainInner = innerH;
+        }
+    }
+
+    if (style.aspectRatio.has_value() && *style.aspectRatio > 0.0f) {
+        float ratio = *style.aspectRatio;
+        if (fixedW && !fixedH) {
+            containerH = clampDimension(containerW / ratio, minH, maxH);
+            innerH = std::max(0.0f, containerH - padTop - padBottom);
+            if (isRow) {
+                crossInner = innerH;
+            } else {
+                mainInner = innerH;
+            }
+        } else if (!fixedW && fixedH) {
+            containerW = clampDimension(containerH * ratio, minW, maxW);
+            innerW = std::max(0.0f, containerW - padLeft - padRight);
+            if (isRow) {
+                mainInner = innerW;
+            } else {
+                crossInner = innerW;
+            }
         }
     }
 
@@ -450,12 +589,15 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
                                   : toAlignSelf(style.alignItems);
 
             if (align == AlignSelf::Stretch) {
-                // If cross dimension not explicitly set, stretch to line cross size
+                // If cross dimension not explicitly set and no aspect ratio, stretch to line cross
+                // size
                 bool hasExplicitCross = isRow ? (itm.node->style().height.isPoints() ||
                                                  itm.node->style().height.isPercent())
                                               : (itm.node->style().width.isPoints() ||
                                                  itm.node->style().width.isPercent());
-                if (!hasExplicitCross) {
+                bool hasAspectRatio = itm.node->style().aspectRatio.has_value() &&
+                                      *itm.node->style().aspectRatio > 0.0f;
+                if (!hasExplicitCross && !hasAspectRatio) {
                     float stretched = line.crossSize - itm.crossMarginStart - itm.crossMarginEnd;
                     itm.finalCross = clampDimension(stretched, itm.minCross, itm.maxCross);
                 }
@@ -491,14 +633,14 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
             itm.node->setLayoutRect(childRect);
 
             // Recursively solve children of item
-            solveNode(*itm.node, w, h);
+            solveNode(*itm.node, w, h, arena);
         }
     }
 
     // 7. Position out-of-flow (Absolute) children
     for (auto* absChild : absoluteChildren) {
-        solveAbsoluteChild(node, *absChild, containerW, containerH, padLeft, padTop, innerW,
-                           innerH);
+        solveAbsoluteChild(node, *absChild, containerW, containerH, padLeft, padTop, innerW, innerH,
+                           arena);
     }
 
     node.setLayoutRect(core::Rect{node.layoutRect().origin, {containerW, containerH}});
@@ -506,7 +648,7 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
 
 void FlexSolver::solveAbsoluteChild(LayoutNode& parent, LayoutNode& child, float parentW,
                                     float parentH, float padLeft, float padTop, float innerW,
-                                    float innerH) {
+                                    float innerH, core::Arena& arena) {
     (void)parent;
     const Style& cs = child.style();
 
@@ -516,17 +658,32 @@ void FlexSolver::solveAbsoluteChild(LayoutNode& parent, LayoutNode& child, float
     float maxH = cs.maxHeight.resolve(innerH, 1e9f);
 
     float childW = 0.0f;
+    bool fixedChildW = false;
     if (cs.width.isPoints() || cs.width.isPercent()) {
         childW = clampDimension(cs.width.resolve(innerW), minW, maxW);
+        fixedChildW = true;
     } else if (child.hasMeasureFunc()) {
         childW = clampDimension(child.measure(innerW, innerH).width, minW, maxW);
+        fixedChildW = true;
     }
 
     float childH = 0.0f;
+    bool fixedChildH = false;
     if (cs.height.isPoints() || cs.height.isPercent()) {
         childH = clampDimension(cs.height.resolve(innerH), minH, maxH);
+        fixedChildH = true;
     } else if (child.hasMeasureFunc()) {
         childH = clampDimension(child.measure(innerW, innerH).height, minH, maxH);
+        fixedChildH = true;
+    }
+
+    if (cs.aspectRatio.has_value() && *cs.aspectRatio > 0.0f) {
+        float ratio = *cs.aspectRatio;
+        if (fixedChildW && !fixedChildH) {
+            childH = clampDimension(childW / ratio, minH, maxH);
+        } else if (!fixedChildW && fixedChildH) {
+            childW = clampDimension(childH * ratio, minW, maxW);
+        }
     }
 
     float x = padLeft;
@@ -544,7 +701,7 @@ void FlexSolver::solveAbsoluteChild(LayoutNode& parent, LayoutNode& child, float
     }
 
     child.setLayoutRect(core::Rect{{x, y}, {childW, childH}});
-    solveNode(child, childW, childH);
+    solveNode(child, childW, childH, arena);
 }
 
 } // namespace northern::layout

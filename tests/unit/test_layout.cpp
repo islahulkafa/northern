@@ -382,3 +382,145 @@ TEST(LayoutTest, WindowingExampleHierarchy) {
     EXPECT_GT(innerRect.size.width, 0.0f);
     EXPECT_GT(innerRect.size.height, 0.0f);
 }
+
+TEST(LayoutTest, AspectRatioWidthToHeight) {
+    LayoutNode root;
+    root.style().width = Length::points(300.0f);
+    root.style().height = Length::points(300.0f);
+    root.style().flexDirection = FlexDirection::Row;
+    root.style().alignItems = AlignItems::FlexStart;
+
+    auto child = std::make_unique<LayoutNode>();
+    child->style().width = Length::points(160.0f);
+    child->style().height = Length::autoLength();
+    child->style().aspectRatio = 16.0f / 9.0f;
+    root.addChild(std::move(child));
+
+    root.computeLayout(300.0f, 300.0f);
+
+    EXPECT_FLOAT_EQ(root.childAt(0)->layoutRect().size.width, 160.0f);
+    EXPECT_NEAR(root.childAt(0)->layoutRect().size.height, 90.0f, 0.001f);
+}
+
+TEST(LayoutTest, AspectRatioHeightToWidth) {
+    LayoutNode root;
+    root.style().width = Length::points(400.0f);
+    root.style().height = Length::points(200.0f);
+    root.style().flexDirection = FlexDirection::Row;
+    root.style().alignItems = AlignItems::FlexStart;
+
+    auto child = std::make_unique<LayoutNode>();
+    child->style().width = Length::autoLength();
+    child->style().height = Length::points(100.0f);
+    child->style().aspectRatio = 2.0f;
+    root.addChild(std::move(child));
+
+    root.computeLayout(400.0f, 200.0f);
+
+    EXPECT_FLOAT_EQ(root.childAt(0)->layoutRect().size.width, 200.0f);
+    EXPECT_FLOAT_EQ(root.childAt(0)->layoutRect().size.height, 100.0f);
+}
+
+TEST(LayoutTest, AspectRatioClampedByMinMax) {
+    LayoutNode root;
+    root.style().width = Length::points(400.0f);
+    root.style().height = Length::points(400.0f);
+    root.style().alignItems = AlignItems::FlexStart;
+
+    auto child = std::make_unique<LayoutNode>();
+    child->style().width = Length::points(200.0f);
+    child->style().height = Length::autoLength();
+    child->style().aspectRatio = 1.0f;
+    child->style().maxHeight = Length::points(120.0f);
+    root.addChild(std::move(child));
+
+    root.computeLayout(400.0f, 400.0f);
+
+    EXPECT_FLOAT_EQ(root.childAt(0)->layoutRect().size.width, 200.0f);
+    EXPECT_FLOAT_EQ(root.childAt(0)->layoutRect().size.height, 120.0f);
+}
+
+TEST(LayoutTest, SubtreeLayoutCaching) {
+    LayoutNode root;
+    root.style().width = Length::points(300.0f);
+    root.style().height = Length::points(200.0f);
+
+    auto child = std::make_unique<LayoutNode>();
+    child->style().width = Length::points(100.0f);
+    child->style().height = Length::points(50.0f);
+    LayoutNode* childPtr = root.addChild(std::move(child));
+
+    EXPECT_TRUE(root.isDirty());
+    root.computeLayout(300.0f, 200.0f);
+    EXPECT_FALSE(root.isDirty());
+    EXPECT_FLOAT_EQ(childPtr->layoutRect().size.width, 100.0f);
+
+    // Call computeLayout again with identical bounds: cache hit short-circuits
+    root.computeLayout(300.0f, 200.0f);
+    EXPECT_FALSE(root.isDirty());
+
+    // Modifying child style invalidates root dirty bit
+    childPtr->style().width = Length::points(150.0f);
+    childPtr->markDirty();
+    EXPECT_TRUE(root.isDirty());
+
+    root.computeLayout(300.0f, 200.0f);
+    EXPECT_FALSE(root.isDirty());
+    EXPECT_FLOAT_EQ(childPtr->layoutRect().size.width, 150.0f);
+}
+
+TEST(LayoutTest, MeasureFunctionCaching) {
+    LayoutNode node;
+    int measureCount = 0;
+    node.setMeasureFunc([&measureCount](const LayoutNode&, float, float) {
+        ++measureCount;
+        return core::Size{80.0f, 24.0f};
+    });
+
+    EXPECT_EQ(measureCount, 0);
+
+    core::Size s1 = node.measure(100.0f, 50.0f);
+    EXPECT_EQ(measureCount, 1);
+    EXPECT_FLOAT_EQ(s1.width, 80.0f);
+    EXPECT_FLOAT_EQ(s1.height, 24.0f);
+
+    // Identical arguments hit cache
+    core::Size s2 = node.measure(100.0f, 50.0f);
+    EXPECT_EQ(measureCount, 1);
+    EXPECT_FLOAT_EQ(s2.width, 80.0f);
+
+    // Different arguments invoke callback
+    core::Size s3 = node.measure(200.0f, 50.0f);
+    EXPECT_EQ(measureCount, 2);
+
+    // Prior arguments hit MRU cache
+    core::Size s4 = node.measure(100.0f, 50.0f);
+    EXPECT_EQ(measureCount, 2);
+
+    // markDirty invalidates cache
+    node.markDirty();
+    core::Size s5 = node.measure(100.0f, 50.0f);
+    EXPECT_EQ(measureCount, 3);
+}
+
+TEST(LayoutTest, ScratchArenaStability) {
+    LayoutNode root;
+    root.style().width = Length::points(600.0f);
+    root.style().height = Length::points(400.0f);
+    root.style().flexWrap = FlexWrap::Wrap;
+
+    for (int i = 0; i < 20; ++i) {
+        auto child = std::make_unique<LayoutNode>();
+        child->style().width = Length::points(50.0f);
+        child->style().height = Length::points(30.0f);
+        root.addChild(std::move(child));
+    }
+
+    for (int cycle = 0; cycle < 500; ++cycle) {
+        root.markDirty();
+        root.computeLayout(600.0f, 400.0f);
+    }
+
+    EXPECT_FLOAT_EQ(root.childAt(0)->layoutRect().size.width, 50.0f);
+    EXPECT_FLOAT_EQ(root.childAt(19)->layoutRect().size.width, 50.0f);
+}

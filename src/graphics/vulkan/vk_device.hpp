@@ -9,6 +9,7 @@
 #include "graphics/vulkan/vk_common.hpp"
 #include "graphics/vulkan/vk_mem_alloc.hpp"
 #include "graphics/vulkan/vk_pipeline.hpp"
+#include "graphics/vulkan/vk_staging_pool.hpp"
 #include "graphics/vulkan/vk_swapchain.hpp"
 #include "graphics/vulkan/vk_texture.hpp"
 #include <memory>
@@ -92,6 +93,7 @@ private:
     core::Result<void, core::Error> createCommandPool();
     core::Result<void, core::Error> createDescriptorPool();
     core::Result<void, core::Error> createTimelineSemaphore();
+    core::Result<void, core::Error> createPipelineCache();
 
     void retireResources();
 
@@ -115,6 +117,7 @@ private:
 
     struct RetiredResource {
         uint64_t timelineValue{0};
+        VkCommandBuffer cmdBuffer{VK_NULL_HANDLE};
         std::unique_ptr<VulkanBuffer> buffer;
         std::unique_ptr<VulkanTexture> texture;
         std::unique_ptr<VulkanPipeline> pipeline;
@@ -123,6 +126,8 @@ private:
 
     VkSemaphore timelineSemaphore_{VK_NULL_HANDLE};
     uint64_t currentTimelineValue_{0};
+    VkPipelineCache pipelineCache_{VK_NULL_HANDLE};
+    std::unique_ptr<VulkanStagingPool> stagingPool_{nullptr};
 };
 
 } // namespace northern::graphics

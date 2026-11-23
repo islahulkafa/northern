@@ -42,22 +42,22 @@ Northern establishes depth through a 4-tier surface elevation ramp in neutral op
 
 ### Dark Mode Surface Ramp
 
-| Elevation Tier | Token Name | Hex Value | Hairline Border | Usage Context |
-| :--- | :--- | :--- | :--- | :--- |
-| **0 - Canvas** | `SurfaceCanvas` | `#09090B` | None | Window backdrop, empty workspace background |
-| **1 - Base** | `SurfaceBase` | `#121215` | None | Primary application window body, main content panels |
-| **2 - Surface** | `SurfaceDefault` | `#18181B` | `rgba(255, 255, 255, 0.08)` | Sidebars, toolbars, property inspectors, cards |
-| **3 - Raised** | `SurfaceRaised` | `#27272A` | `rgba(255, 255, 255, 0.12)` | Push buttons, input fields, dropdown triggers, active items |
-| **4 - Overlay** | `SurfaceOverlay` | `#323238` | `rgba(255, 255, 255, 0.16)` | Menus, popovers, context flyouts, modal dialogs, tooltips |
+| Elevation Tier  | Token Name       | Hex Value | Hairline Border             | Usage Context                                               |
+| :-------------- | :--------------- | :-------- | :-------------------------- | :---------------------------------------------------------- |
+| **0 - Canvas**  | `SurfaceCanvas`  | `#09090B` | None                        | Window backdrop, empty workspace background                 |
+| **1 - Base**    | `SurfaceBase`    | `#121215` | None                        | Primary application window body, main content panels        |
+| **2 - Surface** | `SurfaceDefault` | `#18181B` | `rgba(255, 255, 255, 0.08)` | Sidebars, toolbars, property inspectors, cards              |
+| **3 - Raised**  | `SurfaceRaised`  | `#27272A` | `rgba(255, 255, 255, 0.12)` | Push buttons, input fields, dropdown triggers, active items |
+| **4 - Overlay** | `SurfaceOverlay` | `#323238` | `rgba(255, 255, 255, 0.16)` | Menus, popovers, context flyouts, modal dialogs, tooltips   |
 
 ### Light Mode Surface Ramp
 
-| Elevation Tier | Token Name | Hex Value | Hairline Border | Usage Context |
-| :--- | :--- | :--- | :--- | :--- |
-| **0 - Canvas** | `SurfaceCanvas` | `#F4F4F5` | None | Desktop workspace backdrop |
-| **1 - Base** | `SurfaceBase` | `#FAFAFA` | None | Application window body |
-| **2 - Surface** | `SurfaceDefault` | `#FFFFFF` | `rgba(0, 0, 0, 0.08)` | Sidebars, toolbars, content cards |
-| **3 - Raised** | `SurfaceRaised` | `#F4F4F5` | `rgba(0, 0, 0, 0.12)` | Push buttons, input fields, control wells |
+| Elevation Tier  | Token Name       | Hex Value | Hairline Border       | Usage Context                             |
+| :-------------- | :--------------- | :-------- | :-------------------- | :---------------------------------------- |
+| **0 - Canvas**  | `SurfaceCanvas`  | `#F4F4F5` | None                  | Desktop workspace backdrop                |
+| **1 - Base**    | `SurfaceBase`    | `#FAFAFA` | None                  | Application window body                   |
+| **2 - Surface** | `SurfaceDefault` | `#FFFFFF` | `rgba(0, 0, 0, 0.08)` | Sidebars, toolbars, content cards         |
+| **3 - Raised**  | `SurfaceRaised`  | `#F4F4F5` | `rgba(0, 0, 0, 0.12)` | Push buttons, input fields, control wells |
 | **4 - Overlay** | `SurfaceOverlay` | `#FFFFFF` | `rgba(0, 0, 0, 0.14)` | Menus, context flyouts, dialogs, tooltips |
 
 > [!NOTE]
@@ -101,21 +101,21 @@ flowchart TD
 
 Semantic colors must strictly satisfy WCAG 2.2 AA contrast requirements (minimum 4.5:1 for normal text, 3:1 for UI borders and graphical objects).
 
-| Role | Dark Mode Hex | Light Mode Hex | Purpose |
-| :--- | :--- | :--- | :--- |
-| **Success** | `#22C55E` | `#16A34A` | Successful operations, active connections, valid input check |
-| **Warning** | `#F59E0B` | `#D97706` | Non-fatal warnings, caution banners, dirty unsaved changes |
-| **Danger / Error** | `#EF4444` | `#DC2626` | Destructive actions, validation errors, crash diagnostics |
-| **Info** | `#3B82F6` | `#2563EB` | Informational callouts, neutral indicators |
+| Role               | Dark Mode Hex | Light Mode Hex | Purpose                                                      |
+| :----------------- | :------------ | :------------- | :----------------------------------------------------------- |
+| **Success**        | `#22C55E`     | `#16A34A`      | Successful operations, active connections, valid input check |
+| **Warning**        | `#F59E0B`     | `#D97706`      | Non-fatal warnings, caution banners, dirty unsaved changes   |
+| **Danger / Error** | `#EF4444`     | `#DC2626`      | Destructive actions, validation errors, crash diagnostics    |
+| **Info**           | `#3B82F6`     | `#2563EB`      | Informational callouts, neutral indicators                   |
 
 ### Text Color Hierarchy
 
-| Token Name | Dark Mode | Light Mode | Contrast Ratio | Usage |
-| :--- | :--- | :--- | :--- | :--- |
-| `TextPrimary` | `#FAFAFA` (98% L) | `#09090B` (4% L) | > 14:1 | Headings, primary body labels, active control text |
-| `TextSecondary` | `#A1A1AA` (65% L) | `#52525B` (35% L) | > 5.5:1 | Secondary labels, descriptions, table headers |
-| `TextTertiary` | `#71717A` (48% L) | `#71717A` (48% L) | > 4.5:1 | Placeholders, hotkey badges, metadata, hints |
-| `TextDisabled` | `#52525B` (35% L) | `#A1A1AA` (65% L) | > 2.5:1 | Disabled controls and inactive state text |
+| Token Name      | Dark Mode         | Light Mode        | Contrast Ratio | Usage                                              |
+| :-------------- | :---------------- | :---------------- | :------------- | :------------------------------------------------- |
+| `TextPrimary`   | `#FAFAFA` (98% L) | `#09090B` (4% L)  | > 14:1         | Headings, primary body labels, active control text |
+| `TextSecondary` | `#A1A1AA` (65% L) | `#52525B` (35% L) | > 5.5:1        | Secondary labels, descriptions, table headers      |
+| `TextTertiary`  | `#71717A` (48% L) | `#71717A` (48% L) | > 4.5:1        | Placeholders, hotkey badges, metadata, hints       |
+| `TextDisabled`  | `#52525B` (35% L) | `#A1A1AA` (65% L) | > 2.5:1        | Disabled controls and inactive state text          |
 
 ---
 
@@ -132,15 +132,15 @@ Northern leverages native operating system font rasterization and typography met
 
 ### Type Scale Matrix
 
-| Role | Font Size (pt) | Line Height (px) | Weight | Letter Spacing | Target Usage |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Display** | 24 | 32 | SemiBold (600) | -0.02em | Hero headers, empty state titles |
-| **Title** | 18 | 24 | SemiBold (600) | -0.015em | Window header, section titles, dialog headers |
-| **Subtitle** | 15 | 20 | Medium (500) | -0.01em | Group headings, sidebar section labels |
-| **Body (Default)** | 14 | 20 | Regular (400) | 0.0em | Standard control labels, input text, body paragraphs |
-| **Body Strong** | 14 | 20 | SemiBold (600) | 0.0em | Emphasized list items, active menu items |
-| **Caption / Compact** | 12 | 16 | Regular (400) | +0.01em | Tooltips, status bar items, badge counters, timestamps |
-| **Monospace** | 13 | 18 | Regular (400) | 0.0em | Code snippets, hex readouts, debug metrics |
+| Role                  | Font Size (pt) | Line Height (px) | Weight         | Letter Spacing | Target Usage                                           |
+| :-------------------- | :------------- | :--------------- | :------------- | :------------- | :----------------------------------------------------- |
+| **Display**           | 24             | 32               | SemiBold (600) | -0.02em        | Hero headers, empty state titles                       |
+| **Title**             | 18             | 24               | SemiBold (600) | -0.015em       | Window header, section titles, dialog headers          |
+| **Subtitle**          | 15             | 20               | Medium (500)   | -0.01em        | Group headings, sidebar section labels                 |
+| **Body (Default)**    | 14             | 20               | Regular (400)  | 0.0em          | Standard control labels, input text, body paragraphs   |
+| **Body Strong**       | 14             | 20               | SemiBold (600) | 0.0em          | Emphasized list items, active menu items               |
+| **Caption / Compact** | 12             | 16               | Regular (400)  | +0.01em        | Tooltips, status bar items, badge counters, timestamps |
+| **Monospace**         | 13             | 18               | Regular (400)  | 0.0em          | Code snippets, hex readouts, debug metrics             |
 
 ---
 
@@ -152,15 +152,15 @@ Northern employs a strict 4px geometric grid. All control dimensions, paddings, 
 
 Desktop workflows vary between high-density technical workspaces (e.g., debuggers, editors) and comfortable utility applications. Northern specifies three standard density tiers:
 
-| Metric | Compact Tier (Data/Tooling) | Standard Tier (Default Desktop) | Comfortable Tier (Touch/Spacious) |
-| :--- | :--- | :--- | :--- |
-| **Control Row Height** | 28px | 32px | 36px |
-| **Body Font Size** | 12pt | 14pt | 14pt |
-| **Horizontal Control Padding** | 8px | 12px | 16px |
-| **Vertical Control Padding** | 4px | 6px | 8px |
-| **Control Corner Radius** | 4px | 6px | 6px |
-| **Container Padding** | 8px | 12px | 16px |
-| **Item Row Gap** | 4px | 8px | 12px |
+| Metric                         | Compact Tier (Data/Tooling) | Standard Tier (Default Desktop) | Comfortable Tier (Touch/Spacious) |
+| :----------------------------- | :-------------------------- | :------------------------------ | :-------------------------------- |
+| **Control Row Height**         | 28px                        | 32px                            | 36px                              |
+| **Body Font Size**             | 12pt                        | 14pt                            | 14pt                              |
+| **Horizontal Control Padding** | 8px                         | 12px                            | 16px                              |
+| **Vertical Control Padding**   | 4px                         | 6px                             | 8px                               |
+| **Control Corner Radius**      | 4px                         | 6px                             | 6px                               |
+| **Container Padding**          | 8px                         | 12px                            | 16px                              |
+| **Item Row Gap**               | 4px                         | 8px                             | 12px                              |
 
 ### Corner Radius Standards
 
@@ -285,7 +285,7 @@ Desktop applications must be 100% operable via keyboard without reliance on a po
 
 ## 9. C++ implementation tokens reference
 
-The design language tokens map directly into Northern's C++ types in [color.hpp](../src/core/math/color.hpp), [style.hpp](../src/layout/style.hpp), and [theme.hpp](../src/widgets/theme.hpp).
+The design language tokens map directly into Northern's C++ types in [color.hpp](../src/core/math/color.hpp), [style.hpp](../src/layout/style.hpp), and [theme.hpp](../src/widgets/base/theme.hpp).
 
 ```cpp
 namespace northern::theme {

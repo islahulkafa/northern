@@ -24,6 +24,22 @@ core::Result<std::unique_ptr<Window>, core::Error> Window::create(const WindowDe
     return window;
 }
 
+core::Point Window::position() const noexcept {
+    return impl_ ? impl_->position() : core::Point{0.0f, 0.0f};
+}
+
+void Window::setPosition(core::Point logicalPos) {
+    if (impl_) {
+        impl_->setPosition(logicalPos);
+    }
+}
+
+void Window::centerOnScreen(std::optional<Display> display) {
+    if (impl_) {
+        impl_->centerOnScreen(display);
+    }
+}
+
 core::Size Window::size() const noexcept {
     return impl_ ? impl_->size() : core::Size{0.0f, 0.0f};
 }
@@ -141,6 +157,22 @@ void Window::restore() {
 void Window::toggleMaximize() {
     if (impl_) {
         impl_->toggleMaximize();
+    }
+}
+
+bool Window::isFullscreen() const noexcept {
+    return impl_ ? impl_->isFullscreen() : false;
+}
+
+void Window::setFullscreen(bool fullscreen) {
+    if (impl_) {
+        impl_->setFullscreen(fullscreen);
+    }
+}
+
+void Window::toggleFullscreen() {
+    if (impl_) {
+        impl_->toggleFullscreen();
     }
 }
 

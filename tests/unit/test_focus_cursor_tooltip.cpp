@@ -1,12 +1,12 @@
-#include "widgets/button.hpp"
-#include "widgets/checkbox.hpp"
-#include "widgets/container.hpp"
-#include "widgets/radio_button.hpp"
-#include "widgets/radio_group.hpp"
-#include "widgets/slider.hpp"
-#include "widgets/text_input.hpp"
-#include "widgets/tooltip.hpp"
-#include "widgets/widget_context.hpp"
+#include "widgets/controls/button.hpp"
+#include "widgets/controls/checkbox.hpp"
+#include "widgets/containers/container.hpp"
+#include "widgets/controls/radio_button.hpp"
+#include "widgets/controls/radio_group.hpp"
+#include "widgets/controls/slider.hpp"
+#include "widgets/controls/text_input.hpp"
+#include "widgets/controls/tooltip.hpp"
+#include "widgets/base/widget_context.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;

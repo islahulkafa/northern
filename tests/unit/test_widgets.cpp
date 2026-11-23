@@ -1,16 +1,17 @@
 #include "platform/clipboard.hpp"
+#include "renderer/svg/svg_document.hpp"
 #include "text/font_manager.hpp"
 #include "text/text_shaper.hpp"
-#include "widgets/button.hpp"
-#include "widgets/checkbox.hpp"
-#include "widgets/container.hpp"
-#include "widgets/label.hpp"
-#include "widgets/scroll_view.hpp"
-#include "widgets/slider.hpp"
-#include "widgets/text_input.hpp"
-#include "widgets/theme.hpp"
-#include "widgets/widget.hpp"
-#include "widgets/widget_context.hpp"
+#include "widgets/controls/button.hpp"
+#include "widgets/controls/checkbox.hpp"
+#include "widgets/containers/container.hpp"
+#include "widgets/controls/label.hpp"
+#include "widgets/containers/scroll_view.hpp"
+#include "widgets/controls/slider.hpp"
+#include "widgets/controls/text_input.hpp"
+#include "widgets/base/theme.hpp"
+#include "widgets/base/widget.hpp"
+#include "widgets/base/widget_context.hpp"
 
 #include <gtest/gtest.h>
 
@@ -520,6 +521,372 @@ TEST(WidgetTest, ButtonVariantsAndThemeTokens) {
     EXPECT_TRUE(btn.hasFocus());
     btn.paint(pctx);
     EXPECT_FALSE(pctx.commands().empty());
+}
+
+TEST(WidgetTest, RetainedDisplayListCachesCommands) {
+    WidgetContext ctx;
+    auto root = std::make_unique<Container>();
+    root->setBackgroundColor(core::Color{0.1f, 0.1f, 0.1f, 1.0f});
+    root->layoutNode().setLayoutRect({{0.0f, 0.0f}, {200.0f, 200.0f}});
+    auto label = std::make_unique<Label>("Hello Northern");
+    label->layoutNode().setLayoutRect({{0.0f, 0.0f}, {50.0f, 20.0f}});
+    root->addChild(std::move(label));
+    ctx.setRootWidget(std::move(root));
+
+    EXPECT_TRUE(ctx.isPaintDirty());
+
+    renderer::PaintContext p1;
+    ctx.render(p1, {200.0f, 200.0f});
+    EXPECT_FALSE(ctx.isPaintDirty());
+    EXPECT_FALSE(p1.commands().empty());
+
+    renderer::PaintContext p2;
+    ctx.render(p2, {200.0f, 200.0f});
+    EXPECT_EQ(p1.commands().size(), p2.commands().size());
+}
+
+TEST(WidgetBaseTest, CachedScreenRectCalculations) {
+    WidgetContext ctx;
+    auto root = std::make_unique<Container>();
+    root->layoutNode().setLayoutRect({{10.0f, 10.0f}, {400.0f, 300.0f}});
+
+    auto child = std::make_unique<Container>();
+    child->layoutNode().setLayoutRect({{20.0f, 30.0f}, {200.0f, 150.0f}});
+
+    auto subchild = std::make_unique<Container>();
+    subchild->layoutNode().setLayoutRect({{5.0f, 5.0f}, {50.0f, 50.0f}});
+
+    Container* subPtr = child->addChild(std::move(subchild));
+    Container* childPtr = root->addChild(std::move(child));
+    Container* rootPtr = root.get();
+    ctx.setRootWidget(std::move(root));
+
+    // Initial cached resolution
+    EXPECT_EQ(rootPtr->screenRect(), (core::Rect{{10.0f, 10.0f}, {400.0f, 300.0f}}));
+    EXPECT_EQ(childPtr->screenRect(), (core::Rect{{30.0f, 40.0f}, {200.0f, 150.0f}}));
+    EXPECT_EQ(subPtr->screenRect(), (core::Rect{{35.0f, 45.0f}, {50.0f, 50.0f}}));
+
+    // Modifying root layout and marking dirty should cascade down
+    rootPtr->layoutNode().setLayoutRect({{50.0f, 60.0f}, {400.0f, 300.0f}});
+    rootPtr->markLayoutDirty();
+
+    EXPECT_EQ(rootPtr->screenRect(), (core::Rect{{50.0f, 60.0f}, {400.0f, 300.0f}}));
+    EXPECT_EQ(childPtr->screenRect(), (core::Rect{{70.0f, 90.0f}, {200.0f, 150.0f}}));
+    EXPECT_EQ(subPtr->screenRect(), (core::Rect{{75.0f, 95.0f}, {50.0f, 50.0f}}));
+
+    // Test with ScrollView scrolling
+    auto scrollRoot = std::make_unique<ScrollView>();
+    scrollRoot->layoutNode().setLayoutRect({{0.0f, 0.0f}, {300.0f, 200.0f}});
+    auto scrollChild = std::make_unique<Container>();
+    scrollChild->layoutNode().setLayoutRect({{10.0f, 20.0f}, {100.0f, 500.0f}});
+    Container* scChildPtr = scrollRoot->addChild(std::move(scrollChild));
+    ScrollView* scRootPtr = scrollRoot.get();
+
+    WidgetContext scrollCtx;
+    scrollCtx.setRootWidget(std::move(scrollRoot));
+
+    EXPECT_EQ(scChildPtr->screenRect(), (core::Rect{{10.0f, 20.0f}, {100.0f, 500.0f}}));
+    scRootPtr->scrollTo({0.0f, 50.0f});
+    EXPECT_EQ(scChildPtr->screenRect(), (core::Rect{{10.0f, -30.0f}, {100.0f, 500.0f}}));
+}
+
+TEST(WidgetBaseTest, DynamicThemeSwitching) {
+    EXPECT_EQ(theme::ColorPalette::dark().mode, theme::ThemeMode::Dark);
+    EXPECT_EQ(theme::ColorPalette::light().mode, theme::ThemeMode::Light);
+
+    EXPECT_EQ(theme::ColorPalette::dark().surfaceCanvas, theme::ColorTokens::SurfaceCanvas);
+    EXPECT_EQ(theme::ColorPalette::dark().accentDefault, theme::ColorTokens::AccentDefault);
+
+    EXPECT_EQ(theme::ColorPalette::light().surfaceCanvas, (core::Color{0.957f, 0.957f, 0.961f, 1.0f}));
+    EXPECT_EQ(theme::ColorPalette::light().textPrimary, (core::Color{0.035f, 0.035f, 0.043f, 1.0f}));
+
+    WidgetContext ctx;
+    EXPECT_EQ(ctx.theme().mode(), theme::ThemeMode::Dark);
+
+    auto root = std::make_unique<Container>();
+    Container* rootPtr = root.get();
+    ctx.setRootWidget(std::move(root));
+
+    EXPECT_EQ(rootPtr->theme().mode(), theme::ThemeMode::Dark);
+    EXPECT_EQ(rootPtr->colorPalette().surfaceCanvas, theme::ColorTokens::SurfaceCanvas);
+
+    int themeChangedEmissions = 0;
+    ctx.onThemeChanged.connect([&](const theme::Theme& t) {
+        themeChangedEmissions++;
+        EXPECT_EQ(t.mode(), theme::ThemeMode::Light);
+    });
+
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_EQ(themeChangedEmissions, 1);
+    EXPECT_EQ(ctx.theme().mode(), theme::ThemeMode::Light);
+    EXPECT_EQ(rootPtr->theme().mode(), theme::ThemeMode::Light);
+    EXPECT_EQ(rootPtr->colorPalette().surfaceCanvas, (core::Color{0.957f, 0.957f, 0.961f, 1.0f}));
+    EXPECT_TRUE(ctx.isPaintDirty());
+}
+
+class DropTestWidget : public Widget {
+public:
+    bool acceptDrop{true};
+    int dropCount{0};
+    core::Point lastLocalPos{};
+    core::Point lastScreenPos{};
+    std::vector<std::string> lastPaths{};
+
+    void onFileDrop(WidgetFileDropEvent& ev) override {
+        dropCount++;
+        lastLocalPos = ev.position();
+        lastScreenPos = ev.screenPosition();
+        lastPaths = ev.paths();
+        if (acceptDrop) {
+            ev.accept();
+        }
+    }
+};
+
+TEST(WidgetBaseTest, FileDropEventBubbling) {
+    WidgetContext ctx;
+    auto root = std::make_unique<DropTestWidget>();
+    root->layoutNode().setLayoutRect({{0.0f, 0.0f}, {500.0f, 500.0f}});
+    root->acceptDrop = true;
+
+    auto child = std::make_unique<DropTestWidget>();
+    child->layoutNode().setLayoutRect({{100.0f, 100.0f}, {200.0f, 200.0f}});
+    child->acceptDrop = true;
+
+    DropTestWidget* childPtr = child.get();
+    DropTestWidget* rootPtr = root.get();
+    root->addChild(std::move(child));
+    ctx.setRootWidget(std::move(root));
+
+    // 1. Drop directly on child with acceptance
+    platform::FileDropEvent ev1{
+        .paths = {"C:/doc.txt", "C:/img.png"},
+        .position = {150.0f, 160.0f},
+    };
+    ctx.handleFileDrop(ev1);
+
+    EXPECT_EQ(childPtr->dropCount, 1);
+    EXPECT_EQ(childPtr->lastLocalPos, (core::Point{50.0f, 60.0f}));
+    EXPECT_EQ(childPtr->lastScreenPos, (core::Point{150.0f, 160.0f}));
+    EXPECT_EQ(childPtr->lastPaths.size(), 2u);
+    EXPECT_EQ(rootPtr->dropCount, 0); // Not bubbled because child accepted
+
+    // 2. Child rejects drop -> bubbles to parent
+    childPtr->acceptDrop = false;
+    platform::FileDropEvent ev2{
+        .paths = {"C:/data.json"},
+        .position = {120.0f, 130.0f},
+    };
+    ctx.handleFileDrop(ev2);
+
+    EXPECT_EQ(childPtr->dropCount, 2);
+    EXPECT_EQ(rootPtr->dropCount, 1);
+    EXPECT_EQ(rootPtr->lastLocalPos, (core::Point{120.0f, 130.0f}));
+    EXPECT_EQ(rootPtr->lastPaths.size(), 1u);
+}
+
+TEST(WidgetBaseTest, DeferredDeletionLinearScale) {
+    WidgetContext ctx;
+    auto root = std::make_unique<Container>();
+    Container* rootPtr = root.get();
+    ctx.setRootWidget(std::move(root));
+
+    int destroyedCount = 0;
+    constexpr int kCount = 100;
+    for (int i = 0; i < kCount; ++i) {
+        auto w = std::make_unique<DestructionTrackingWidget>(&destroyedCount);
+        auto* ptr = rootPtr->addChild(std::move(w));
+        ptr->deleteLater();
+        EXPECT_TRUE(ptr->isPendingDelete());
+    }
+
+    EXPECT_EQ(rootPtr->childCount(), static_cast<size_t>(kCount));
+    ctx.flushDeletedWidgets();
+    EXPECT_EQ(rootPtr->childCount(), 0u);
+    EXPECT_EQ(destroyedCount, kCount);
+}
+
+TEST(ButtonTest, ButtonSizeMetrics) {
+    Button btnCompact("Save", nullptr, ButtonVariant::Secondary, ButtonSize::Compact);
+    EXPECT_EQ(btnCompact.size(), ButtonSize::Compact);
+    EXPECT_FLOAT_EQ(btnCompact.style().height.value, theme::Metrics::ControlHeightCompact);
+    EXPECT_FLOAT_EQ(btnCompact.iconSize(), 14.0f);
+
+    Button btnStandard("Save", nullptr, ButtonVariant::Secondary, ButtonSize::Standard);
+    EXPECT_EQ(btnStandard.size(), ButtonSize::Standard);
+    EXPECT_FLOAT_EQ(btnStandard.style().height.value, theme::Metrics::ControlHeightStandard);
+    EXPECT_FLOAT_EQ(btnStandard.iconSize(), 16.0f);
+
+    Button btnComfortable("Save", nullptr, ButtonVariant::Secondary, ButtonSize::Comfortable);
+    EXPECT_EQ(btnComfortable.size(), ButtonSize::Comfortable);
+    EXPECT_FLOAT_EQ(btnComfortable.style().height.value, theme::Metrics::ControlHeightComfortable);
+    EXPECT_FLOAT_EQ(btnComfortable.iconSize(), 18.0f);
+
+    // Dynamic setSize
+    btnCompact.setSize(ButtonSize::Comfortable);
+    EXPECT_EQ(btnCompact.size(), ButtonSize::Comfortable);
+    EXPECT_FLOAT_EQ(btnCompact.style().height.value, theme::Metrics::ControlHeightComfortable);
+    EXPECT_FLOAT_EQ(btnCompact.iconSize(), 18.0f);
+}
+
+TEST(ButtonTest, TextLayoutMemoization) {
+    Button btn("Submit", nullptr, ButtonVariant::Primary);
+    btn.style().width = layout::Length::points(120.0f);
+    btn.style().height = layout::Length::points(32.0f);
+    btn.layoutNode().computeLayout(120.0f, 32.0f);
+
+    renderer::PaintContext ctx1;
+    btn.paint(ctx1);
+
+    // Second paint reuses memoized layout without crash or reallocation
+    renderer::PaintContext ctx2;
+    btn.paint(ctx2);
+    EXPECT_EQ(ctx1.commands().size(), ctx2.commands().size());
+
+    // Modifying text triggers layout invalidation
+    btn.setText("Submit Form");
+    EXPECT_TRUE(btn.isLayoutDirty());
+}
+
+TEST(ButtonTest, VectorIconPlacement) {
+    auto svgRes = renderer::SvgDocument::fromString(
+        "<svg viewBox='0 0 24 24'><rect x='2' y='2' width='20' height='20'/></svg>");
+    ASSERT_TRUE(svgRes.isOk());
+    auto svgDoc = svgRes.value();
+
+    // 1. Icon + Text (Leading)
+    Button btnLeading("Open", nullptr, ButtonVariant::Secondary);
+    btnLeading.setIcon(svgDoc, IconPlacement::Leading, 16.0f);
+    EXPECT_EQ(btnLeading.icon(), svgDoc);
+    EXPECT_EQ(btnLeading.iconPlacement(), IconPlacement::Leading);
+    EXPECT_FLOAT_EQ(btnLeading.iconSize(), 16.0f);
+
+    // 2. Icon + Text (Trailing)
+    btnLeading.setIcon(svgDoc, IconPlacement::Trailing, 16.0f);
+    EXPECT_EQ(btnLeading.iconPlacement(), IconPlacement::Trailing);
+
+    // 3. Icon-only mode
+    Button btnIconOnly("", nullptr, ButtonVariant::Ghost);
+    btnIconOnly.setIcon(svgDoc, IconPlacement::Leading, 16.0f);
+    btnIconOnly.setSize(ButtonSize::Standard);
+    core::Size measured = btnIconOnly.layoutNode().measure(100.0f, 100.0f);
+    // In icon-only mode with auto width, intrinsic measurement resolves to square (32x32)
+    EXPECT_FLOAT_EQ(measured.width, theme::Metrics::ControlHeightStandard);
+    EXPECT_FLOAT_EQ(measured.height, theme::Metrics::ControlHeightStandard);
+
+    btnIconOnly.layoutNode().computeLayout(32.0f, 32.0f);
+    renderer::PaintContext pctx;
+    btnIconOnly.paint(pctx);
+    EXPECT_FALSE(pctx.commands().empty());
+}
+
+TEST(ButtonTest, DynamicThemeSwitching) {
+    WidgetContext ctx;
+    auto btn = std::make_unique<Button>("Click Me", nullptr, ButtonVariant::Secondary);
+    Button* btnPtr = btn.get();
+    ctx.setRootWidget(std::move(btn));
+
+    // Initially dark theme
+    EXPECT_EQ(ctx.theme().mode(), theme::ThemeMode::Dark);
+    EXPECT_EQ(btnPtr->effectiveIdleBackgroundColor(), theme::ColorPalette::dark().surfaceRaised);
+    EXPECT_EQ(btnPtr->effectiveIdleTextColor(), theme::ColorPalette::dark().textPrimary);
+
+    // Switch context theme to light
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_EQ(btnPtr->effectiveIdleBackgroundColor(), theme::ColorPalette::light().surfaceRaised);
+    EXPECT_EQ(btnPtr->effectiveIdleTextColor(), theme::ColorPalette::light().textPrimary);
+
+    // Manual custom color override
+    btnPtr->setIdleBackgroundColor(core::Color::red());
+    EXPECT_EQ(btnPtr->effectiveIdleBackgroundColor(), core::Color::red());
+
+    // Switch back to dark theme: custom override is preserved
+    ctx.setTheme(theme::Theme::dark());
+    EXPECT_EQ(btnPtr->effectiveIdleBackgroundColor(), core::Color::red());
+}
+
+TEST(ButtonTest, DisabledState) {
+    Button btn("Action", nullptr, ButtonVariant::Primary);
+    EXPECT_EQ(btn.state(), ButtonState::Idle);
+
+    btn.setEnabled(false);
+    EXPECT_EQ(btn.state(), ButtonState::Disabled);
+
+    int clicks = 0;
+    btn.onClicked.connect([&] { clicks++; });
+
+    // Pointer events are ignored when disabled
+    WidgetMouseEvent me{core::Point{10.0f, 10.0f}, platform::MouseButton::Left,
+                        platform::KeyModifier::None};
+    btn.onMouseDown(me);
+    btn.onMouseUp(me);
+    EXPECT_EQ(clicks, 0);
+
+    // Keyboard events are ignored when disabled
+    WidgetKeyEvent ke{platform::Key::Enter, true, platform::KeyModifier::None};
+    btn.onKeyDown(ke);
+    EXPECT_EQ(clicks, 0);
+
+    // Paint verifies disabled text color is applied
+    renderer::PaintContext pctx;
+    btn.layoutNode().computeLayout(100.0f, 32.0f);
+    btn.paint(pctx);
+    EXPECT_FALSE(pctx.commands().empty());
+}
+
+TEST(ButtonTest, DynamicTextResizeInContainer) {
+    auto fontRes = text::FontManager::instance().defaultFont(14.0f);
+    ASSERT_TRUE(fontRes.isOk());
+    auto font = fontRes.value();
+
+    auto root = std::make_unique<Container>();
+    root->style().flexDirection = layout::FlexDirection::Column;
+    root->style().justifyContent = layout::JustifyContent::Center;
+    root->style().alignItems = layout::AlignItems::Center;
+    root->style().width = layout::Length::percent(100.0f);
+    root->style().height = layout::Length::percent(100.0f);
+
+    auto btn = std::make_unique<Button>("Click Me", font, ButtonVariant::Primary,
+                                        ButtonSize::Standard);
+    Button* btnPtr = btn.get();
+    root->addChild(std::move(btn));
+
+    WidgetContext ctx;
+    ctx.setRootWidget(std::move(root));
+
+    renderer::PaintContext pctx1;
+    ctx.render(pctx1, {1024.0f, 768.0f});
+
+    float w1 = btnPtr->layoutRect().size.width;
+    core::Rect sRect1 = btnPtr->screenRect();
+    EXPECT_EQ(sRect1.size.width, w1);
+
+    btnPtr->onClicked.connect([btnPtr]() {
+        btnPtr->setText("Clicked 1 time");
+    });
+
+    platform::MouseEvent downEv{};
+    downEv.type = platform::MouseEventType::ButtonDown;
+    downEv.button = platform::MouseButton::Left;
+    downEv.physicalPosition = {sRect1.origin.x + 5.0f, sRect1.origin.y + 5.0f};
+    downEv.position = downEv.physicalPosition;
+    ctx.handleMouseDown(downEv);
+
+    platform::MouseEvent upEv{};
+    upEv.type = platform::MouseEventType::ButtonUp;
+    upEv.button = platform::MouseButton::Left;
+    upEv.physicalPosition = {sRect1.origin.x + 5.0f, sRect1.origin.y + 5.0f};
+    upEv.position = upEv.physicalPosition;
+    ctx.handleMouseUp(upEv);
+
+    renderer::PaintContext pctx2;
+    ctx.render(pctx2, {1024.0f, 768.0f});
+
+    float w2 = btnPtr->layoutRect().size.width;
+    core::Rect sRect2 = btnPtr->screenRect();
+
+    EXPECT_GT(w2, w1);
+    EXPECT_FLOAT_EQ(sRect2.size.width, w2);
 }
 
 } // namespace northern::widgets

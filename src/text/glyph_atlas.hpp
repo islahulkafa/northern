@@ -8,6 +8,7 @@
 #include "text/font.hpp"
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 namespace northern::text {
 
@@ -15,6 +16,7 @@ struct CachedGlyph {
     core::Rect uvRect{0.0f, 0.0f, 0.0f, 0.0f};
     core::Point offset{0.0f, 0.0f};
     core::Size size{0.0f, 0.0f};
+    uint8_t subpixelBin{0};
 };
 
 class GlyphAtlas {
@@ -29,7 +31,11 @@ public:
     GlyphAtlas(GlyphAtlas&&) noexcept = default;
     GlyphAtlas& operator=(GlyphAtlas&&) = delete;
 
-    core::Result<CachedGlyph, core::Error> getOrInsert(const Font& font, uint32_t glyphId);
+    core::Result<CachedGlyph, core::Error> getOrInsert(const Font& font, uint32_t glyphId,
+                                                       uint8_t subpixelBin = 0);
+
+    core::Result<void, core::Error> flush();
+    [[nodiscard]] bool isDirty() const noexcept { return dirty_; }
 
     [[nodiscard]] graphics::TextureHandle texture() const noexcept { return texture_; }
     [[nodiscard]] uint32_t width() const noexcept { return width_; }
@@ -47,6 +53,11 @@ private:
     uint32_t currentShelfX_{1};
     uint32_t currentShelfY_{1};
     uint32_t shelfHeight_{0};
+
+    std::vector<uint8_t> cpuAtlas_;
+    bool dirty_{false};
+    uint32_t dirtyMinY_{0};
+    uint32_t dirtyMaxY_{0};
 
     std::unordered_map<uint64_t, CachedGlyph> cache_;
 };

@@ -3,6 +3,8 @@
 #include "layout/length.hpp"
 #include "layout/types.hpp"
 
+#include <optional>
+
 namespace northern::layout {
 
 struct RectLength {
@@ -36,6 +38,8 @@ struct Style {
     Length minHeight{Length::autoLength()};
     Length maxWidth{Length::autoLength()};
     Length maxHeight{Length::autoLength()};
+
+    std::optional<float> aspectRatio{std::nullopt};
 
     float flexGrow{0.0f};
     float flexShrink{1.0f};

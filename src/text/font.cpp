@@ -1,11 +1,14 @@
 #include "text/font.hpp"
 #include "text/font_impl.hpp"
 
+#include <atomic>
 #include <cmath>
 
 namespace northern::text {
 
 namespace {
+
+std::atomic<uint32_t> sNextFontId{1};
 
 FT_Library getFtLibrary() {
     static FT_Library ftLib = nullptr;
@@ -24,6 +27,10 @@ Font::Font(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
 Font::~Font() = default;
 Font::Font(Font&&) noexcept = default;
 Font& Font::operator=(Font&&) noexcept = default;
+
+uint32_t Font::id() const noexcept {
+    return impl_ ? impl_->id : 0;
+}
 
 float Font::pointSize() const noexcept {
     return impl_ ? impl_->pointSize : 0.0f;
@@ -64,6 +71,7 @@ core::Result<std::shared_ptr<Font>, core::Error> Font::fromFile(std::string_view
     }
 
     auto impl = std::make_unique<Impl>();
+    impl->id = sNextFontId.fetch_add(1, std::memory_order_relaxed);
     impl->ftFace = face;
     impl->hbFont = hbFont;
     impl->pointSize = pointSize;
@@ -86,6 +94,7 @@ core::Result<std::shared_ptr<Font>, core::Error> Font::fromMemory(std::span<cons
     }
 
     auto impl = std::make_unique<Impl>();
+    impl->id = sNextFontId.fetch_add(1, std::memory_order_relaxed);
     impl->memoryBuffer.assign(data.begin(), data.end());
 
     FT_Face face = nullptr;

@@ -1,4 +1,4 @@
-#include "widgets/divider.hpp"
+#include "widgets/controls/divider.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;

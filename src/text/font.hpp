@@ -24,6 +24,7 @@ public:
     Font(Font&&) noexcept;
     Font& operator=(Font&&) noexcept;
 
+    [[nodiscard]] uint32_t id() const noexcept;
     [[nodiscard]] float pointSize() const noexcept;
     [[nodiscard]] float ascender() const noexcept;
     [[nodiscard]] float descender() const noexcept;
