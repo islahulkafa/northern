@@ -17,13 +17,14 @@ This reference documents Northern's retained widget catalog, keyboard focus trav
 | `Slider`             | [slider.hpp](../src/widgets/controls/slider.hpp)               | Mouse-capture dragging outside bounds, thumb hover scaling, `Left`/`Right`/`Up`/`Down`/`Home`/`End` stepping              |
 | `ProgressBar`        | [progress_bar.hpp](../src/widgets/controls/progress_bar.hpp)   | Smooth determinate progress transitions and continuous indeterminate marquee                                              |
 | `Dropdown`           | [dropdown.hpp](../src/widgets/containers/dropdown.hpp)         | Top-level overlay popup, continuous vector chevron morphing, and `Up`/`Down`/`Enter`/`Space` navigation                   |
-| `ContextMenu`        | [context_menu.hpp](../src/widgets/containers/context_menu.hpp) | Right-release popup menu supporting action items, shortcut badges, disabled rows, separators, and keyboard navigation     |
+| `ContextMenu`        | [context_menu.hpp](../src/widgets/containers/context_menu.hpp) | Right-release popup menu supporting action items, submenus, shortcut badges, check items, and keyboard navigation         |
+| `MenuBar`            | [menu_bar.hpp](../src/widgets/containers/menu_bar.hpp)         | Top-level desktop menu bar with cascading `ContextMenu` popups, keyboard accelerators, and DPI scaling                    |
 | `Tooltip`            | [tooltip.hpp](../src/widgets/controls/tooltip.hpp)             | Hover-delayed passive overlay with optional keyboard shortcut badge                                                       |
 | `ScrollView`         | [scroll_view.hpp](../src/widgets/containers/scroll_view.hpp)   | Clipped viewport container with mouse-wheel scrolling                                                                     |
 | `Divider`            | [divider.hpp](../src/widgets/controls/divider.hpp)             | Horizontal or vertical hairline separator with optional centered text label                                               |
 | `SplitView`          | [split_view.hpp](../src/widgets/containers/split_view.hpp)     | Proportional resizing container with draggable sash divider, min-size bounds, and `ResizeEW`/`ResizeNS` cursors           |
-| `TabBar`             | [tab_view.hpp](../src/widgets/containers/tab_view.hpp)         | 32px desktop workbench tabs with 2px Cobalt indicator, vector close buttons, and arrow-key cycling                        |
-| `TabView`            | [tab_view.hpp](../src/widgets/containers/tab_view.hpp)         | Complete tabbed workbench hosting a `TabBar` and an automated page deck container                                         |
+| `TabBar`             | [tab_view.hpp](../src/widgets/containers/tab_view.hpp)         | `Underline`, `Pill`, and `EditorCard` tab styles with SVG icons, drag-to-reorder, close buttons, and overflow scrolling   |
+| `TabView`            | [tab_view.hpp](../src/widgets/containers/tab_view.hpp)         | Complete tabbed workbench hosting a `TabBar` and an automated flex-filling page deck container                            |
 | `CollapsibleSection` | [accordion.hpp](../src/widgets/containers/accordion.hpp)       | Smooth animated height collapse (`OutCubic`), rotating vector chevron, and clipped body                                   |
 | `Accordion`          | [accordion.hpp](../src/widgets/containers/accordion.hpp)       | Stacked section container supporting independent or single-expanded mutual exclusivity                                    |
 | `HeaderView`         | [header_view.hpp](../src/widgets/views/header_view.hpp)        | Multi-column table header with draggable column resizing, `ResizeEW` cursor, and click-to-sort vector arrows              |
@@ -113,16 +114,30 @@ splitView->onSplitChanged.connect([](float ratio) {
 [TabView](../src/widgets/containers/tab_view.hpp) manages a tabbed workbench with page swapping:
 
 ```cpp
-auto tabView = std::make_unique<TabView>(font);
-tabView->addTab("Canvas", std::move(canvasPage), false);
+auto tabView = std::make_unique<TabView>();
+tabView->setDpiScale(dpi);
+tabView->setTabBarStyle(TabBarStyle::Underline);
+tabView->addTab("Table View", IconId::Grid, std::move(tableView));
 tabView->addTab("Console", std::move(consolePage), true); // closable
 tabView->onTabChanged.connect([](int index) { /* Active tab switched */ });
 tabView->onTabClosed.connect([](int index) { /* Tab removed */ });
 ```
 
-- **Desktop ergonomics**: Standard 32px tab height with active 2px Cobalt bottom underline indicator (`AccentDefault`).
-- **Keyboard cycling**: `Left` and `Right` arrow keys cycle active tabs with wrap-around.
-- **Vector close buttons**: 16×16px close buttons (`x`) rendered with continuous anti-aliased diagonal vector strokes.
+- **Styles & DPI**: Supports `TabBarStyle::Underline`, `TabBarStyle::Pill`, and `TabBarStyle::EditorCard`, with `setDpiScale()` and `effectiveFont()` falling back to `FontManager::instance().defaultFont()`.
+- **Keyboard cycling & reordering**: `Left` and `Right` arrow keys cycle active tabs with wrap-around; `setReorderable(true)` enables drag-to-reorder.
+- **Icons & close buttons**: Supports `IconId` or `SvgDocument` leading icons and vector close buttons.
+
+### MenuBar
+
+[MenuBar](../src/widgets/containers/menu_bar.hpp) provides a top-level desktop menu bar with cascading `ContextMenu` popups and global keyboard accelerators:
+
+```cpp
+auto menuBar = std::make_unique<MenuBar>();
+menuBar->setDpiScale(dpi);
+auto* fileMenu = menuBar->addMenu("File");
+fileMenu->addItem(IconId::Save, "Save", []() { /* save */ }, "Ctrl+S");
+menuBar->registerAccelerators(uiContext);
+```
 
 ### CollapsibleSection and Accordion
 
@@ -158,14 +173,16 @@ Northern provides high-performance collection views in [src/widgets/](../src/wid
 [ItemModel](../src/widgets/views/item_model.hpp) defines an abstract interface returning typed cell data across [ItemDataRole](../src/widgets/views/item_model.hpp):
 
 ```cpp
-enum class ItemDataRole {
+enum class ItemDataRole : uint8_t {
     Display,        // Primary cell text (std::string)
-    Decoration,     // Color tint or icon identifier (core::Color)
-    ToolTip,        // Hover tooltip string
-    CheckState,     // Checkbox boolean state
+    Tooltip,        // Hover tooltip string
+    Icon,           // Leading SVG icon (IconId)
     TextAlignment,  // Text alignment (Left, Center, Right)
+    CheckState,     // Checkbox boolean state
     Foreground,     // Custom text color (core::Color)
-    Background      // Custom cell background color (core::Color)
+    Background,     // Custom cell background color (core::Color)
+    BadgeText,      // Inline pill badge text (std::string)
+    BadgeColor      // Custom badge background color (core::Color)
 };
 ```
 
@@ -203,8 +220,8 @@ meshBranch->appendChild({"character.gltf", "Mesh", "14.2 MB"});
 
 [ItemDelegate](../src/widgets/views/item_delegate.hpp) paints individual cells directly through `PaintContext`:
 
-- Honors `selected`, `hovered`, and `focused` visual states.
-- Paints Optical Zinc backgrounds (`SurfaceSubtle`, `SurfaceOverlay`, or Cobalt selection tints).
+- Honors `isSelected`, `isHovered`, and `hasFocus` visual states.
+- Paints Optical Zinc row backgrounds (`surfaceRaised` on hover, Cobalt selection tints) and subtle `3.0f * dpiScale` rounded `BadgeText` pills (`surfaceOverlay` with 1px `borderDefault` outline).
 - Uses `theme::computeCenteredTextY` to guarantee optical vertical text centering.
 
 ### HeaderView

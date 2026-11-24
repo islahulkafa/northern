@@ -1,6 +1,7 @@
 #include "widgets/containers/tab_view.hpp"
 
 #include "renderer/paint_context.hpp"
+#include "text/font_manager.hpp"
 #include "text/text_layout.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
@@ -292,6 +293,7 @@ bool TabBar::isTabClosable(int index) const noexcept {
 
 void TabBar::setFont(std::shared_ptr<text::Font> font) {
     font_ = std::move(font);
+    resolvedDefaultFont_.reset();
     for (auto& item : items_) {
         item.cachedLayout.reset();
     }
@@ -299,6 +301,32 @@ void TabBar::setFont(std::shared_ptr<text::Font> font) {
     updateMeasure();
     markLayoutDirty();
     markPaintDirty();
+}
+
+void TabBar::setDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        resolvedDefaultFont_.reset();
+        for (auto& item : items_) {
+            item.cachedLayout.reset();
+        }
+        isTabsLayoutDirty_ = true;
+        updateMeasure();
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+std::shared_ptr<text::Font> TabBar::effectiveFont() const {
+    if (font_) {
+        return font_;
+    }
+    if (!resolvedDefaultFont_) {
+        float pt = 10.0f * dpiScale_;
+        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+    }
+    return resolvedDefaultFont_;
 }
 
 void TabBar::setAddButtonVisible(bool visible) noexcept {
@@ -385,13 +413,14 @@ void TabBar::ensureTabsLayout() const {
         return;
     }
 
+    auto f = effectiveFont();
     float curX = 0.0f;
     for (auto& item : items_) {
-        if (!item.cachedLayout.has_value() && font_ && !item.title.empty()) {
-            item.cachedLayout = text::TextLayout::create(item.title, font_);
+        if (!item.cachedLayout.has_value() && f && !item.title.empty()) {
+            item.cachedLayout = text::TextLayout::create(item.title, f);
             item.cachedTextWidth = item.cachedLayout->size().width;
-        } else if (!font_ || item.title.empty()) {
-            item.cachedTextWidth = static_cast<float>(item.title.size()) * 7.5f;
+        } else if (!f || item.title.empty()) {
+            item.cachedTextWidth = static_cast<float>(item.title.size()) * 7.5f * dpiScale_;
         }
 
         float contentW = item.cachedTextWidth;
@@ -831,9 +860,10 @@ void TabBar::paint(renderer::PaintContext& ctx) {
         }
 
         // Memoized Title text
-        if (font_ && itm.cachedLayout.has_value()) {
+        auto f = effectiveFont();
+        if (f && itm.cachedLayout.has_value()) {
             float centerY = tabScreenRect.origin.y + tabHeight_ * 0.5f;
-            float textY = theme::computeCenteredTextY(centerY, *font_);
+            float textY = theme::computeCenteredTextY(centerY, *f);
             ctx.drawTextLayout(core::Point{contentStartX, textY}, *itm.cachedLayout, fgCol);
         }
 
@@ -922,8 +952,9 @@ TabView::TabView(std::shared_ptr<text::Font> font) {
     deck_->style().flexDirection = layout::FlexDirection::Column;
     deck_->style().flexGrow = 1.0f;
     deck_->style().flexShrink = 1.0f;
+    deck_->style().flexBasis = layout::Length::points(0.0f);
     deck_->style().width = layout::Length::percent(100.0f);
-    deck_->style().height = layout::Length::points(0.0f);
+    deck_->style().height = layout::Length::percent(100.0f);
 
     tabBar_->onTabSelected.connect([this](int idx) {
         updatePageVisibility();
@@ -964,6 +995,9 @@ int TabView::addTab(std::string title, std::shared_ptr<renderer::SvgDocument> ic
     if (page) {
         page->style().width = layout::Length::percent(100.0f);
         page->style().height = layout::Length::percent(100.0f);
+        page->style().flexGrow = 1.0f;
+        page->style().flexShrink = 1.0f;
+        page->style().flexBasis = layout::Length::points(0.0f);
         Widget* raw = deck_->addChild(std::move(page));
         pages_.push_back(raw);
     } else {
@@ -979,6 +1013,9 @@ void TabView::insertTab(int index, std::string title, std::unique_ptr<Widget> pa
     if (page) {
         page->style().width = layout::Length::percent(100.0f);
         page->style().height = layout::Length::percent(100.0f);
+        page->style().flexGrow = 1.0f;
+        page->style().flexShrink = 1.0f;
+        page->style().flexBasis = layout::Length::points(0.0f);
         Widget* raw = deck_->addChild(std::move(page));
         pages_.insert(pages_.begin() + clamped, raw);
     } else {
@@ -1039,6 +1076,17 @@ void TabView::setReorderable(bool reorderable) noexcept {
 
 void TabView::setAddButtonVisible(bool visible) noexcept {
     tabBar_->setAddButtonVisible(visible);
+}
+
+void TabView::setDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        if (tabBar_) {
+            tabBar_->setDpiScale(clamped);
+            tabBar_->setTabHeight(34.0f * clamped);
+        }
+    }
 }
 
 void TabView::updatePageVisibility() {

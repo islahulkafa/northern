@@ -1,6 +1,5 @@
 #include "widgets/controls/radio_button.hpp"
 #include "renderer/paint_context.hpp"
-#include "text/text_layout.hpp"
 #include "widgets/base/widget_context.hpp"
 
 #include <algorithm>
@@ -17,12 +16,15 @@ RadioButton::RadioButton(std::string text, bool checked, std::shared_ptr<text::F
 
     layoutNode_.setMeasureFunc([this](const layout::LayoutNode&, float availW,
                                       float) -> core::Size {
+        float scaledGap = gap_ * dpiScale_;
         float textW = 0.0f;
         float textH = circleDiameter_;
-        if (font_ && !text_.empty()) {
-            auto l = text::TextLayout::create(text_, font_);
-            textW = l.size().width + gap_;
-            textH = std::max(textH, l.size().height);
+        if (!text_.empty()) {
+            ensureTextLayout();
+            if (cachedTextLayout_) {
+                textW = cachedTextLayout_->size().width + scaledGap;
+                textH = std::max(textH, cachedTextLayout_->size().height);
+            }
         }
         float padH = style().padding.left.resolve(availW, 0.0f) +
                      style().padding.right.resolve(availW, 0.0f);
@@ -30,6 +32,27 @@ RadioButton::RadioButton(std::string text, bool checked, std::shared_ptr<text::F
             style().padding.top.resolve(0.0f, 0.0f) + style().padding.bottom.resolve(0.0f, 0.0f);
         return core::Size{circleDiameter_ + textW + padH, textH + padV};
     });
+}
+
+std::shared_ptr<text::Font> RadioButton::effectiveFont() const {
+    if (font_) {
+        return font_;
+    }
+    if (!resolvedDefaultFont_) {
+        resolvedDefaultFont_ = theme::resolveFont(theme::TypographyStyle::Body, dpiScale_);
+    }
+    return resolvedDefaultFont_;
+}
+
+void RadioButton::ensureTextLayout() const {
+    if (cachedTextLayout_ || text_.empty()) {
+        return;
+    }
+    auto f = effectiveFont();
+    if (!f) {
+        return;
+    }
+    cachedTextLayout_ = text::TextLayout::create(text_, f);
 }
 
 void RadioButton::setChecked(bool checked) {
@@ -54,84 +77,208 @@ void RadioButton::setChecked(bool checked) {
 void RadioButton::setText(std::string text) {
     if (text_ != text) {
         text_ = std::move(text);
+        cachedTextLayout_.reset();
         markLayoutDirty();
     }
+}
+
+void RadioButton::setValue(std::string value) {
+    value_ = std::move(value);
 }
 
 void RadioButton::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
+        cachedTextLayout_.reset();
+        markLayoutDirty();
+    }
+}
+
+void RadioButton::setSize(RadioSize size) noexcept {
+    setCircleSize(toPoints(size) * dpiScale_);
+}
+
+void RadioButton::setDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        float ratio = clamped / dpiScale_;
+        dpiScale_ = clamped;
+        circleDiameter_ *= ratio;
+        dotDiameter_ *= ratio;
+        resolvedDefaultFont_.reset();
+        if (!font_) {
+            cachedTextLayout_.reset();
+        }
         markLayoutDirty();
     }
 }
 
 void RadioButton::setCircleSize(float diameter) noexcept {
-    circleDiameter_ = diameter;
-    dotDiameter_ = diameter * 0.5f;
-    markLayoutDirty();
+    float clamped = std::max(8.0f, diameter);
+    if (circleDiameter_ != clamped) {
+        circleDiameter_ = clamped;
+        dotDiameter_ = clamped * 0.5f;
+        markLayoutDirty();
+    }
 }
 
 void RadioButton::setDotSize(float diameter) noexcept {
-    dotDiameter_ = diameter;
-    markPaintDirty();
+    float clamped = std::max(2.0f, diameter);
+    if (dotDiameter_ != clamped) {
+        dotDiameter_ = clamped;
+        markPaintDirty();
+    }
 }
 
 void RadioButton::setCheckedOuterColor(const core::Color& color) noexcept {
-    checkedOuterColor_ = color;
+    overrideCheckedOuterColor_ = color;
     markPaintDirty();
 }
 
 void RadioButton::setUncheckedOuterColor(const core::Color& color) noexcept {
-    uncheckedOuterColor_ = color;
+    overrideUncheckedOuterColor_ = color;
     markPaintDirty();
 }
 
 void RadioButton::setBorderColor(const core::Color& color) noexcept {
-    borderColor_ = color;
+    overrideBorderColor_ = color;
     markPaintDirty();
 }
 
 void RadioButton::setDotColor(const core::Color& color) noexcept {
-    dotColor_ = color;
+    overrideDotColor_ = color;
     markPaintDirty();
 }
 
 void RadioButton::setTextColor(const core::Color& color) noexcept {
-    textColor_ = color;
+    overrideTextColor_ = color;
     markPaintDirty();
 }
 
+void RadioButton::clearColorOverrides() noexcept {
+    if (overrideCheckedOuterColor_ || overrideUncheckedOuterColor_ || overrideBorderColor_ ||
+        overrideDotColor_ || overrideTextColor_) {
+        overrideCheckedOuterColor_.reset();
+        overrideUncheckedOuterColor_.reset();
+        overrideBorderColor_.reset();
+        overrideDotColor_.reset();
+        overrideTextColor_.reset();
+        markPaintDirty();
+    }
+}
+
+core::Color RadioButton::effectiveOuterColor() const noexcept {
+    const auto& pal = colorPalette();
+    core::Color unchecked = overrideUncheckedOuterColor_.value_or(
+        pal.mode == theme::ThemeMode::Dark ? pal.surfaceRaised : pal.surfaceDefault);
+    core::Color checked = overrideCheckedOuterColor_.value_or(pal.accentDefault);
+    if (!isEnabled()) {
+        return isChecked_ ? pal.borderDefault : pal.surfaceBase;
+    }
+    if (isHovered_ && isChecked_ && !overrideCheckedOuterColor_) {
+        checked = pal.accentHover;
+    }
+    float t = checkAnim_.currentValue();
+    if (t <= 0.0001f) {
+        return unchecked;
+    }
+    if (t >= 0.9999f) {
+        return checked;
+    }
+    return unchecked.lerp(checked, t);
+}
+
+core::Color RadioButton::effectiveBorderColor() const noexcept {
+    const auto& pal = colorPalette();
+    if (!isEnabled()) {
+        return pal.borderSubtle;
+    }
+    if (overrideBorderColor_) {
+        return *overrideBorderColor_;
+    }
+    float t = checkAnim_.currentValue();
+    core::Color base = pal.borderDefault.lerp(pal.borderStrong, hoverAnim_.currentValue());
+    core::Color active = isHovered_ ? pal.accentHover : pal.accentDefault;
+    return base.lerp(active, t);
+}
+
+core::Color RadioButton::effectiveDotColor() const noexcept {
+    if (overrideDotColor_) {
+        return *overrideDotColor_;
+    }
+    if (!isEnabled()) {
+        return colorPalette().textDisabled;
+    }
+    return core::Color::white();
+}
+
+core::Color RadioButton::effectiveTextColor() const noexcept {
+    if (overrideTextColor_) {
+        return isEnabled() ? *overrideTextColor_
+                           : overrideTextColor_->withAlpha(overrideTextColor_->a * 0.40f);
+    }
+    const auto& pal = colorPalette();
+    return isEnabled() ? pal.textPrimary : pal.textDisabled;
+}
+
 void RadioButton::onMouseEnter() {
+    if (!isEnabled()) {
+        return;
+    }
     isHovered_ = true;
+    hoverAnim_.start(hoverAnim_.currentValue(), 1.0f, 0.12f,
+                     core::animation::EasingCurve::OutCubic);
+    if (context_) {
+        context_->registerAnimatedWidget(this);
+    }
     markPaintDirty();
 }
 
 void RadioButton::onMouseLeave() {
     isHovered_ = false;
     isPressed_ = false;
+    if (isEnabled()) {
+        hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, 0.12f,
+                         core::animation::EasingCurve::OutCubic);
+        if (context_) {
+            context_->registerAnimatedWidget(this);
+        }
+    }
     markPaintDirty();
 }
 
 void RadioButton::onMouseDown(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        return;
+    }
     if (ev.button() == platform::MouseButton::Left) {
         isPressed_ = true;
-        setFocus();
+        setFocus(FocusReason::Pointer);
         ev.accept();
         markPaintDirty();
     }
 }
 
 void RadioButton::onMouseUp(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        isPressed_ = false;
+        return;
+    }
     if (ev.button() == platform::MouseButton::Left && isPressed_) {
         isPressed_ = false;
         ev.accept();
-        if (!isChecked_) {
+        if (hitTest(ev.position()) && !isChecked_) {
             setChecked(true);
+        } else {
+            markPaintDirty();
         }
     }
 }
 
 void RadioButton::onKeyDown(WidgetKeyEvent& ev) {
+    if (!isEnabled()) {
+        return;
+    }
     if (ev.key() == platform::Key::Space || ev.key() == platform::Key::Enter) {
         ev.accept();
         if (!isChecked_) {
@@ -141,12 +288,17 @@ void RadioButton::onKeyDown(WidgetKeyEvent& ev) {
 }
 
 void RadioButton::updateAnimations(float deltaSeconds) {
-    checkAnim_.update(deltaSeconds);
+    if (checkAnim_.isRunning()) {
+        checkAnim_.update(deltaSeconds);
+    }
+    if (hoverAnim_.isRunning()) {
+        hoverAnim_.update(deltaSeconds);
+    }
     markPaintDirty();
 }
 
 bool RadioButton::hasActiveAnimations() const noexcept {
-    return checkAnim_.isRunning();
+    return checkAnim_.isRunning() || hoverAnim_.isRunning();
 }
 
 void RadioButton::paint(renderer::PaintContext& ctx) {
@@ -163,12 +315,16 @@ void RadioButton::paint(renderer::PaintContext& ctx) {
     float radius = circleDiameter_ * 0.5f;
     float radii[4] = {radius, radius, radius, radius};
     float t = checkAnim_.currentValue();
-    core::Color bg = uncheckedOuterColor_.lerp(checkedOuterColor_, t);
-    core::Color border = isHovered_ ? borderHoverColor_ : borderColor_;
+
+    core::Color bg = effectiveOuterColor();
+    core::Color border = effectiveBorderColor();
+    if (isPressed_ && isEnabled()) {
+        bg = bg.lerp(colorPalette().surfaceOverlay, 0.25f);
+    }
 
     ctx.drawBox(circleRect, bg, border, 1.0f, radii);
 
-    if (hasKeyboardFocus()) {
+    if (hasKeyboardFocus() && isEnabled()) {
         theme::paintFocusRing(ctx, circleRect, radius);
     }
 
@@ -178,16 +334,19 @@ void RadioButton::paint(renderer::PaintContext& ctx) {
         core::Rect dotRect{
             core::Point{circleRect.origin.x + dotOffset, circleRect.origin.y + dotOffset},
             core::Size{currentDotDiameter, currentDotDiameter}};
-        core::Color currentDotColor = dotColor_;
+        core::Color currentDotColor = effectiveDotColor();
         currentDotColor.a *= t;
         ctx.drawRoundedRect(dotRect, currentDotColor, currentDotDiameter * 0.5f);
     }
 
-    if (font_ && !text_.empty()) {
-        auto layout = text::TextLayout::create(text_, font_);
-        float textX = circleRect.origin.x + circleDiameter_ + gap_;
-        float textY = theme::computeCenteredTextY(targetCenterY, *font_);
-        ctx.drawTextLayout(core::Point{textX, textY}, layout, textColor_);
+    if (!text_.empty()) {
+        ensureTextLayout();
+        auto f = effectiveFont();
+        if (cachedTextLayout_ && f) {
+            float textX = circleRect.origin.x + circleDiameter_ + gap_ * dpiScale_;
+            float textY = theme::computeCenteredTextY(targetCenterY, *f);
+            ctx.drawTextLayout(core::Point{textX, textY}, *cachedTextLayout_, effectiveTextColor());
+        }
     }
 }
 

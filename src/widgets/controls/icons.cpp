@@ -1,6 +1,7 @@
 #include "widgets/controls/icons.hpp"
 
 #include <array>
+#include <atomic>
 #include <mutex>
 
 namespace northern::widgets {
@@ -158,20 +159,205 @@ std::string_view getSvgString(IconId id) noexcept {
                "stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"3 6 5 6 21 "
                "6\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 "
                "2 0 0 1 2 2v2\"/></svg>";
+
+    // Editing & Clipboard
+    case IconId::Edit:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11 4H4a2 2 0 0 0-2 "
+               "2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7\"/><path d=\"M18.5 2.5a2.121 2.121 0 0 1 "
+               "3 3L12 15l-4 1 1-4 9.5-9.5z\"/></svg>";
+    case IconId::Copy:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"9\" "
+               "width=\"13\" "
+               "height=\"13\" rx=\"2\" ry=\"2\"/><path d=\"M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 "
+               "2-2h9a2 2 0 0 1 2 2v1\"/></svg>";
+    case IconId::Cut:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"6\" cy=\"6\" "
+               "r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><line x1=\"20\" y1=\"4\" x2=\"8.12\" "
+               "y2=\"15.88\"/><line x1=\"14.47\" y1=\"14.48\" x2=\"20\" y2=\"20\"/><line "
+               "x1=\"8.12\" "
+               "y1=\"8.12\" x2=\"12\" y2=\"12\"/></svg>";
+    case IconId::Paste:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M16 4h2a2 2 0 0 1 2 "
+               "2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/><rect x=\"8\" y=\"2\" "
+               "width=\"8\" height=\"4\" rx=\"1\" ry=\"1\"/></svg>";
+
+    // File & Data Operations
+    case IconId::Save:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M19 21H5a2 2 0 0 "
+               "1-2-2V5a2 "
+               "2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z\"/><polyline points=\"17 21 17 13 7 13 7 "
+               "21\"/><polyline points=\"7 3 7 8 15 8\"/></svg>";
+    case IconId::Download:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 "
+               "2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" "
+               "y1=\"15\" x2=\"12\" y2=\"3\"/></svg>";
+    case IconId::Upload:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 "
+               "2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" "
+               "y1=\"3\" "
+               "x2=\"12\" y2=\"15\"/></svg>";
+    case IconId::ExternalLink:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18 13v6a2 2 0 0 1-2 "
+               "2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"/><polyline points=\"15 3 21 3 21 9\"/><line "
+               "x1=\"10\" y1=\"14\" x2=\"21\" y2=\"3\"/></svg>";
+
+    // Media Controls
+    case IconId::Play:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"5 3 19 12 5 "
+               "21 5 "
+               "3\"/></svg>";
+    case IconId::Pause:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"6\" y=\"4\" "
+               "width=\"4\" "
+               "height=\"16\"/><rect x=\"14\" y=\"4\" width=\"4\" height=\"16\"/></svg>";
+    case IconId::Stop:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"4\" y=\"4\" "
+               "width=\"16\" "
+               "height=\"16\" rx=\"2\"/></svg>";
+
+    // State & Security
+    case IconId::Eye:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M1 12s4-8 11-8 11 8 "
+               "11 "
+               "8-4 8-11 8-11-8-11-8z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg>";
+    case IconId::EyeOff:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M17.94 17.94A10.07 "
+               "10.07 "
+               "0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 "
+               "4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24\"/><line "
+               "x1=\"1\" y1=\"1\" x2=\"23\" y2=\"23\"/></svg>";
+    case IconId::Lock:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"11\" "
+               "width=\"18\" "
+               "height=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/></svg>";
+    case IconId::Unlock:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"11\" "
+               "width=\"18\" "
+               "height=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 9.9-1\"/></svg>";
+    case IconId::Bell:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18 8A6 6 0 0 0 6 8c0 "
+               "7-3 "
+               "9-3 9h18s-3-2-3-9\"/><path d=\"M13.73 21a2 2 0 0 1-3.46 0\"/></svg>";
+    case IconId::HelpCircle:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" "
+               "r=\"10\"/><path d=\"M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3\"/><line x1=\"12\" "
+               "y1=\"17\" "
+               "x2=\"12.01\" y2=\"17\"/></svg>";
+
+    // Navigation & Layout Views
+    case IconId::ArrowLeft:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"19\" y1=\"12\" "
+               "x2=\"5\" "
+               "y2=\"12\"/><polyline points=\"12 19 5 12 12 5\"/></svg>";
+    case IconId::ArrowRight:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"5\" y1=\"12\" "
+               "x2=\"19\" "
+               "y2=\"12\"/><polyline points=\"12 5 19 12 12 19\"/></svg>";
+    case IconId::ArrowUp:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"12\" y1=\"19\" "
+               "x2=\"12\" "
+               "y2=\"5\"/><polyline points=\"5 12 12 5 19 12\"/></svg>";
+    case IconId::ArrowDown:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"12\" y1=\"5\" "
+               "x2=\"12\" "
+               "y2=\"19\"/><polyline points=\"19 12 12 19 5 12\"/></svg>";
+    case IconId::Grid:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" "
+               "width=\"7\" "
+               "height=\"7\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"14\" "
+               "y=\"14\" width=\"7\" height=\"7\"/><rect x=\"3\" y=\"14\" width=\"7\" "
+               "height=\"7\"/></svg>";
+    case IconId::List:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"8\" y1=\"6\" "
+               "x2=\"21\" "
+               "y2=\"6\"/><line x1=\"8\" y1=\"12\" x2=\"21\" y2=\"12\"/><line x1=\"8\" y1=\"18\" "
+               "x2=\"21\" y2=\"18\"/><line x1=\"3\" y1=\"6\" x2=\"3.01\" y2=\"6\"/><line x1=\"3\" "
+               "y1=\"12\" x2=\"3.01\" y2=\"12\"/><line x1=\"3\" y1=\"18\" x2=\"3.01\" "
+               "y2=\"18\"/></svg>";
+    case IconId::Filter:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"22 3 2 3 10 "
+               "12.46 10 19 14 21 14 12.46 22 3\"/></svg>";
+    case IconId::MoreHorizontal:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" "
+               "r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" "
+               "r=\"1\"/></svg>";
+    case IconId::MoreVertical:
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 "
+               "0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+               "stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" "
+               "r=\"1\"/><circle cx=\"12\" cy=\"5\" r=\"1\"/><circle cx=\"12\" cy=\"19\" "
+               "r=\"1\"/></svg>";
     }
     return "";
 }
 
 std::shared_ptr<renderer::SvgDocument> getSvgDocument(IconId id) {
-    constexpr size_t kIconCount = static_cast<size_t>(IconId::Trash) + 1;
-    static std::array<std::shared_ptr<renderer::SvgDocument>, kIconCount> s_cache;
-    static std::mutex s_mutex;
-
     size_t index = static_cast<size_t>(id);
-    if (index >= kIconCount) {
+    if (index >= kTotalIconCount) {
         return nullptr;
     }
 
+    static std::array<std::shared_ptr<renderer::SvgDocument>, kTotalIconCount> s_cache;
+    static std::array<std::atomic<renderer::SvgDocument*>, kTotalIconCount> s_atomicPtrs{};
+    static std::mutex s_mutex;
+
+    // Fast-path: acquire load on atomic pointer
+    renderer::SvgDocument* rawDoc = s_atomicPtrs[index].load(std::memory_order_acquire);
+    if (rawDoc != nullptr) {
+        return s_cache[index];
+    }
+
+    // Slow-path: parse under mutex
     std::lock_guard<std::mutex> lock(s_mutex);
     if (!s_cache[index]) {
         std::string_view svg = getSvgString(id);
@@ -179,6 +365,7 @@ std::shared_ptr<renderer::SvgDocument> getSvgDocument(IconId id) {
             auto res = renderer::SvgDocument::fromString(svg);
             if (res.isOk()) {
                 s_cache[index] = res.value();
+                s_atomicPtrs[index].store(s_cache[index].get(), std::memory_order_release);
             }
         }
     }

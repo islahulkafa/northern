@@ -17,13 +17,7 @@ namespace northern::widgets {
 
 class WidgetContext;
 
-enum class MenuItemType {
-    Standard,
-    Checkbox,
-    Radio,
-    Separator,
-    Submenu
-};
+enum class MenuItemType { Standard, Checkbox, Radio, Separator, Submenu };
 
 struct ContextMenuItem {
     MenuItemType type{MenuItemType::Standard};
@@ -75,6 +69,13 @@ public:
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
+    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
+
+    void setOnSiblingMenuNavigate(std::function<void(int delta)> cb) {
+        onSiblingMenuNavigate_ = std::move(cb);
+    }
+
+    void registerAccelerators(WidgetContext& ctx);
 
     [[nodiscard]] core::Size preferredSize() const;
 
@@ -106,6 +107,8 @@ private:
 
     std::vector<ContextMenuItem> items_{};
     std::shared_ptr<text::Font> font_{nullptr};
+    mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
+    std::function<void(int delta)> onSiblingMenuNavigate_{nullptr};
     int highlightedIndex_{-1};
 
     ContextMenu* parentMenu_{nullptr};

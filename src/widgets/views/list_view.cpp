@@ -1,8 +1,10 @@
 #include "widgets/views/list_view.hpp"
 
 #include "renderer/paint_context.hpp"
+#include "text/font_manager.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
+#include "widgets/controls/icons.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -59,6 +61,30 @@ void ListView::setRowHeight(float height) noexcept {
 void ListView::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
+        resolvedDefaultFont_.reset();
+        markPaintDirty();
+    }
+}
+
+std::shared_ptr<text::Font> ListView::effectiveFont() const {
+    if (font_) {
+        return font_;
+    }
+    if (!resolvedDefaultFont_) {
+        float pt = 10.5f * dpiScale_;
+        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+    }
+    return resolvedDefaultFont_;
+}
+
+void ListView::setDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        resolvedDefaultFont_.reset();
+        rowHeight_ = kDefaultRowHeight * dpiScale_;
+        scrollbarThickness_ = 6.0f * dpiScale_;
+        clampScrollOffset();
         markPaintDirty();
     }
 }
@@ -146,8 +172,9 @@ void ListView::paint(renderer::PaintContext& ctx) {
         return;
     }
 
+    const auto& pal = colorPalette();
     ctx.pushClip(sRect);
-    ctx.drawRect(sRect, theme::ColorTokens::SurfaceCanvas);
+    ctx.drawRect(sRect, pal.surfaceCanvas);
 
     if (model_ && rowHeight_ > 0.0f) {
         int count = model_->rowCount();
@@ -157,6 +184,7 @@ void ListView::paint(renderer::PaintContext& ctx) {
                 count - 1,
                 static_cast<int>(std::ceil((scrollOffsetY_ + sRect.size.height) / rowHeight_)));
 
+            auto f = effectiveFont();
             for (int r = firstRow; r <= lastRow; ++r) {
                 float y = sRect.origin.y + (r * rowHeight_) - scrollOffsetY_;
                 core::Rect rBounds{core::Point{sRect.origin.x, y}, {sRect.size.width, rowHeight_}};
@@ -169,11 +197,23 @@ void ListView::paint(renderer::PaintContext& ctx) {
                 opt.isAlternate = (r % 2 == 1);
                 opt.hasFocus = (hasKeyboardFocus() && selectionModel_.currentIndex() == idx);
                 opt.text = model_->data(idx, ItemDataRole::Display);
-                opt.font = font_ ? font_ : (context_ ? context_->tooltipFont() : nullptr);
+                opt.font = f;
+                opt.dpiScale = dpiScale_;
                 opt.textColor = opt.isSelected
-                                    ? theme::ColorTokens::TextPrimary
-                                    : (opt.isHovered ? theme::ColorTokens::TextPrimary
-                                                     : theme::ColorTokens::TextSecondary);
+                                    ? pal.textPrimary
+                                    : (opt.isHovered ? pal.textPrimary : pal.textSecondary);
+
+                // Optional roles from model
+                std::string checkVal = model_->data(idx, ItemDataRole::CheckState);
+                if (!checkVal.empty()) {
+                    opt.showCheckbox = true;
+                    opt.checkboxChecked = (checkVal == "1" || checkVal == "true");
+                }
+                opt.badgeText = model_->data(idx, ItemDataRole::BadgeText);
+                if (!opt.badgeText.empty()) {
+                    opt.badgeColor = pal.surfaceOverlay;
+                    opt.badgeTextColor = pal.textPrimary;
+                }
 
                 if (delegate_) {
                     delegate_->paint(ctx, opt, idx);
@@ -187,13 +227,16 @@ void ListView::paint(renderer::PaintContext& ctx) {
         core::Rect screenThumb{
             core::Point{sRect.origin.x + localThumb.origin.x, sRect.origin.y + localThumb.origin.y},
             localThumb.size};
-        core::Color thumbCol = isDraggingThumb_
-                                   ? theme::ColorTokens::TextSecondary
-                                   : (isHoveringThumb_ ? theme::ColorTokens::TextTertiary
-                                                       : core::Color{1.0f, 1.0f, 1.0f, 0.18f});
-        ctx.drawRoundedRect(screenThumb, thumbCol, 3.0f);
+        core::Color thumbCol =
+            isDraggingThumb_
+                ? pal.textSecondary
+                : (isHoveringThumb_ ? pal.textTertiary : core::Color{1.0f, 1.0f, 1.0f, 0.20f});
+        float r[4] = {scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f,
+                      scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f};
+        ctx.drawRoundedRect(screenThumb, thumbCol, r);
     }
 
+    ctx.drawBorder(sRect, pal.borderSubtle, 1.0f);
     ctx.popClip();
 }
 
@@ -233,16 +276,28 @@ void ListView::onMouseMove(WidgetMouseEvent& ev) {
 void ListView::onMouseDown(WidgetMouseEvent& ev) {
     if (ev.button() == platform::MouseButton::Left) {
         core::Rect thumb = verticalThumbRect();
-        if (maxScrollOffset() > 0.0f && thumb.contains(ev.position())) {
-            isDraggingThumb_ = true;
-            dragStartMouseY_ = ev.position().y;
-            dragStartScrollY_ = scrollOffsetY_;
-            if (context_) {
-                context_->setMouseGrabWidget(this);
+        if (maxScrollOffset() > 0.0f) {
+            float trackX = layoutRect().size.width - scrollbarThickness_ - 6.0f;
+            if (ev.position().x >= trackX) {
+                if (thumb.contains(ev.position())) {
+                    isDraggingThumb_ = true;
+                    dragStartMouseY_ = ev.position().y;
+                    dragStartScrollY_ = scrollOffsetY_;
+                    if (context_) {
+                        context_->setMouseGrabWidget(this);
+                    }
+                } else {
+                    float viewH = layoutRect().size.height;
+                    if (ev.position().y < thumb.origin.y) {
+                        scrollBy(-viewH * 0.8f);
+                    } else {
+                        scrollBy(viewH * 0.8f);
+                    }
+                }
+                ev.accept();
+                markPaintDirty();
+                return;
             }
-            ev.accept();
-            markPaintDirty();
-            return;
         }
 
         int r = rowAt(ev.position().y);
@@ -264,6 +319,7 @@ void ListView::onMouseDown(WidgetMouseEvent& ev) {
                 selectionModel_.select(idx, SelectionFlag::ClearAndSelect);
             }
 
+            anchorRow_ = r;
             selectionModel_.setCurrentIndex(idx);
             onItemClicked.emit(idx);
             ev.accept();
@@ -310,6 +366,8 @@ void ListView::onKeyDown(WidgetKeyEvent& ev) {
 
     bool ctrl = (static_cast<uint8_t>(ev.modifiers()) &
                  static_cast<uint8_t>(platform::KeyModifier::Control)) != 0;
+    bool shift = (static_cast<uint8_t>(ev.modifiers()) &
+                  static_cast<uint8_t>(platform::KeyModifier::Shift)) != 0;
 
     if (ctrl && ev.key() == platform::Key::A) {
         selectionModel_.selectAll();
@@ -341,7 +399,17 @@ void ListView::onKeyDown(WidgetKeyEvent& ev) {
     }
 
     ModelIndex newIdx = model_->index(target, 0);
-    selectionModel_.select(newIdx, SelectionFlag::ClearAndSelect);
+    if (anchorRow_ < 0 || anchorRow_ >= count) {
+        anchorRow_ = current;
+    }
+
+    if (shift) {
+        ModelIndex anchorIdx = model_->index(anchorRow_, 0);
+        selectionModel_.selectRange(anchorIdx, newIdx, SelectionFlag::ClearAndSelect);
+    } else {
+        anchorRow_ = target;
+        selectionModel_.select(newIdx, SelectionFlag::ClearAndSelect);
+    }
     selectionModel_.setCurrentIndex(newIdx);
     scrollTo(target);
     markPaintDirty();

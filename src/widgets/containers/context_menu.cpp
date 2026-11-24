@@ -1,6 +1,7 @@
 #include "widgets/containers/context_menu.hpp"
 
 #include "renderer/paint_context.hpp"
+#include "text/font_manager.hpp"
 #include "text/text_layout.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
@@ -69,9 +70,8 @@ void ContextMenu::addItem(IconId iconId, std::string label, std::function<void()
             enabled);
 }
 
-void ContextMenu::addCheckItem(std::string label, bool checked,
-                               std::function<void(bool)> onToggled, std::string shortcut,
-                               bool enabled) {
+void ContextMenu::addCheckItem(std::string label, bool checked, std::function<void(bool)> onToggled,
+                               std::string shortcut, bool enabled) {
     items_.push_back(ContextMenuItem{
         .type = MenuItemType::Checkbox,
         .isSeparator = false,
@@ -126,8 +126,8 @@ void ContextMenu::addDestructiveItem(std::string label, std::function<void()> on
 }
 
 void ContextMenu::addSubmenu(std::string label,
-                            std::function<std::unique_ptr<ContextMenu>()> builder,
-                            std::shared_ptr<renderer::SvgDocument> icon, bool enabled) {
+                             std::function<std::unique_ptr<ContextMenu>()> builder,
+                             std::shared_ptr<renderer::SvgDocument> icon, bool enabled) {
     items_.push_back(ContextMenuItem{
         .type = MenuItemType::Submenu,
         .isSeparator = false,
@@ -146,8 +146,7 @@ void ContextMenu::addSubmenu(std::string label,
 }
 
 void ContextMenu::addSubmenu(IconId iconId, std::string label,
-                            std::function<std::unique_ptr<ContextMenu>()> builder,
-                            bool enabled) {
+                             std::function<std::unique_ptr<ContextMenu>()> builder, bool enabled) {
     addSubmenu(std::move(label), std::move(builder), getSvgDocument(iconId), enabled);
 }
 
@@ -191,6 +190,7 @@ bool ContextMenu::hasLeadingGutter() const noexcept {
 void ContextMenu::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
+        resolvedDefaultFont_.reset();
         for (auto& item : items_) {
             item.cachedLabelLayout.reset();
             item.cachedShortcutLayout.reset();
@@ -200,11 +200,49 @@ void ContextMenu::setFont(std::shared_ptr<text::Font> font) {
     }
 }
 
+std::shared_ptr<text::Font> ContextMenu::effectiveFont() const {
+    if (font_) {
+        return font_;
+    }
+    if (!resolvedDefaultFont_) {
+        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(10.5f).valueOr(nullptr);
+    }
+    return resolvedDefaultFont_;
+}
+
+void ContextMenu::registerAccelerators(WidgetContext& ctx) {
+    for (size_t i = 0; i < items_.size(); ++i) {
+        const auto& item = items_[i];
+        if (!item.shortcut.empty() && item.enabled) {
+            if (item.onTriggered) {
+                ctx.registerAccelerator(item.shortcut, item.onTriggered);
+            } else if (item.type == MenuItemType::Checkbox && item.onToggled) {
+                size_t idx = i;
+                ctx.registerAccelerator(item.shortcut, [this, idx]() {
+                    if (idx < items_.size()) {
+                        items_[idx].checked = !items_[idx].checked;
+                        if (items_[idx].onToggled) {
+                            items_[idx].onToggled(items_[idx].checked);
+                        }
+                    }
+                });
+            }
+        }
+        if (item.type == MenuItemType::Submenu && item.submenuBuilder) {
+            auto sub = item.submenuBuilder();
+            if (sub) {
+                sub->registerAccelerators(ctx);
+            }
+        }
+    }
+}
+
 core::Size ContextMenu::preferredSize() const {
     float maxLabelW = 0.0f;
     float maxShortcutW = 0.0f;
     float totalH = kPaddingY * 2.0f;
     bool gutter = hasLeadingGutter();
+    auto f = effectiveFont();
 
     for (const auto& item : items_) {
         if (item.isSeparator) {
@@ -218,16 +256,16 @@ core::Size ContextMenu::preferredSize() const {
         if (item.type == MenuItemType::Submenu) {
             sw = std::max(sw, 16.0f);
         }
-        if (font_) {
+        if (f) {
             if (!item.label.empty()) {
                 if (!item.cachedLabelLayout) {
-                    item.cachedLabelLayout = text::TextLayout::create(item.label, font_);
+                    item.cachedLabelLayout = text::TextLayout::create(item.label, f);
                 }
                 lw = item.cachedLabelLayout->size().width;
             }
             if (!item.shortcut.empty()) {
                 if (!item.cachedShortcutLayout) {
-                    item.cachedShortcutLayout = text::TextLayout::create(item.shortcut, font_);
+                    item.cachedShortcutLayout = text::TextLayout::create(item.shortcut, f);
                 }
                 sw = item.cachedShortcutLayout->size().width;
             }
@@ -479,8 +517,7 @@ void ContextMenu::onKeyDown(WidgetKeyEvent& ev) {
         return;
     }
     if (ev.key() == platform::Key::Right) {
-        if (highlightedIndex_ >= 0 &&
-            items_[highlightedIndex_].type == MenuItemType::Submenu) {
+        if (highlightedIndex_ >= 0 && items_[highlightedIndex_].type == MenuItemType::Submenu) {
             openSubmenu(highlightedIndex_);
             if (activeSubmenuWidget_ && context_) {
                 context_->setFocusedWidget(activeSubmenuWidget_, FocusReason::Keyboard);
@@ -489,8 +526,32 @@ void ContextMenu::onKeyDown(WidgetKeyEvent& ev) {
             ev.accept();
             return;
         }
+        if (!parentMenu_ && onSiblingMenuNavigate_) {
+            onSiblingMenuNavigate_(1);
+            ev.accept();
+            return;
+        }
     }
-    if (ev.key() == platform::Key::Left || ev.key() == platform::Key::Escape) {
+    if (ev.key() == platform::Key::Left) {
+        if (parentMenu_) {
+            ContextMenu* p = parentMenu_;
+            int pIdx = parentItemIndex_;
+            p->closeSubmenu();
+            if (p->context_) {
+                p->context_->setFocusedWidget(p, FocusReason::Keyboard);
+                p->highlightedIndex_ = pIdx;
+                p->markPaintDirty();
+            }
+            ev.accept();
+            return;
+        }
+        if (onSiblingMenuNavigate_) {
+            onSiblingMenuNavigate_(-1);
+            ev.accept();
+            return;
+        }
+    }
+    if (ev.key() == platform::Key::Escape) {
         if (parentMenu_) {
             ContextMenu* p = parentMenu_;
             int pIdx = parentItemIndex_;
@@ -552,7 +613,8 @@ void ContextMenu::paint(renderer::PaintContext& ctx) {
     float radii[4] = {kRadius, kRadius, kRadius, kRadius};
 
     const auto& pal = colorPalette();
-    ctx.drawBox(rect, pal.surfaceOverlay, pal.borderSubtle, theme::Metrics::BorderWidthHairline, radii);
+    ctx.drawBox(rect, pal.surfaceOverlay, pal.borderSubtle, theme::Metrics::BorderWidthHairline,
+                radii);
     ctx.pushClip(rect);
 
     bool gutter = hasLeadingGutter();
@@ -563,8 +625,8 @@ void ContextMenu::paint(renderer::PaintContext& ctx) {
         if (item.isSeparator) {
             float lineY = rowY + kSeparatorHeight * 0.5f;
             ctx.drawLine(core::Point{rect.origin.x + 6.0f, lineY},
-                         core::Point{rect.origin.x + rect.size.width - 6.0f, lineY}, pal.borderSubtle,
-                         theme::Metrics::BorderWidthHairline);
+                         core::Point{rect.origin.x + rect.size.width - 6.0f, lineY},
+                         pal.borderSubtle, theme::Metrics::BorderWidthHairline);
             rowY += kSeparatorHeight;
             continue;
         }
@@ -575,9 +637,8 @@ void ContextMenu::paint(renderer::PaintContext& ctx) {
         bool isHighlighted = (static_cast<int>(i) == highlightedIndex_) && item.enabled;
         if (isHighlighted) {
             float itemRadii[4] = {4.0f, 4.0f, 4.0f, 4.0f};
-            core::Color highlightBg = item.isDestructive
-                                          ? pal.danger.withAlpha(0.12f)
-                                          : pal.surfaceRaised;
+            core::Color highlightBg =
+                item.isDestructive ? pal.danger.withAlpha(0.12f) : pal.surfaceRaised;
             ctx.drawRoundedRect(itemRect, highlightBg, itemRadii);
         }
 
@@ -607,10 +668,10 @@ void ContextMenu::paint(renderer::PaintContext& ctx) {
             } else if (item.type == MenuItemType::Radio && item.checked) {
                 float dotRadius = 3.0f;
                 float dotRadii[4] = {dotRadius, dotRadius, dotRadius, dotRadius};
-                ctx.drawRoundedRect(core::Rect{{indicatorCenterX - dotRadius,
-                                                indicatorCenterY - dotRadius},
-                                               {dotRadius * 2.0f, dotRadius * 2.0f}},
-                                    itemCol, dotRadii);
+                ctx.drawRoundedRect(
+                    core::Rect{{indicatorCenterX - dotRadius, indicatorCenterY - dotRadius},
+                               {dotRadius * 2.0f, dotRadius * 2.0f}},
+                    itemCol, dotRadii);
             } else if (item.icon && item.icon->isValid()) {
                 float iconX = indicatorCenterX - kIconSize * 0.5f;
                 float iconY = indicatorCenterY - kIconSize * 0.5f;
@@ -621,12 +682,13 @@ void ContextMenu::paint(renderer::PaintContext& ctx) {
             contentStartX += kGutterWidth;
         }
 
-        if (font_) {
-            float textY = theme::computeCenteredTextY(centerY, *font_);
+        auto f = effectiveFont();
+        if (f) {
+            float textY = theme::computeCenteredTextY(centerY, *f);
 
             if (!item.label.empty()) {
                 if (!item.cachedLabelLayout) {
-                    item.cachedLabelLayout = text::TextLayout::create(item.label, font_);
+                    item.cachedLabelLayout = text::TextLayout::create(item.label, f);
                 }
                 ctx.drawTextLayout(core::Point{contentStartX, textY}, *item.cachedLabelLayout,
                                    itemCol);
@@ -634,7 +696,7 @@ void ContextMenu::paint(renderer::PaintContext& ctx) {
 
             if (!item.shortcut.empty()) {
                 if (!item.cachedShortcutLayout) {
-                    item.cachedShortcutLayout = text::TextLayout::create(item.shortcut, font_);
+                    item.cachedShortcutLayout = text::TextLayout::create(item.shortcut, f);
                 }
                 float scX = rect.origin.x + rect.size.width - kPadX -
                             item.cachedShortcutLayout->size().width;

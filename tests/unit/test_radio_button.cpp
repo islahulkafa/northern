@@ -1,6 +1,8 @@
+#include "renderer/paint_context.hpp"
+#include "widgets/base/theme.hpp"
+#include "widgets/base/widget_context.hpp"
 #include "widgets/controls/radio_button.hpp"
 #include "widgets/controls/radio_group.hpp"
-#include "widgets/base/widget_context.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;
@@ -122,4 +124,152 @@ TEST(RadioGroupTest, ArrowKeyNavigation) {
     group.onKeyDown(upKey);
     EXPECT_TRUE(upKey.isAccepted());
     EXPECT_EQ(group.selectedIndex(), 1);
+}
+
+TEST(RadioButtonTest, DefaultFontSizePresetsAndDynamicTheming) {
+    WidgetContext ctx;
+    ctx.setTheme(theme::Theme::dark());
+
+    auto owned = std::make_unique<RadioButton>("Dynamic Theme", true);
+    RadioButton* rb = owned.get();
+    ctx.setRootWidget(std::move(owned));
+
+    ASSERT_NE(rb->effectiveFont(), nullptr);
+    rb->layoutNode().computeLayout(200.0f, 40.0f);
+    EXPECT_GT(rb->layoutRect().size.width, 20.0f);
+
+    rb->setSize(RadioSize::Large);
+    EXPECT_FLOAT_EQ(rb->circleSize(), 20.0f);
+
+    EXPECT_EQ(rb->effectiveOuterColor(), theme::ColorPalette::dark().accentDefault);
+    EXPECT_EQ(rb->effectiveDotColor(), core::Color::white());
+    EXPECT_EQ(rb->effectiveTextColor(), theme::ColorPalette::dark().textPrimary);
+
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_EQ(rb->effectiveOuterColor(), theme::ColorPalette::light().accentDefault);
+    EXPECT_EQ(rb->effectiveDotColor(), core::Color::white());
+    EXPECT_EQ(rb->effectiveTextColor(), theme::ColorPalette::light().textPrimary);
+
+    rb->setEnabled(false);
+    EXPECT_EQ(rb->effectiveTextColor(), theme::ColorPalette::light().textDisabled);
+
+    renderer::PaintContext pctx;
+    rb->paint(pctx);
+    EXPECT_FALSE(pctx.commands().empty());
+}
+
+TEST(RadioButtonTest, DisabledGuardsPointerDragCancelAndFocusReason) {
+    WidgetContext ctx;
+    auto owned = std::make_unique<RadioButton>("Clickable", false);
+    RadioButton* rb = owned.get();
+    ctx.setRootWidget(std::move(owned));
+    rb->layoutNode().computeLayout(120.0f, 30.0f);
+
+    // Dragging pointer outside bounds cancels toggle on mouse up
+    WidgetMouseEvent downEv{core::Point{8.0f, 8.0f}, platform::MouseButton::Left,
+                            platform::KeyModifier::None};
+    rb->onMouseDown(downEv);
+    EXPECT_TRUE(downEv.isAccepted());
+    EXPECT_FALSE(rb->hasKeyboardFocus());
+
+    WidgetMouseEvent outsideUp{core::Point{500.0f, 500.0f}, platform::MouseButton::Left,
+                               platform::KeyModifier::None};
+    rb->onMouseUp(outsideUp);
+    EXPECT_FALSE(rb->isChecked());
+
+    // Disabled radio button ignores key and pointer clicks
+    rb->setEnabled(false);
+    WidgetKeyEvent spaceEv{platform::Key::Space, true, platform::KeyModifier::None};
+    rb->onKeyDown(spaceEv);
+    EXPECT_FALSE(spaceEv.isAccepted());
+    EXPECT_FALSE(rb->isChecked());
+}
+
+TEST(RadioGroupTest, OrientationValuesRemovalAndDisabledSkipNavigation) {
+    RadioGroup group(RadioGroupOrientation::Horizontal);
+    EXPECT_EQ(group.orientation(), RadioGroupOrientation::Horizontal);
+    EXPECT_EQ(group.style().flexDirection, layout::FlexDirection::Row);
+
+    auto* opt1 = group.addOption("Fast", "fast", RadioSize::Compact);
+    auto* opt2 = group.addOption("Balanced", "balanced");
+    auto* opt3 = group.addOption("Quality", "quality");
+
+    opt2->setEnabled(false);
+    EXPECT_TRUE(group.setSelectedValue("fast"));
+    EXPECT_EQ(group.selectedValue(), "fast");
+    EXPECT_TRUE(opt1->isChecked());
+
+    // Down/Right skips disabled opt2 and lands on opt3
+    WidgetKeyEvent rightKey{platform::Key::Right, true, platform::KeyModifier::None};
+    group.onKeyDown(rightKey);
+    EXPECT_TRUE(rightKey.isAccepted());
+    EXPECT_EQ(group.selectedButton(), opt3);
+    EXPECT_EQ(group.selectedValue(), "quality");
+
+    // Removing an earlier item shifts selectedIndex_ cleanly
+    group.removeRadioButton(opt1);
+    EXPECT_EQ(group.buttons().size(), 2u);
+    EXPECT_EQ(group.selectedIndex(), 1);
+    EXPECT_EQ(group.selectedButton(), opt3);
+
+    group.clearRadioButtons();
+    EXPECT_TRUE(group.buttons().empty());
+    EXPECT_EQ(group.selectedIndex(), -1);
+}
+
+TEST(RadioGroupTest, CenteredAutoWidthGroupShrinkWrapsInColumnRoot) {
+    Container root;
+    root.style().width = layout::Length::points(800.0f);
+    root.style().height = layout::Length::points(600.0f);
+    root.setFlexDirection(layout::FlexDirection::Column);
+    root.setJustifyContent(layout::JustifyContent::Center);
+    root.setAlignItems(layout::AlignItems::Center);
+
+    auto group = std::make_unique<RadioGroup>(RadioGroupOrientation::Vertical);
+    group->addOption("Short", "s");
+    group->addOption("Longer Option Label", "l");
+    RadioGroup* groupPtr = root.addChild(std::move(group));
+
+    root.layoutNode().computeLayout(800.0f, 600.0f);
+
+    EXPECT_LT(groupPtr->layoutRect().size.width, 400.0f);
+    EXPECT_GT(groupPtr->layoutRect().origin.x, 200.0f);
+    EXPECT_GT(groupPtr->layoutRect().origin.y, 200.0f);
+
+    // Verify clicking a child RadioButton at non-zero screen coordinates toggles selection
+    WidgetContext ctx;
+    auto ownedRoot = std::make_unique<Container>();
+    ownedRoot->style().width = layout::Length::points(800.0f);
+    ownedRoot->style().height = layout::Length::points(600.0f);
+    ownedRoot->setFlexDirection(layout::FlexDirection::Column);
+    ownedRoot->setJustifyContent(layout::JustifyContent::Center);
+    ownedRoot->setAlignItems(layout::AlignItems::Center);
+
+    auto g2 = std::make_unique<RadioGroup>(RadioGroupOrientation::Vertical);
+    auto* optA = g2->addOption("Option A", "a");
+    auto* optB = g2->addOption("Option B", "b");
+    ownedRoot->addChild(std::move(g2));
+
+    ctx.setRootWidget(std::move(ownedRoot));
+    renderer::PaintContext dummyCtx;
+    ctx.render(dummyCtx, {800.0f, 600.0f});
+
+    core::Rect bRect = optB->screenRect();
+    ASSERT_GT(bRect.origin.x, 100.0f);
+    ASSERT_GT(bRect.origin.y, 100.0f);
+
+    platform::MouseEvent down{};
+    down.type = platform::MouseEventType::ButtonDown;
+    down.button = platform::MouseButton::Left;
+    down.position = {bRect.origin.x + 8.0f, bRect.origin.y + bRect.size.height * 0.5f};
+    ctx.handleMouseDown(down);
+
+    platform::MouseEvent up{};
+    up.type = platform::MouseEventType::ButtonUp;
+    up.button = platform::MouseButton::Left;
+    up.position = down.position;
+    ctx.handleMouseUp(up);
+
+    EXPECT_TRUE(optB->isChecked());
+    EXPECT_FALSE(optA->isChecked());
 }

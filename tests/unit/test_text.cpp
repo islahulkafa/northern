@@ -19,6 +19,8 @@ TEST(TextTest, FontLoadingAndMetrics) {
     EXPECT_GT(font->ascender(), 0.0f);
     EXPECT_LT(font->descender(), 0.0f);
     EXPECT_GT(font->lineHeight(), 0.0f);
+    EXPECT_GT(font->pixelSize(), 0.0f);
+    EXPECT_GT(font->capHeight(), 0.0f);
 }
 
 TEST(TextTest, UnicodeTextShaping) {
@@ -263,4 +265,38 @@ TEST(TextTest, GlyphPixelSnappingAndQuadPadding) {
     batchRenderer->end();
 
     EXPECT_EQ(batchRenderer->batchCount(), 2);
+}
+
+TEST(TextTest, TextLayoutOptionsEllipsisAndMaxLines) {
+    using namespace northern::text;
+
+    auto fontRes = FontManager::instance().defaultFont(14.0f);
+    ASSERT_TRUE(fontRes.isOk());
+    auto font = fontRes.value();
+
+    TextLayoutOptions noWrapEllipsis{};
+    noWrapEllipsis.maxWidth = 80.0f;
+    noWrapEllipsis.wrapMode = WordWrap::None;
+    noWrapEllipsis.overflow = TextOverflow::Ellipsis;
+    auto truncatedSingle =
+        TextLayout::create("A very long single line label that overflows", font, noWrapEllipsis);
+    EXPECT_EQ(truncatedSingle.lines().size(), 1u);
+    EXPECT_TRUE(truncatedSingle.isTruncated());
+    EXPECT_LE(truncatedSingle.size().width, 80.5f);
+
+    TextLayoutOptions maxLinesOpts{};
+    maxLinesOpts.maxWidth = 90.0f;
+    maxLinesOpts.wrapMode = WordWrap::Word;
+    maxLinesOpts.overflow = TextOverflow::Ellipsis;
+    maxLinesOpts.maxLines = 2;
+    auto truncatedMulti = TextLayout::create(
+        "The quick brown fox jumps over the lazy dog repeatedly across lines", font, maxLinesOpts);
+    EXPECT_EQ(truncatedMulti.lines().size(), 2u);
+    EXPECT_TRUE(truncatedMulti.isTruncated());
+    EXPECT_LE(truncatedMulti.size().width, 90.5f);
+
+    TextLayoutOptions lineHeightOpts{};
+    lineHeightOpts.lineHeightMultiplier = 1.5f;
+    auto spaced = TextLayout::create("Hello", font, lineHeightOpts);
+    EXPECT_NEAR(spaced.size().height, font->lineHeight() * 1.5f, 0.01f);
 }

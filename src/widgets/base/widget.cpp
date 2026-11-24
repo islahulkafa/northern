@@ -1,7 +1,8 @@
 #include "widgets/base/widget.hpp"
 #include "widgets/base/theme.hpp"
-#include "widgets/containers/context_menu.hpp"
 #include "widgets/base/widget_context.hpp"
+#include "widgets/containers/context_menu.hpp"
+#include "widgets/controls/tooltip.hpp"
 
 #include <algorithm>
 
@@ -195,7 +196,11 @@ void Widget::markScreenRectDirty() noexcept {
 void Widget::markPaintDirty() noexcept {
     isPaintDirty_ = true;
     if (context_) {
-        context_->markNeedsPaint();
+        if (this == static_cast<const Widget*>(context_->activeTooltip())) {
+            context_->markTooltipDirty();
+        } else {
+            context_->markNeedsPaint();
+        }
     }
     if (parent_ && !parent_->isPaintDirty_) {
         parent_->markPaintDirty();
@@ -261,9 +266,16 @@ void Widget::setCursorShape(platform::CursorShape shape) noexcept {
     }
 }
 
-void Widget::setTooltip(std::string text, std::string shortcut) {
+void Widget::setTooltip(std::string text, std::string shortcut, std::string description,
+                        OverlayPlacement placement) {
     tooltipText_ = std::move(text);
     tooltipShortcut_ = std::move(shortcut);
+    tooltipDescription_ = std::move(description);
+    tooltipPlacement_ = placement;
+}
+
+void Widget::setTooltipPlacement(OverlayPlacement placement) noexcept {
+    tooltipPlacement_ = placement;
 }
 
 void Widget::setContextMenuBuilder(std::function<std::unique_ptr<ContextMenu>()> builder) {

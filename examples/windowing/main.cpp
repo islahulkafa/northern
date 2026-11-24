@@ -9,11 +9,17 @@
 #include "platform/window_desc.hpp"
 #include "renderer/batch_renderer.hpp"
 #include "renderer/paint_context.hpp"
-#include "text/font_manager.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
 #include "widgets/containers/container.hpp"
+#include "widgets/containers/menu_bar.hpp"
 #include "widgets/containers/tab_view.hpp"
+#include "widgets/controls/icons.hpp"
+#include "widgets/dialogs/title_bar.hpp"
+#include "widgets/views/item_model.hpp"
+#include "widgets/views/list_view.hpp"
+#include "widgets/views/table_view.hpp"
+#include "widgets/views/tree_view.hpp"
 
 #include <chrono>
 #include <iostream>
@@ -36,6 +42,7 @@ int main() {
     desc.size = {1024.0f, 768.0f};
     desc.minSize = {320.0f, 240.0f};
     desc.resizable = true;
+    desc.customTitleBar = true;
     desc.visible = true;
 
     auto windowRes = Window::create(desc);
@@ -44,6 +51,7 @@ int main() {
         return 1;
     }
     auto window = std::move(windowRes.value());
+    window->centerOnScreen();
 
     DeviceDesc devDesc;
     devDesc.appName = "Windowing";
@@ -87,11 +95,10 @@ int main() {
     auto batchRenderer = std::move(rendRes.value());
 
     float dpi = window->dpiScale();
-    auto& fontMgr = text::FontManager::instance();
-    auto bodyFont = fontMgr.defaultFont(12.0f * dpi).valueOr(nullptr);
 
     WidgetContext uiContext;
     uiContext.setTheme(app.isDarkMode() ? theme::Theme::dark() : theme::Theme::light());
+    uiContext.setTooltipDpiScale(dpi);
     uiContext.onCursorShapeChanged.connect(
         [&window](CursorShape shape) { window->setCursorShape(shape); });
 
@@ -99,36 +106,165 @@ int main() {
     root->setSurface(SurfaceRole::Canvas);
     root->style().width = Length::percent(100.0f);
     root->style().height = Length::percent(100.0f);
-
-    auto tabView = std::make_unique<TabView>(bodyFont);
-    tabView->setTabBarStyle(TabBarStyle::EditorCard);
-    tabView->setReorderable(true);
-    tabView->setAddButtonVisible(true);
-
-    auto makePage = [](SurfaceRole surface) {
-        auto page = std::make_unique<Container>();
-        page->setSurface(surface);
-        page->style().width = Length::percent(100.0f);
-        page->style().height = Length::percent(100.0f);
-        return page;
-    };
-
-    tabView->addTab("main.cpp", IconId::File, makePage(SurfaceRole::Canvas), true);
-    tabView->addTab("tab_view.hpp", IconId::File, makePage(SurfaceRole::Default), true);
-    tabView->addTab("Settings", IconId::Settings, makePage(SurfaceRole::Raised), true);
-    tabView->setTabModified(0, true);
-
-    int nextTabNum = 1;
-    tabView->onTabAddRequested.connect([tv = tabView.get(), &nextTabNum, &makePage]() {
-        int idx = tv->addTab("Untitled " + std::to_string(nextTabNum++), IconId::File,
-                             makePage(SurfaceRole::Canvas), true);
-        tv->setCurrentIndex(idx);
-    });
-
-    root->addChild(std::move(tabView));
-    uiContext.setRootWidget(std::move(root));
+    root->setFlexDirection(FlexDirection::Column);
+    root->setJustifyContent(layout::JustifyContent::FlexStart);
+    root->setAlignItems(layout::AlignItems::Stretch);
 
     bool running = true;
+
+    auto titleBar =
+        std::make_unique<TitleBar>("Windowing", nullptr, window.get(), TitleBarSize::Standard);
+    titleBar->setDpiScale(dpi);
+    TitleBar* titleBarPtr = static_cast<TitleBar*>(root->addChild(std::move(titleBar)));
+
+    window->setHitTestCallback([titleBarPtr, dpi](core::Point logicalPos) {
+        return titleBarPtr->hitTestPoint(core::Point{logicalPos.x * dpi, logicalPos.y * dpi});
+    });
+
+    // Top-level MenuBar
+    auto menuBar = std::make_unique<MenuBar>();
+    menuBar->setDpiScale(dpi);
+
+    auto* fileMenu = menuBar->addMenu("File");
+    fileMenu->addItem(
+        IconId::Folder, "New File", []() { std::cout << "File -> New File\n"; }, "Ctrl+N");
+    fileMenu->addItem(
+        IconId::Folder, "Open File...", []() { std::cout << "File -> Open File\n"; }, "Ctrl+O");
+    fileMenu->addItem(IconId::Save, "Save", []() { std::cout << "File -> Save\n"; }, "Ctrl+S");
+    fileMenu->addSeparator();
+    fileMenu->addItem(IconId::Close, "Exit", [&running]() { running = false; }, "Alt+F4");
+
+    auto* editMenu = menuBar->addMenu("Edit");
+    editMenu->addItem(IconId::Refresh, "Undo", []() { std::cout << "Edit -> Undo\n"; }, "Ctrl+Z");
+    editMenu->addItem(IconId::Refresh, "Redo", []() { std::cout << "Edit -> Redo\n"; }, "Ctrl+Y");
+    editMenu->addSeparator();
+    editMenu->addItem(IconId::Edit, "Cut", []() { std::cout << "Edit -> Cut\n"; }, "Ctrl+X");
+    editMenu->addItem(IconId::Copy, "Copy", []() { std::cout << "Edit -> Copy\n"; }, "Ctrl+C");
+    editMenu->addItem(IconId::Folder, "Paste", []() { std::cout << "Edit -> Paste\n"; }, "Ctrl+V");
+
+    auto* viewMenu = menuBar->addMenu("View");
+    viewMenu->addCheckItem("Status Bar", true, [](bool checked) {
+        std::cout << "View -> Status Bar: " << (checked ? "ON" : "OFF") << "\n";
+    });
+    viewMenu->addSubmenu(IconId::Search, "Zoom", []() {
+        auto sub = std::make_unique<ContextMenu>();
+        sub->addItem("Zoom In (125%)", []() { std::cout << "Zoom In\n"; }, "Ctrl++");
+        sub->addItem("Zoom Out (75%)", []() { std::cout << "Zoom Out\n"; }, "Ctrl+-");
+        sub->addItem("Reset Zoom (100%)", []() { std::cout << "Zoom 100%\n"; }, "Ctrl+0");
+        return sub;
+    });
+    viewMenu->addSeparator();
+    viewMenu->addItem(
+        IconId::Settings, "Toggle Dark Mode",
+        [&uiContext]() {
+            bool dark = uiContext.theme().isDark();
+            uiContext.setTheme(dark ? theme::Theme::light() : theme::Theme::dark());
+        },
+        "Ctrl+D");
+
+    auto* helpMenu = menuBar->addMenu("Help");
+    helpMenu->addItem(
+        IconId::HelpCircle, "Documentation", []() { std::cout << "Help -> Docs\n"; }, "F1");
+    helpMenu->addItem(IconId::DialogInfo, "About Northern",
+                      []() { std::cout << "Northern UI Framework v1.0\n"; });
+
+    menuBar->registerAccelerators(uiContext);
+    root->addChild(std::move(menuBar));
+
+    // View models for the tab views
+    StandardTableModel tableModel(
+        std::vector<std::string>{"Service", "Status", "Memory", "Latency"});
+    tableModel.appendRow({"Vulkan Graphics Pipeline", "Active", "128.4 MB", "1.2 ms"});
+    tableModel.appendRow({"Text Shaping (HarfBuzz)", "Active", "24.6 MB", "0.4 ms"});
+    tableModel.appendRow({"Display List Compositor", "Running", "16.2 MB", "0.8 ms"});
+    tableModel.appendRow({"Worker ThreadPool", "Idle", "8.1 MB", "0.0 ms"});
+    tableModel.appendRow({"TaskQueue Dispatcher", "Active", "4.0 MB", "0.1 ms"});
+    tableModel.appendRow({"Asset Cache & Staging", "Idle", "64.0 MB", "0.0 ms"});
+    tableModel.appendRow({"Win32 Platform Loop", "Active", "12.8 MB", "0.3 ms"});
+    tableModel.appendRow({"Arena Memory Allocator", "Active", "32.0 MB", "0.0 ms"});
+
+    for (int r = 0; r < tableModel.rowCount(); ++r) {
+        std::string status = tableModel.data(tableModel.index(r, 1));
+        tableModel.setData(tableModel.index(r, 1), status, ItemDataRole::BadgeText);
+    }
+
+    auto tableView = std::make_unique<TableView>(&tableModel);
+    tableView->setDpiScale(dpi);
+    tableView->setAlternatingRowColors(true);
+    tableView->setShowGridLines(true);
+    tableView->horizontalHeader()->setSectionWidth(0, 240.0f * dpi);
+    tableView->horizontalHeader()->setSectionWidth(1, 130.0f * dpi);
+    tableView->horizontalHeader()->setSectionWidth(2, 130.0f * dpi);
+    tableView->horizontalHeader()->setSectionWidth(3, 130.0f * dpi);
+
+    StandardTreeModel treeModel(std::vector<std::string>{"Project Structure", "Type", "Size"});
+    auto* rootTree = treeModel.rootItem();
+
+    auto srcDir =
+        std::make_unique<StandardTreeItem>(std::vector<std::string>{"src", "Directory", ""});
+    auto coreDir = srcDir->appendChild(
+        std::make_unique<StandardTreeItem>(std::vector<std::string>{"core", "Directory", ""}));
+    coreDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"arena.hpp", "Header", "8.4 KB"}));
+    coreDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"thread_pool.hpp", "Header", "12.1 KB"}));
+
+    auto widgetsDir = srcDir->appendChild(
+        std::make_unique<StandardTreeItem>(std::vector<std::string>{"widgets", "Directory", ""}));
+    widgetsDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"table_view.cpp", "Source", "24.5 KB"}));
+    widgetsDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"tree_view.cpp", "Source", "22.3 KB"}));
+    widgetsDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"list_view.cpp", "Source", "18.7 KB"}));
+
+    rootTree->appendChild(std::move(srcDir));
+
+    auto docsDir =
+        std::make_unique<StandardTreeItem>(std::vector<std::string>{"docs", "Directory", ""});
+    docsDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"design-languages.md", "Markdown", "14.2 KB"}));
+    rootTree->appendChild(std::move(docsDir));
+
+    auto treeView = std::make_unique<TreeView>(&treeModel);
+    treeView->setDpiScale(dpi);
+    treeView->expandAll();
+    treeView->header()->setSectionWidth(0, 280.0f * dpi);
+    treeView->header()->setSectionWidth(1, 140.0f * dpi);
+    treeView->header()->setSectionWidth(2, 140.0f * dpi);
+
+    StringListModel listModel;
+    listModel.append("Hardware Graphics Acceleration (Vulkan 1.3)");
+    listModel.append("Retained Display List Compositor");
+    listModel.append("Bidirectional Zero-Heap Virtualized Scrolling");
+    listModel.append("HarfBuzz Text Shaping & FreeType Rasterization");
+    listModel.append("Optical Zinc Elevation Palette System");
+    listModel.append("Keyboard Accelerators & Cascading Menus");
+    listModel.append("Parent-Owned Retained Widget Lifecycle");
+    listModel.append("Asynchronous Timeline Semaphore Resource Staging");
+
+    auto listView = std::make_unique<ListView>(&listModel);
+    listView->setDpiScale(dpi);
+
+    // TabView container switching between views
+    auto tabView = std::make_unique<TabView>();
+    tabView->setDpiScale(dpi);
+    tabView->setTabBarStyle(TabBarStyle::Underline);
+    tabView->tabBar()->setTabHeight(34.0f * dpi);
+    tabView->style().width = Length::percent(100.0f);
+    tabView->style().flexGrow = 1.0f;
+    tabView->style().flexShrink = 1.0f;
+    tabView->style().flexBasis = layout::Length::points(0.0f);
+
+    tabView->addTab("Table View", IconId::Grid, std::move(tableView));
+    tabView->addTab("Tree View", IconId::Folder, std::move(treeView));
+    tabView->addTab("List View", IconId::List, std::move(listView));
+
+    root->addChild(std::move(tabView));
+
+    uiContext.setRootWidget(std::move(root));
+    uiContext.handleResize(window->size());
+
     ClearColor clearColor{uiContext.theme().colors().surfaceCanvas.r,
                           uiContext.theme().colors().surfaceCanvas.g,
                           uiContext.theme().colors().surfaceCanvas.b, 1.0f};

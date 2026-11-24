@@ -136,6 +136,8 @@ add_library(northern_text STATIC
     text/text_layout.cpp
     text/glyph_atlas.hpp
     text/glyph_atlas.cpp
+    text/vector_rasterizer.hpp
+    text/vector_rasterizer.cpp
 )
 target_include_directories(northern_text PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -254,6 +256,8 @@ add_library(northern_widgets STATIC
     widgets/containers/dropdown.cpp
     widgets/containers/context_menu.hpp
     widgets/containers/context_menu.cpp
+    widgets/containers/menu_bar.hpp
+    widgets/containers/menu_bar.cpp
 
     # Views
     widgets/views/item_model.hpp

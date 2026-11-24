@@ -15,9 +15,11 @@ struct Font::Impl {
     FT_Face ftFace{nullptr};
     hb_font_t* hbFont{nullptr};
     float pointSize{14.0f};
+    float pixelSize{14.0f};
     float ascender{0.0f};
     float descender{0.0f};
     float lineHeight{0.0f};
+    float capHeight{0.0f};
     std::vector<uint8_t> memoryBuffer;
 
     ~Impl() {

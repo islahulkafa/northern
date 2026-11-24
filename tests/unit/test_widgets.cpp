@@ -2,16 +2,16 @@
 #include "renderer/svg/svg_document.hpp"
 #include "text/font_manager.hpp"
 #include "text/text_shaper.hpp"
-#include "widgets/controls/button.hpp"
-#include "widgets/controls/checkbox.hpp"
-#include "widgets/containers/container.hpp"
-#include "widgets/controls/label.hpp"
-#include "widgets/containers/scroll_view.hpp"
-#include "widgets/controls/slider.hpp"
-#include "widgets/controls/text_input.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget.hpp"
 #include "widgets/base/widget_context.hpp"
+#include "widgets/containers/container.hpp"
+#include "widgets/containers/scroll_view.hpp"
+#include "widgets/controls/button.hpp"
+#include "widgets/controls/checkbox.hpp"
+#include "widgets/controls/label.hpp"
+#include "widgets/controls/slider.hpp"
+#include "widgets/controls/text_input.hpp"
 
 #include <gtest/gtest.h>
 
@@ -394,8 +394,8 @@ TEST(WidgetTest, CheckboxToggleSignal) {
     Checkbox cb("Option 1", false);
     bool toggledState = false;
     int toggleCount = 0;
-    cb.onToggled.connect([&](bool s) {
-        toggledState = s;
+    cb.onToggled.connect([&](CheckState s) {
+        toggledState = (s == CheckState::Checked);
         toggleCount++;
     });
 
@@ -597,8 +597,10 @@ TEST(WidgetBaseTest, DynamicThemeSwitching) {
     EXPECT_EQ(theme::ColorPalette::dark().surfaceCanvas, theme::ColorTokens::SurfaceCanvas);
     EXPECT_EQ(theme::ColorPalette::dark().accentDefault, theme::ColorTokens::AccentDefault);
 
-    EXPECT_EQ(theme::ColorPalette::light().surfaceCanvas, (core::Color{0.957f, 0.957f, 0.961f, 1.0f}));
-    EXPECT_EQ(theme::ColorPalette::light().textPrimary, (core::Color{0.035f, 0.035f, 0.043f, 1.0f}));
+    EXPECT_EQ(theme::ColorPalette::light().surfaceCanvas,
+              (core::Color{0.957f, 0.957f, 0.961f, 1.0f}));
+    EXPECT_EQ(theme::ColorPalette::light().textPrimary,
+              (core::Color{0.035f, 0.035f, 0.043f, 1.0f}));
 
     WidgetContext ctx;
     EXPECT_EQ(ctx.theme().mode(), theme::ThemeMode::Dark);
@@ -846,8 +848,8 @@ TEST(ButtonTest, DynamicTextResizeInContainer) {
     root->style().width = layout::Length::percent(100.0f);
     root->style().height = layout::Length::percent(100.0f);
 
-    auto btn = std::make_unique<Button>("Click Me", font, ButtonVariant::Primary,
-                                        ButtonSize::Standard);
+    auto btn =
+        std::make_unique<Button>("Click Me", font, ButtonVariant::Primary, ButtonSize::Standard);
     Button* btnPtr = btn.get();
     root->addChild(std::move(btn));
 
@@ -861,9 +863,7 @@ TEST(ButtonTest, DynamicTextResizeInContainer) {
     core::Rect sRect1 = btnPtr->screenRect();
     EXPECT_EQ(sRect1.size.width, w1);
 
-    btnPtr->onClicked.connect([btnPtr]() {
-        btnPtr->setText("Clicked 1 time");
-    });
+    btnPtr->onClicked.connect([btnPtr]() { btnPtr->setText("Clicked 1 time"); });
 
     platform::MouseEvent downEv{};
     downEv.type = platform::MouseEventType::ButtonDown;

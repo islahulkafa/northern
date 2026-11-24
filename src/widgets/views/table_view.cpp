@@ -1,6 +1,7 @@
 #include "widgets/views/table_view.hpp"
 
 #include "renderer/paint_context.hpp"
+#include "text/font_manager.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
 
@@ -185,9 +186,36 @@ void TableView::setRowHeight(float height) noexcept {
 void TableView::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
+        resolvedDefaultFont_.reset();
         if (header_) {
             header_->setFont(font_);
         }
+        markPaintDirty();
+    }
+}
+
+std::shared_ptr<text::Font> TableView::effectiveFont() const {
+    if (font_) {
+        return font_;
+    }
+    if (!resolvedDefaultFont_) {
+        float pt = 10.0f * dpiScale_;
+        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+    }
+    return resolvedDefaultFont_;
+}
+
+void TableView::setDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        resolvedDefaultFont_.reset();
+        rowHeight_ = kDefaultRowHeight * dpiScale_;
+        scrollbarThickness_ = 6.0f * dpiScale_;
+        if (header_) {
+            header_->setDpiScale(dpiScale_);
+        }
+        clampScrollOffsets();
         markPaintDirty();
     }
 }
@@ -341,12 +369,13 @@ void TableView::paint(renderer::PaintContext& ctx) {
         return;
     }
 
+    const auto& pal = colorPalette();
     float headerH = header_ ? header_->layoutRect().size.height : 0.0f;
     core::Rect gridRect{core::Point{sRect.origin.x, sRect.origin.y + headerH},
                         {sRect.size.width, sRect.size.height - headerH}};
 
     ctx.pushClip(gridRect);
-    ctx.drawRect(gridRect, theme::ColorTokens::SurfaceCanvas);
+    ctx.drawRect(gridRect, pal.surfaceCanvas);
 
     if (model_ && header_ && rowHeight_ > 0.0f) {
         int rowCount = model_->rowCount();
@@ -358,6 +387,7 @@ void TableView::paint(renderer::PaintContext& ctx) {
                 rowCount - 1,
                 static_cast<int>(std::ceil((scrollOffsetY_ + gridRect.size.height) / rowHeight_)));
 
+            auto f = effectiveFont();
             for (int r = firstRow; r <= lastRow; ++r) {
                 int sourceRow = toSourceRow(r);
                 float y = gridRect.origin.y + (r * rowHeight_) - scrollOffsetY_;
@@ -387,11 +417,22 @@ void TableView::paint(renderer::PaintContext& ctx) {
                     opt.isAlternate = alternatingRowColors_ && (r % 2 == 1);
                     opt.hasFocus = (hasKeyboardFocus() && selectionModel_.currentIndex() == idx);
                     opt.text = model_->data(idx, ItemDataRole::Display);
-                    opt.font = font_ ? font_ : (context_ ? context_->tooltipFont() : nullptr);
+                    opt.font = f;
+                    opt.dpiScale = dpiScale_;
                     opt.textColor = opt.isSelected
-                                        ? theme::ColorTokens::TextPrimary
-                                        : (opt.isHovered ? theme::ColorTokens::TextPrimary
-                                                         : theme::ColorTokens::TextSecondary);
+                                        ? pal.textPrimary
+                                        : (opt.isHovered ? pal.textPrimary : pal.textSecondary);
+
+                    std::string checkVal = model_->data(idx, ItemDataRole::CheckState);
+                    if (!checkVal.empty()) {
+                        opt.showCheckbox = true;
+                        opt.checkboxChecked = (checkVal == "1" || checkVal == "true");
+                    }
+                    opt.badgeText = model_->data(idx, ItemDataRole::BadgeText);
+                    if (!opt.badgeText.empty()) {
+                        opt.badgeColor = pal.surfaceOverlay;
+                        opt.badgeTextColor = pal.textPrimary;
+                    }
 
                     if (delegate_) {
                         delegate_->paint(ctx, opt, idx);
@@ -402,7 +443,7 @@ void TableView::paint(renderer::PaintContext& ctx) {
                     ctx.drawLine(
                         core::Point{gridRect.origin.x, y + rowHeight_ - 0.5f},
                         core::Point{gridRect.origin.x + gridRect.size.width, y + rowHeight_ - 0.5f},
-                        theme::ColorTokens::BorderSubtle, 1.0f);
+                        pal.borderSubtle, 1.0f);
                 }
             }
         }
@@ -413,11 +454,13 @@ void TableView::paint(renderer::PaintContext& ctx) {
         core::Rect screenThumb{
             core::Point{sRect.origin.x + localThumb.origin.x, sRect.origin.y + localThumb.origin.y},
             localThumb.size};
-        core::Color thumbCol = isDraggingVThumb_
-                                   ? theme::ColorTokens::TextSecondary
-                                   : (isHoveringVThumb_ ? theme::ColorTokens::TextTertiary
-                                                        : core::Color{1.0f, 1.0f, 1.0f, 0.18f});
-        ctx.drawRoundedRect(screenThumb, thumbCol, 3.0f);
+        core::Color thumbCol =
+            isDraggingVThumb_
+                ? pal.textSecondary
+                : (isHoveringVThumb_ ? pal.textTertiary : core::Color{1.0f, 1.0f, 1.0f, 0.20f});
+        float rV[4] = {scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f,
+                       scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f};
+        ctx.drawRoundedRect(screenThumb, thumbCol, rV);
     }
 
     if (maxScrollOffsetX() > 0.0f) {
@@ -425,13 +468,16 @@ void TableView::paint(renderer::PaintContext& ctx) {
         core::Rect screenThumb{
             core::Point{sRect.origin.x + localThumb.origin.x, sRect.origin.y + localThumb.origin.y},
             localThumb.size};
-        core::Color thumbCol = isDraggingHThumb_
-                                   ? theme::ColorTokens::TextSecondary
-                                   : (isHoveringHThumb_ ? theme::ColorTokens::TextTertiary
-                                                        : core::Color{1.0f, 1.0f, 1.0f, 0.18f});
-        ctx.drawRoundedRect(screenThumb, thumbCol, 3.0f);
+        core::Color thumbCol =
+            isDraggingHThumb_
+                ? pal.textSecondary
+                : (isHoveringHThumb_ ? pal.textTertiary : core::Color{1.0f, 1.0f, 1.0f, 0.20f});
+        float rH[4] = {scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f,
+                       scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f};
+        ctx.drawRoundedRect(screenThumb, thumbCol, rH);
     }
 
+    ctx.drawBorder(sRect, pal.borderSubtle, 1.0f);
     ctx.popClip();
 }
 
@@ -497,30 +543,55 @@ void TableView::onMouseMove(WidgetMouseEvent& ev) {
 
 void TableView::onMouseDown(WidgetMouseEvent& ev) {
     if (ev.button() == platform::MouseButton::Left) {
-        core::Rect vThumb = verticalThumbRect();
-        if (maxScrollOffsetY() > 0.0f && vThumb.contains(ev.position())) {
-            isDraggingVThumb_ = true;
-            dragStartMouseY_ = ev.position().y;
-            dragStartScrollY_ = scrollOffsetY_;
-            if (context_) {
-                context_->setMouseGrabWidget(this);
+        if (maxScrollOffsetY() > 0.0f) {
+            float trackX = layoutRect().size.width - scrollbarThickness_ - 6.0f;
+            if (ev.position().x >= trackX) {
+                core::Rect vThumb = verticalThumbRect();
+                if (vThumb.contains(ev.position())) {
+                    isDraggingVThumb_ = true;
+                    dragStartMouseY_ = ev.position().y;
+                    dragStartScrollY_ = scrollOffsetY_;
+                    if (context_) {
+                        context_->setMouseGrabWidget(this);
+                    }
+                } else {
+                    float headerH = header_ ? header_->layoutRect().size.height : 0.0f;
+                    float gridH = layoutRect().size.height - headerH;
+                    if (ev.position().y < vThumb.origin.y) {
+                        scrollBy(0.0f, -gridH * 0.8f);
+                    } else {
+                        scrollBy(0.0f, gridH * 0.8f);
+                    }
+                }
+                ev.accept();
+                markPaintDirty();
+                return;
             }
-            ev.accept();
-            markPaintDirty();
-            return;
         }
 
-        core::Rect hThumb = horizontalThumbRect();
-        if (maxScrollOffsetX() > 0.0f && hThumb.contains(ev.position())) {
-            isDraggingHThumb_ = true;
-            dragStartMouseX_ = ev.position().x;
-            dragStartScrollX_ = scrollOffsetX_;
-            if (context_) {
-                context_->setMouseGrabWidget(this);
+        if (maxScrollOffsetX() > 0.0f) {
+            float trackY = layoutRect().size.height - scrollbarThickness_ - 6.0f;
+            if (ev.position().y >= trackY) {
+                core::Rect hThumb = horizontalThumbRect();
+                if (hThumb.contains(ev.position())) {
+                    isDraggingHThumb_ = true;
+                    dragStartMouseX_ = ev.position().x;
+                    dragStartScrollX_ = scrollOffsetX_;
+                    if (context_) {
+                        context_->setMouseGrabWidget(this);
+                    }
+                } else {
+                    float viewW = layoutRect().size.width;
+                    if (ev.position().x < hThumb.origin.x) {
+                        scrollBy(-viewW * 0.8f, 0.0f);
+                    } else {
+                        scrollBy(viewW * 0.8f, 0.0f);
+                    }
+                }
+                ev.accept();
+                markPaintDirty();
+                return;
             }
-            ev.accept();
-            markPaintDirty();
-            return;
         }
 
         ModelIndex idx = indexAt(ev.position());
@@ -541,6 +612,8 @@ void TableView::onMouseDown(WidgetMouseEvent& ev) {
                 selectionModel_.select(idx, SelectionFlag::ClearAndSelect);
             }
 
+            anchorRow_ = idx.row;
+            anchorCol_ = idx.column;
             selectionModel_.setCurrentIndex(idx);
             onCellClicked.emit(idx);
             ev.accept();
@@ -599,6 +672,8 @@ void TableView::onKeyDown(WidgetKeyEvent& ev) {
 
     bool ctrl = (static_cast<uint8_t>(ev.modifiers()) &
                  static_cast<uint8_t>(platform::KeyModifier::Control)) != 0;
+    bool shift = (static_cast<uint8_t>(ev.modifiers()) &
+                  static_cast<uint8_t>(platform::KeyModifier::Shift)) != 0;
 
     if (ctrl && ev.key() == platform::Key::A) {
         selectionModel_.selectAll();
@@ -634,9 +709,21 @@ void TableView::onKeyDown(WidgetKeyEvent& ev) {
     }
 
     int targetRow = toSourceRow(targetVisual);
-
     ModelIndex newIdx = model_->index(targetRow, targetCol);
-    selectionModel_.select(newIdx, SelectionFlag::ClearAndSelect);
+
+    if (anchorRow_ < 0 || anchorRow_ >= rowCount || anchorCol_ < 0 || anchorCol_ >= colCount) {
+        anchorRow_ = curSourceRow;
+        anchorCol_ = curCol;
+    }
+
+    if (shift) {
+        ModelIndex anchorIdx = model_->index(anchorRow_, anchorCol_);
+        selectionModel_.selectRange(anchorIdx, newIdx, SelectionFlag::ClearAndSelect);
+    } else {
+        anchorRow_ = targetRow;
+        anchorCol_ = targetCol;
+        selectionModel_.select(newIdx, SelectionFlag::ClearAndSelect);
+    }
     selectionModel_.setCurrentIndex(newIdx);
     scrollTo(targetRow, targetCol);
     markPaintDirty();

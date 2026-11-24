@@ -1,9 +1,10 @@
 #include "widgets/views/header_view.hpp"
 
 #include "renderer/paint_context.hpp"
-#include "widgets/controls/icons.hpp"
+#include "text/font_manager.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
+#include "widgets/controls/icons.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -215,8 +216,30 @@ int HeaderView::dividerAt(float x) const noexcept {
 void HeaderView::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
+        resolvedDefaultFont_.reset();
         markLayoutDirty();
     }
+}
+
+void HeaderView::setDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        resolvedDefaultFont_.reset();
+        style().height = layout::Length::points(kDefaultHeaderHeight * dpiScale_);
+        markLayoutDirty();
+    }
+}
+
+std::shared_ptr<text::Font> HeaderView::effectiveFont() const {
+    if (font_) {
+        return font_;
+    }
+    if (!resolvedDefaultFont_) {
+        float pt = 10.0f * dpiScale_;
+        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+    }
+    return resolvedDefaultFont_;
 }
 
 void HeaderView::paint(renderer::PaintContext& ctx) {
@@ -225,15 +248,17 @@ void HeaderView::paint(renderer::PaintContext& ctx) {
         return;
     }
 
-    ctx.drawRect(sRect, theme::ColorTokens::SurfaceDefault);
+    const auto& pal = colorPalette();
+    ctx.drawRect(sRect, pal.surfaceBase);
     ctx.drawLine(
         core::Point{sRect.origin.x, sRect.origin.y + sRect.size.height - 0.5f},
         core::Point{sRect.origin.x + sRect.size.width, sRect.origin.y + sRect.size.height - 0.5f},
-        theme::ColorTokens::BorderSubtle, 1.0f);
+        pal.borderSubtle, 1.0f);
 
     ctx.pushClip(sRect);
 
     float curX = sRect.origin.x - horizontalOffset_;
+    auto f = effectiveFont();
     for (size_t i = 0; i < sections_.size(); ++i) {
         if (!sections_[i].visible) {
             continue;
@@ -242,26 +267,26 @@ void HeaderView::paint(renderer::PaintContext& ctx) {
         core::Rect secRect{core::Point{curX, sRect.origin.y}, {w, sRect.size.height - 1.0f}};
 
         if (static_cast<int>(i) == hoveredSection_ && !isDraggingDivider_) {
-            ctx.drawRect(secRect, theme::ColorTokens::SurfaceRaised);
+            ctx.drawRect(secRect, pal.surfaceRaised);
         }
 
-        if (font_ && !sections_[i].title.empty()) {
-            auto l = text::TextLayout::create(sections_[i].title, font_);
+        if (f && !sections_[i].title.empty()) {
+            auto l = text::TextLayout::create(sections_[i].title, f);
             float textY =
-                theme::computeCenteredTextY(secRect.origin.y + secRect.size.height * 0.5f, *font_);
-            float textX = secRect.origin.x + 8.0f;
+                theme::computeCenteredTextY(secRect.origin.y + secRect.size.height * 0.5f, *f);
+            float textX = secRect.origin.x + 8.0f * dpiScale_;
 
             if (sections_[i].alignment == text::TextAlignment::Right) {
-                textX = secRect.origin.x + secRect.size.width - 24.0f - l.size().width;
+                textX = secRect.origin.x + secRect.size.width - 24.0f * dpiScale_ - l.size().width;
             } else if (sections_[i].alignment == text::TextAlignment::Center) {
                 textX = secRect.origin.x + (secRect.size.width - l.size().width) * 0.5f;
             }
 
             core::Color textCol =
                 (sections_[i].sortOrder != SortOrder::None)
-                    ? theme::ColorTokens::AccentDefault
-                    : (static_cast<int>(i) == hoveredSection_ ? theme::ColorTokens::TextPrimary
-                                                              : theme::ColorTokens::TextSecondary);
+                    ? pal.accentDefault
+                    : (static_cast<int>(i) == hoveredSection_ ? pal.textPrimary
+                                                              : pal.textSecondary);
 
             ctx.drawTextLayout(core::Point{textX, textY}, l, textCol);
         }
@@ -271,19 +296,20 @@ void HeaderView::paint(renderer::PaintContext& ctx) {
                                   ? IconId::SortAscending
                                   : IconId::SortDescending;
             if (auto doc = getSvgDocument(sortIcon)) {
-                float iconSize = 14.0f;
+                float iconSize = 14.0f * dpiScale_;
                 core::Rect arrowRect{
-                    core::Point{secRect.origin.x + secRect.size.width - 20.0f,
+                    core::Point{secRect.origin.x + secRect.size.width - 20.0f * dpiScale_,
                                 secRect.origin.y + (secRect.size.height - iconSize) * 0.5f},
                     core::Size{iconSize, iconSize}};
-                ctx.drawSvg(*doc, arrowRect, theme::ColorTokens::AccentDefault);
+                ctx.drawSvg(*doc, arrowRect, pal.accentDefault);
             }
         }
 
         if (i + 1 < sections_.size()) {
-            ctx.drawLine(core::Point{curX + w - 0.5f, sRect.origin.y + 4.0f},
-                         core::Point{curX + w - 0.5f, sRect.origin.y + sRect.size.height - 5.0f},
-                         theme::ColorTokens::BorderSubtle, 1.0f);
+            ctx.drawLine(
+                core::Point{curX + w - 0.5f, sRect.origin.y + 4.0f * dpiScale_},
+                core::Point{curX + w - 0.5f, sRect.origin.y + sRect.size.height - 5.0f * dpiScale_},
+                pal.borderSubtle, 1.0f);
         }
 
         curX += w;

@@ -2,11 +2,11 @@
 
 #include "core/signal/signal.hpp"
 #include "text/font.hpp"
+#include "widgets/base/widget.hpp"
 #include "widgets/views/header_view.hpp"
 #include "widgets/views/item_delegate.hpp"
 #include "widgets/views/item_model.hpp"
 #include "widgets/views/item_selection_model.hpp"
-#include "widgets/base/widget.hpp"
 
 #include <memory>
 #include <string>
@@ -48,6 +48,10 @@ public:
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
+    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
+
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
 
     void sortByColumn(int column, SortOrder order = SortOrder::Ascending);
     [[nodiscard]] int sortColumn() const noexcept { return sortColumn_; }
@@ -91,6 +95,10 @@ private:
     ItemSelectionModel selectionModel_{};
     std::unique_ptr<ItemDelegate> delegate_{nullptr};
     std::shared_ptr<text::Font> font_{nullptr};
+    mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
+    float dpiScale_{1.0f};
+    int anchorRow_{-1};
+    int anchorCol_{-1};
 
     int sortColumn_{-1};
     SortOrder sortOrder_{SortOrder::None};

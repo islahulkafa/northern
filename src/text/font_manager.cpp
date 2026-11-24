@@ -10,24 +10,40 @@ FontManager& FontManager::instance() noexcept {
 }
 
 FontManager::FontManager() {
-    // Standard system font fallbacks
-    const std::vector<std::string> candidateFonts = {
-#ifdef _WIN32
-        "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/segoeuib.ttf",
-        "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/calibri.ttf"
-#else
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf"
-#endif
+    auto findFirstExisting = [](const std::vector<std::string>& candidates) -> std::string {
+        for (const auto& path : candidates) {
+            if (std::filesystem::exists(path)) {
+                return path;
+            }
+        }
+        return {};
     };
 
-    for (const auto& path : candidateFonts) {
-        if (std::filesystem::exists(path)) {
-            defaultFontPath_ = path;
-            break;
-        }
-    }
+#ifdef _WIN32
+    defaultFontPath_ =
+        findFirstExisting({"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/segoeuib.ttf",
+                           "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/calibri.ttf"});
+    boldFontPath_ =
+        findFirstExisting({"C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf",
+                           "C:/Windows/Fonts/calibrib.ttf"});
+    monospaceFontPath_ =
+        findFirstExisting({"C:/Windows/Fonts/CascadiaMono.ttf", "C:/Windows/Fonts/consola.ttf",
+                           "C:/Windows/Fonts/lucon.ttf"});
+#else
+    defaultFontPath_ = findFirstExisting(
+        {"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf",
+         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+         "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf"});
+    boldFontPath_ =
+        findFirstExisting({"/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                           "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+                           "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                           "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf"});
+    monospaceFontPath_ =
+        findFirstExisting({"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                           "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+                           "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"});
+#endif
 }
 
 FontManager::~FontManager() = default;
@@ -61,6 +77,20 @@ core::Result<std::shared_ptr<Font>, core::Error> FontManager::defaultFont(float 
         return core::Error(core::ErrorCode::NotFound, "No default system font found on platform");
     }
     return loadFont(defaultFontPath_, pointSize);
+}
+
+core::Result<std::shared_ptr<Font>, core::Error> FontManager::boldFont(float pointSize) {
+    if (!boldFontPath_.empty()) {
+        return loadFont(boldFontPath_, pointSize);
+    }
+    return defaultFont(pointSize);
+}
+
+core::Result<std::shared_ptr<Font>, core::Error> FontManager::monospaceFont(float pointSize) {
+    if (!monospaceFontPath_.empty()) {
+        return loadFont(monospaceFontPath_, pointSize);
+    }
+    return defaultFont(pointSize);
 }
 
 core::Result<std::shared_ptr<Font>, core::Error>

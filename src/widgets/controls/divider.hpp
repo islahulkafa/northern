@@ -2,14 +2,18 @@
 
 #include "core/math/color.hpp"
 #include "text/font.hpp"
+#include "text/text_layout.hpp"
 #include "widgets/base/widget.hpp"
 
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace northern::widgets {
 
 enum class DividerOrientation : uint8_t { Horizontal, Vertical };
+enum class DividerAlignment : uint8_t { Center, Start, End };
+enum class DividerVariant : uint8_t { Subtle, Default, Strong };
 
 class Divider : public Widget {
 public:
@@ -24,8 +28,22 @@ public:
     void setThickness(float thickness) noexcept;
     [[nodiscard]] float thickness() const noexcept { return thickness_; }
 
+    void setVariant(DividerVariant variant) noexcept;
+    [[nodiscard]] DividerVariant variant() const noexcept { return variant_; }
+
+    void setLabelAlignment(DividerAlignment alignment) noexcept;
+    [[nodiscard]] DividerAlignment labelAlignment() const noexcept { return labelAlignment_; }
+
+    void setLabelOffset(float offset) noexcept;
+    [[nodiscard]] float labelOffset() const noexcept { return labelOffset_; }
+
+    void setInset(float both) noexcept;
+    void setInset(float start, float end) noexcept;
+    [[nodiscard]] float insetStart() const noexcept { return insetStart_; }
+    [[nodiscard]] float insetEnd() const noexcept { return insetEnd_; }
+
     void setColor(const core::Color& color) noexcept;
-    [[nodiscard]] const core::Color& color() const noexcept { return color_; }
+    [[nodiscard]] core::Color color() const noexcept { return effectiveColor(); }
 
     void setLabel(std::string label);
     [[nodiscard]] const std::string& label() const noexcept { return label_; }
@@ -34,23 +52,38 @@ public:
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
 
     void setTextColor(const core::Color& color) noexcept;
-    [[nodiscard]] const core::Color& textColor() const noexcept { return textColor_; }
+    [[nodiscard]] core::Color textColor() const noexcept { return effectiveTextColor(); }
 
     void setGap(float gap) noexcept;
     [[nodiscard]] float gap() const noexcept { return gap_; }
+
+    [[nodiscard]] core::Color effectiveColor() const noexcept;
+    [[nodiscard]] core::Color effectiveTextColor() const noexcept;
 
     void paint(renderer::PaintContext& ctx) override;
 
 private:
     void updateMeasureAndStyle();
+    void ensureTextLayout() const;
+    [[nodiscard]] std::shared_ptr<text::Font> resolveFont() const;
 
     DividerOrientation orientation_{DividerOrientation::Horizontal};
+    DividerVariant variant_{DividerVariant::Subtle};
+    DividerAlignment labelAlignment_{DividerAlignment::Center};
     float thickness_{1.0f};
-    core::Color color_{core::Color{1.0f, 1.0f, 1.0f, 0.08f}};
+    float gap_{8.0f};
+    float labelOffset_{24.0f};
+    float insetStart_{0.0f};
+    float insetEnd_{0.0f};
+
     std::string label_{};
     std::shared_ptr<text::Font> font_{nullptr};
-    core::Color textColor_{core::Color{0.443f, 0.443f, 0.478f, 1.0f}};
-    float gap_{8.0f};
+
+    std::optional<core::Color> overrideColor_{};
+    std::optional<core::Color> overrideTextColor_{};
+
+    mutable std::optional<text::TextLayout> cachedTextLayout_{};
+    mutable bool isTextLayoutDirty_{true};
 };
 
 } // namespace northern::widgets

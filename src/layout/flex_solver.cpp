@@ -232,6 +232,17 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
         item.minCross = isRow ? cMinH : cMinW;
         item.maxCross = isRow ? cMaxH : cMaxW;
 
+        float measureAvailW = isRow ? (cMaxW < 1e8f ? cMaxW : 0.0f)
+                                    : clampDimension((cs.width.isPoints() || cs.width.isPercent())
+                                                         ? cs.width.resolve(crossInner)
+                                                         : crossInner,
+                                                     cMinW, cMaxW);
+        float measureAvailH = isRow ? clampDimension((cs.height.isPoints() || cs.height.isPercent())
+                                                         ? cs.height.resolve(crossInner)
+                                                         : crossInner,
+                                                     cMinH, cMaxH)
+                                    : (cMaxH < 1e8f ? cMaxH : 0.0f);
+
         // Base main size
         if (cs.flexBasis.isPoints() || cs.flexBasis.isPercent()) {
             item.baseMain = cs.flexBasis.resolve(mainInner);
@@ -249,22 +260,57 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
                 item.baseMain = definiteCross / ratio;
                 item.finalCross = definiteCross;
             } else if (child->hasMeasureFunc()) {
-                core::Size m = child->measure(isRow ? 0.0f : crossInner, isRow ? crossInner : 0.0f);
+                core::Size m = child->measure(measureAvailW, measureAvailH);
                 item.baseMain = isRow ? m.width : m.height;
                 item.finalCross = isRow ? m.height : m.width;
             } else if (child->childCount() > 0) {
-                solveNode(*child, isRow ? 0.0f : crossInner, isRow ? crossInner : 0.0f, arena);
+                AlignSelf childAlign = (cs.alignSelf != AlignSelf::Auto)
+                                           ? cs.alignSelf
+                                           : toAlignSelf(style.alignItems);
+                bool stretchCross = (childAlign == AlignSelf::Stretch) &&
+                                    !(isRow ? (cs.height.isPoints() || cs.height.isPercent())
+                                            : (cs.width.isPoints() || cs.width.isPercent()));
+                float childAvailW =
+                    isRow ? 0.0f
+                          : (stretchCross ? crossInner
+                                          : ((cs.width.isPoints() || cs.width.isPercent())
+                                                 ? cs.width.resolve(crossInner)
+                                                 : 0.0f));
+                float childAvailH =
+                    isRow ? (stretchCross ? crossInner
+                                          : ((cs.height.isPoints() || cs.height.isPercent())
+                                                 ? cs.height.resolve(crossInner)
+                                                 : 0.0f))
+                          : 0.0f;
+                solveNode(*child, childAvailW, childAvailH, arena);
                 item.baseMain =
                     isRow ? child->layoutRect().size.width : child->layoutRect().size.height;
                 item.finalCross =
                     isRow ? child->layoutRect().size.height : child->layoutRect().size.width;
             }
         } else if (child->hasMeasureFunc()) {
-            core::Size m = child->measure(isRow ? 0.0f : crossInner, isRow ? crossInner : 0.0f);
+            core::Size m = child->measure(measureAvailW, measureAvailH);
             item.baseMain = isRow ? m.width : m.height;
             item.finalCross = isRow ? m.height : m.width;
         } else if (child->childCount() > 0) {
-            solveNode(*child, isRow ? 0.0f : crossInner, isRow ? crossInner : 0.0f, arena);
+            AlignSelf childAlign =
+                (cs.alignSelf != AlignSelf::Auto) ? cs.alignSelf : toAlignSelf(style.alignItems);
+            bool stretchCross = (childAlign == AlignSelf::Stretch) &&
+                                !(isRow ? (cs.height.isPoints() || cs.height.isPercent())
+                                        : (cs.width.isPoints() || cs.width.isPercent()));
+            float childAvailW = isRow
+                                    ? 0.0f
+                                    : (stretchCross ? crossInner
+                                                    : ((cs.width.isPoints() || cs.width.isPercent())
+                                                           ? cs.width.resolve(crossInner)
+                                                           : 0.0f));
+            float childAvailH =
+                isRow ? (stretchCross ? crossInner
+                                      : ((cs.height.isPoints() || cs.height.isPercent())
+                                             ? cs.height.resolve(crossInner)
+                                             : 0.0f))
+                      : 0.0f;
+            solveNode(*child, childAvailW, childAvailH, arena);
             item.baseMain =
                 isRow ? child->layoutRect().size.width : child->layoutRect().size.height;
             item.finalCross =

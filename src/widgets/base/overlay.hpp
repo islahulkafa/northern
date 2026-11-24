@@ -15,7 +15,7 @@ enum class OverlayPlacement {
     Top,    // Above anchor rect
     Right,  // Submenu placement
     Left,
-    Center  // Centered in viewport (standard for modal dialogs)
+    Center // Centered in viewport (standard for modal dialogs)
 };
 
 struct OverlayDesc {
@@ -34,6 +34,7 @@ struct OverlayEntry {
     OverlayDesc desc{};
     Widget* owner{nullptr}; // Non-owning pointer to trigger/spawning widget
     core::Point computedPosition{0.0f, 0.0f};
+    bool isOwned{true};
 };
 
 [[nodiscard]] inline core::Point computeOverlayPosition(const core::Size& viewportSize,

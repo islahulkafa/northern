@@ -65,6 +65,10 @@ public:
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
+    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
+
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
 
     core::Signal<size_t, float> onSectionResized;
     core::Signal<size_t, SortOrder> onSortChanged;
@@ -82,6 +86,8 @@ private:
 
     std::vector<HeaderSection> sections_{};
     std::shared_ptr<text::Font> font_{nullptr};
+    mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
+    float dpiScale_{1.0f};
     bool stretchLastSection_{true};
     float horizontalOffset_{0.0f};
 

@@ -1,0 +1,168 @@
+#include "widgets/views/item_delegate.hpp"
+#include "widgets/views/item_model.hpp"
+#include "widgets/views/item_selection_model.hpp"
+#include "widgets/views/list_view.hpp"
+#include "widgets/views/table_view.hpp"
+#include "widgets/views/tree_view.hpp"
+#include <gtest/gtest.h>
+
+using namespace northern;
+using namespace northern::core;
+using namespace northern::widgets;
+
+TEST(CollectionViewsTest, ItemDelegateOptionMetrics) {
+    ItemDelegate delegate;
+    StyleOptionViewItem opt;
+    opt.bounds = core::Rect{core::Point{0.0f, 0.0f}, core::Size{200.0f, 30.0f}};
+    opt.text = "Sample Item";
+    opt.badgeText = "Active";
+    opt.showCheckbox = true;
+    opt.checkboxChecked = true;
+    opt.dpiScale = 1.0f;
+
+    core::Size size = delegate.sizeHint(opt, ModelIndex{});
+    EXPECT_GT(size.width, 0.0f);
+    EXPECT_GE(size.height, 28.0f);
+}
+
+TEST(CollectionViewsTest, ListViewShiftRangeSelectionAndCtrlA) {
+    StringListModel model;
+    for (int i = 0; i < 20; ++i) {
+        model.append("Row " + std::to_string(i));
+    }
+
+    ListView list(&model);
+    list.selectionModel().setSelectionMode(SelectionMode::Multi);
+    list.setRowHeight(25.0f);
+    list.layoutNode().setLayoutRect(
+        core::Rect{core::Point{0.0f, 0.0f}, core::Size{200.0f, 250.0f}});
+
+    // Select row 2
+    ModelIndex idx2 = model.index(2, 0);
+    list.selectionModel().select(idx2, SelectionFlag::ClearAndSelect);
+    list.selectionModel().setCurrentIndex(idx2);
+
+    // Press Shift+Down three times
+    WidgetKeyEvent shiftDown{northern::platform::Key::Down, true,
+                             northern::platform::KeyModifier::Shift};
+    list.onKeyDown(shiftDown);
+    list.onKeyDown(shiftDown);
+    list.onKeyDown(shiftDown);
+
+    // Current row should be 5, and rows 2, 3, 4, 5 should be selected
+    EXPECT_EQ(list.selectionModel().currentIndex().row, 5);
+    EXPECT_TRUE(list.selectionModel().isSelected(model.index(2, 0)));
+    EXPECT_TRUE(list.selectionModel().isSelected(model.index(3, 0)));
+    EXPECT_TRUE(list.selectionModel().isSelected(model.index(4, 0)));
+    EXPECT_TRUE(list.selectionModel().isSelected(model.index(5, 0)));
+    EXPECT_FALSE(list.selectionModel().isSelected(model.index(1, 0)));
+    EXPECT_FALSE(list.selectionModel().isSelected(model.index(6, 0)));
+
+    // Ctrl+A select all
+    WidgetKeyEvent ctrlA{northern::platform::Key::A, true,
+                         northern::platform::KeyModifier::Control};
+    list.onKeyDown(ctrlA);
+    EXPECT_EQ(list.selectionModel().selectedIndexes().size(), 20u);
+}
+
+TEST(CollectionViewsTest, TableViewSortingAndPaging) {
+    StandardTableModel model({"Name", "Score"});
+    model.appendRow({"Charlie", "70"});
+    model.appendRow({"Alice", "95"});
+    model.appendRow({"Bob", "85"});
+
+    TableView table(&model);
+    table.setRowHeight(25.0f);
+    table.horizontalHeader()->setSectionWidth(0, 100.0f);
+    table.horizontalHeader()->setSectionWidth(1, 100.0f);
+    table.layoutNode().setLayoutRect(
+        core::Rect{core::Point{0.0f, 0.0f}, core::Size{250.0f, 150.0f}});
+    table.horizontalHeader()->layoutNode().setLayoutRect(
+        core::Rect{core::Point{0.0f, 0.0f}, core::Size{250.0f, 28.0f}});
+
+    // Sort ascending by column 0 (Name)
+    table.sortByColumn(0, SortOrder::Ascending);
+    EXPECT_EQ(table.toSourceRow(0), 1); // Alice
+    EXPECT_EQ(table.toSourceRow(1), 2); // Bob
+    EXPECT_EQ(table.toSourceRow(2), 0); // Charlie
+
+    // Sort descending by column 0 (Name)
+    table.sortByColumn(0, SortOrder::Descending);
+    EXPECT_EQ(table.toSourceRow(0), 0); // Charlie
+    EXPECT_EQ(table.toSourceRow(1), 2); // Bob
+    EXPECT_EQ(table.toSourceRow(2), 1); // Alice
+
+    // Keyboard navigation with PageDown / PageUp
+    table.selectionModel().setCurrentIndex(model.index(0, 0));
+    WidgetKeyEvent pgDown{northern::platform::Key::PageDown, true,
+                          northern::platform::KeyModifier::None};
+    table.onKeyDown(pgDown);
+    EXPECT_EQ(table.selectionModel().currentIndex().row, table.toSourceRow(2));
+}
+
+TEST(CollectionViewsTest, TreeViewKeyboardHierarchyNavigation) {
+    StandardTreeModel model({"Hierarchy"});
+    auto* root = model.rootItem();
+
+    auto folder = std::make_unique<StandardTreeItem>(std::vector<std::string>{"Folder"});
+    auto child1 = std::make_unique<StandardTreeItem>(std::vector<std::string>{"Child1"});
+    auto child2 = std::make_unique<StandardTreeItem>(std::vector<std::string>{"Child2"});
+    folder->appendChild(std::move(child1));
+    folder->appendChild(std::move(child2));
+    root->appendChild(std::move(folder));
+
+    TreeView tree(&model);
+    tree.setRowHeight(25.0f);
+    tree.layoutNode().setLayoutRect(
+        core::Rect{core::Point{0.0f, 0.0f}, core::Size{300.0f, 200.0f}});
+    tree.header()->layoutNode().setLayoutRect(
+        core::Rect{core::Point{0.0f, 0.0f}, core::Size{300.0f, 28.0f}});
+
+    ModelIndex folderIdx = model.index(0, 0);
+    tree.selectionModel().setCurrentIndex(folderIdx);
+    tree.selectionModel().select(folderIdx);
+
+    EXPECT_FALSE(tree.isExpanded(folderIdx));
+
+    // Right arrow on collapsed folder expands it
+    WidgetKeyEvent rightEv{northern::platform::Key::Right, true,
+                           northern::platform::KeyModifier::None};
+    tree.onKeyDown(rightEv);
+    EXPECT_TRUE(tree.isExpanded(folderIdx));
+
+    // Right arrow again moves to first child
+    tree.onKeyDown(rightEv);
+    EXPECT_EQ(model.data(tree.selectionModel().currentIndex()), "Child1");
+
+    // Left arrow moves to parent
+    WidgetKeyEvent leftEv{northern::platform::Key::Left, true,
+                          northern::platform::KeyModifier::None};
+    tree.onKeyDown(leftEv);
+    EXPECT_EQ(tree.selectionModel().currentIndex(), folderIdx);
+
+    // Left arrow again collapses folder
+    tree.onKeyDown(leftEv);
+    EXPECT_FALSE(tree.isExpanded(folderIdx));
+}
+
+TEST(CollectionViewsTest, DpiScalingPropagation) {
+    StringListModel model({"Alpha", "Beta"});
+    ListView list(&model);
+    list.setDpiScale(1.5f);
+    EXPECT_FLOAT_EQ(list.dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(list.rowHeight(), ListView::kDefaultRowHeight * 1.5f);
+
+    StandardTableModel tableModel({"A", "B"});
+    TableView table(&tableModel);
+    table.setDpiScale(2.0f);
+    EXPECT_FLOAT_EQ(table.dpiScale(), 2.0f);
+    EXPECT_FLOAT_EQ(table.rowHeight(), TableView::kDefaultRowHeight * 2.0f);
+    EXPECT_FLOAT_EQ(table.horizontalHeader()->dpiScale(), 2.0f);
+
+    StandardTreeModel treeModel({"Tree"});
+    TreeView tree(&treeModel);
+    tree.setDpiScale(1.25f);
+    EXPECT_FLOAT_EQ(tree.dpiScale(), 1.25f);
+    EXPECT_FLOAT_EQ(tree.rowHeight(), TreeView::kDefaultRowHeight * 1.25f);
+    EXPECT_FLOAT_EQ(tree.indentPerLevel(), TreeView::kDefaultIndentPerLevel * 1.25f);
+}

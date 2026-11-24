@@ -3,13 +3,43 @@
 
 namespace northern::text {
 
+namespace {
+
+struct ThreadHbBuffer {
+    hb_buffer_t* buf{nullptr};
+
+    ThreadHbBuffer() noexcept : buf(hb_buffer_create()) {}
+    ~ThreadHbBuffer() {
+        if (buf) {
+            hb_buffer_destroy(buf);
+            buf = nullptr;
+        }
+    }
+
+    ThreadHbBuffer(const ThreadHbBuffer&) = delete;
+    ThreadHbBuffer& operator=(const ThreadHbBuffer&) = delete;
+};
+
+hb_buffer_t* getReusableHbBuffer() noexcept {
+    thread_local ThreadHbBuffer sBuffer;
+    if (sBuffer.buf) {
+        hb_buffer_clear_contents(sBuffer.buf);
+    }
+    return sBuffer.buf;
+}
+
+} // namespace
+
 std::vector<ShapedGlyph> TextShaper::shape(const Font& font, std::string_view utf8Text) {
     std::vector<ShapedGlyph> result;
     if (utf8Text.empty() || !font.impl() || !font.impl()->hbFont) {
         return result;
     }
 
-    hb_buffer_t* buf = hb_buffer_create();
+    hb_buffer_t* buf = getReusableHbBuffer();
+    if (!buf) {
+        return result;
+    }
     hb_buffer_add_utf8(buf, utf8Text.data(), static_cast<int>(utf8Text.size()), 0,
                        static_cast<int>(utf8Text.size()));
     hb_buffer_guess_segment_properties(buf);
@@ -43,7 +73,6 @@ std::vector<ShapedGlyph> TextShaper::shape(const Font& font, std::string_view ut
         result.push_back(sg);
     }
 
-    hb_buffer_destroy(buf);
     return result;
 }
 

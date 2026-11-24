@@ -287,3 +287,158 @@ TEST(DropdownTest, ScrollbarDragAndWheelInteraction) {
     EXPECT_TRUE(ddPtr->isOpen());
     EXPECT_EQ(ddPtr->selectedIndex(), 0); // Not changed by scrollbar drag
 }
+
+TEST(DropdownTest, SizePresetsDpiAndFallbackFont) {
+    Dropdown dd{{"Alpha", "Beta"}};
+
+    // Default is Standard (32px)
+    EXPECT_EQ(dd.size(), DropdownSize::Standard);
+    EXPECT_FLOAT_EQ(dd.preferredHeight(), 32.0f);
+
+    dd.setSize(DropdownSize::Compact);
+    EXPECT_FLOAT_EQ(dd.preferredHeight(), 28.0f);
+
+    dd.setSize(DropdownSize::Comfortable);
+    EXPECT_FLOAT_EQ(dd.preferredHeight(), 36.0f);
+
+    // DPI Scaling
+    dd.setSize(DropdownSize::Standard);
+    dd.setDpiScale(1.5f);
+    EXPECT_FLOAT_EQ(dd.preferredHeight(), 48.0f);
+    EXPECT_FLOAT_EQ(dd.dpiScale(), 1.5f);
+
+    // Font fallbacks: even if no font was supplied, effectiveFont is non-null
+    EXPECT_NE(dd.effectiveFont(), nullptr);
+}
+
+TEST(DropdownTest, RichDropdownItemsAndSeparators) {
+    std::vector<DropdownItem> items;
+    items.push_back(DropdownItem{.text = "Save"});
+    items.push_back(DropdownItem::separator());
+    items.push_back(DropdownItem{.text = "Export", .isEnabled = false});
+
+    Dropdown dd{items};
+    EXPECT_EQ(dd.itemCount(), 3);
+    EXPECT_EQ(dd.itemText(0), "Save");
+    EXPECT_FALSE(dd.isSeparator(0));
+    EXPECT_TRUE(dd.isItemEnabled(0));
+
+    EXPECT_TRUE(dd.isSeparator(1));
+    EXPECT_FALSE(dd.isItemEnabled(1));
+
+    EXPECT_EQ(dd.itemText(2), "Export");
+    EXPECT_FALSE(dd.isItemEnabled(2));
+
+    // Toggle enabled state
+    dd.setItemEnabled(2, true);
+    EXPECT_TRUE(dd.isItemEnabled(2));
+
+    // Add another item and separator dynamically
+    dd.addSeparator();
+    EXPECT_EQ(dd.itemCount(), 4);
+    EXPECT_TRUE(dd.isSeparator(3));
+
+    dd.addItem("Quit");
+    EXPECT_EQ(dd.itemCount(), 5);
+    EXPECT_EQ(dd.itemText(4), "Quit");
+}
+
+TEST(DropdownTest, DisabledItemsAndSeparatorNavigation) {
+    WidgetContext ctx;
+    std::vector<DropdownItem> items;
+    items.push_back(DropdownItem{.text = "Item 0"});
+    items.push_back(DropdownItem{.text = "Item 1", .isEnabled = false});
+    items.push_back(DropdownItem::separator());
+    items.push_back(DropdownItem{.text = "Item 3"});
+    items.push_back(DropdownItem{.text = "Item 4", .isEnabled = false});
+
+    auto dd = std::make_unique<Dropdown>(items, 0);
+    Dropdown* ddPtr = dd.get();
+    ctx.setRootWidget(std::move(dd));
+    ctx.handleResize(core::Size{400.0f, 300.0f});
+
+    ddPtr->open();
+    EXPECT_TRUE(ddPtr->isOpen());
+    EXPECT_EQ(ddPtr->highlightedIndex(), 0);
+
+    // Press Down -> should skip index 1 (disabled) and index 2 (separator) -> land on index 3
+    WidgetKeyEvent downEv{platform::Key::Down, true, platform::KeyModifier::None};
+    ddPtr->onKeyDown(downEv);
+    EXPECT_EQ(ddPtr->highlightedIndex(), 3);
+
+    // Another Down -> cannot go to index 4 (disabled), stays on 3
+    ddPtr->onKeyDown(downEv);
+    EXPECT_EQ(ddPtr->highlightedIndex(), 3);
+
+    // Press Up -> skips index 2 and index 1 -> lands on 0
+    WidgetKeyEvent upEv{platform::Key::Up, true, platform::KeyModifier::None};
+    ddPtr->onKeyDown(upEv);
+    EXPECT_EQ(ddPtr->highlightedIndex(), 0);
+
+    // Enter confirms 0
+    WidgetKeyEvent enterEv{platform::Key::Enter, true, platform::KeyModifier::None};
+    ddPtr->onKeyDown(enterEv);
+    EXPECT_FALSE(ddPtr->isOpen());
+    EXPECT_EQ(ddPtr->selectedIndex(), 0);
+}
+
+TEST(DropdownTest, TypeAheadPrefixSearch) {
+    WidgetContext ctx;
+    std::vector<DropdownItem> items;
+    items.push_back(DropdownItem{.text = "Apple"});
+    items.push_back(DropdownItem{.text = "Apricot"});
+    items.push_back(DropdownItem{.text = "Banana"});
+    items.push_back(DropdownItem{.text = "Blueberry", .isEnabled = false});
+    items.push_back(DropdownItem{.text = "Cherry"});
+
+    auto dd = std::make_unique<Dropdown>(items);
+    Dropdown* ddPtr = dd.get();
+    ctx.setRootWidget(std::move(dd));
+    ctx.handleResize(core::Size{400.0f, 300.0f});
+
+    ddPtr->open();
+    EXPECT_TRUE(ddPtr->isOpen());
+
+    // Press 'C' -> jumps to "Cherry" (index 4)
+    WidgetKeyEvent keyC{platform::Key::C, true, platform::KeyModifier::None};
+    ddPtr->onKeyDown(keyC);
+    EXPECT_EQ(ddPtr->highlightedIndex(), 4);
+
+    // Press 'B' -> jumps to "Banana" (index 2), skips "Blueberry" (disabled)
+    WidgetKeyEvent keyB{platform::Key::B, true, platform::KeyModifier::None};
+    ddPtr->onKeyDown(keyB);
+    EXPECT_EQ(ddPtr->highlightedIndex(), 2);
+
+    // Confirm selection
+    WidgetKeyEvent enterEv{platform::Key::Enter, true, platform::KeyModifier::None};
+    ddPtr->onKeyDown(enterEv);
+    EXPECT_FALSE(ddPtr->isOpen());
+    EXPECT_EQ(ddPtr->selectedIndex(), 2);
+    EXPECT_EQ(ddPtr->selectedText(), "Banana");
+}
+
+TEST(DropdownTest, PopupDimensionsAndSeparators) {
+    WidgetContext ctx;
+    std::vector<DropdownItem> items;
+    items.push_back(DropdownItem{.text = "Item 0"});
+    items.push_back(DropdownItem::separator());
+    items.push_back(DropdownItem{.text = "Item 1"});
+
+    auto dd = std::make_unique<Dropdown>(items, 0, nullptr, DropdownSize::Standard);
+    Dropdown* ddPtr = dd.get();
+    ctx.setRootWidget(std::move(dd));
+    ctx.handleResize(core::Size{400.0f, 300.0f});
+
+    ddPtr->open();
+    EXPECT_TRUE(ddPtr->isOpen());
+
+    Widget* popup = ddPtr->activePopup();
+    ASSERT_NE(popup, nullptr);
+
+    // Two 28px items (56px) + 6px separator + 8px vertical padding = 70px height
+    EXPECT_FLOAT_EQ(popup->style().height.value, 70.0f);
+
+    renderer::PaintContext paintCtx;
+    ctx.render(paintCtx, core::Size{400.0f, 300.0f});
+    EXPECT_GT(paintCtx.commands().size(), 0);
+}

@@ -118,6 +118,12 @@ std::string StandardTableModel::data(const ModelIndex& index, ItemDataRole role)
     if (role == ItemDataRole::Display || role == ItemDataRole::Tooltip) {
         return row[static_cast<size_t>(index.column)];
     }
+    uint64_t key = (static_cast<uint64_t>(index.row) << 32) |
+                   (static_cast<uint64_t>(index.column) << 16) | static_cast<uint16_t>(role);
+    auto it = roleData_.find(key);
+    if (it != roleData_.end()) {
+        return it->second;
+    }
     return {};
 }
 
@@ -139,7 +145,11 @@ bool StandardTableModel::setData(const ModelIndex& index, const std::string& val
         onDataChanged.emit(index, index);
         return true;
     }
-    return false;
+    uint64_t key = (static_cast<uint64_t>(index.row) << 32) |
+                   (static_cast<uint64_t>(index.column) << 16) | static_cast<uint16_t>(role);
+    roleData_[key] = value;
+    onDataChanged.emit(index, index);
+    return true;
 }
 
 std::string StandardTableModel::headerData(int section, Orientation orientation) const {
@@ -211,6 +221,7 @@ void StandardTableModel::setCell(int row, int column, std::string text) {
 
 void StandardTableModel::clear() {
     cells_.clear();
+    roleData_.clear();
     onModelReset.emit();
 }
 

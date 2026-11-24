@@ -2,6 +2,7 @@
 
 #include "core/math/color.hpp"
 #include "core/math/geometry.hpp"
+#include "renderer/svg/svg_document.hpp"
 #include "text/font.hpp"
 #include "text/types.hpp"
 #include <memory>
@@ -32,13 +33,19 @@ struct DrawGlyphsCommand {
     core::Color color{1.0f, 1.0f, 1.0f, 1.0f};
 };
 
+struct DrawSvgCommand {
+    std::shared_ptr<const SvgDocument::Impl> docImpl;
+    core::Rect bounds;
+    core::Color tintColor{1.0f, 1.0f, 1.0f, 1.0f};
+};
+
 struct PushClipCommand {
     core::Rect clipRect;
 };
 
 struct PopClipCommand {};
 
-using DrawCommand = std::variant<DrawBoxCommand, DrawLineCommand, DrawGlyphsCommand,
+using DrawCommand = std::variant<DrawBoxCommand, DrawLineCommand, DrawGlyphsCommand, DrawSvgCommand,
                                  PushClipCommand, PopClipCommand>;
 
 } // namespace northern::renderer

@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace northern::widgets {
@@ -40,6 +41,9 @@ enum class ItemDataRole : uint8_t {
     CheckState,
     Foreground,
     Background,
+    BadgeText,
+    BadgeColor,
+    BadgeTextColor,
     UserData
 };
 
@@ -141,6 +145,7 @@ public:
 private:
     std::vector<std::string> horizontalHeaders_{};
     std::vector<std::vector<std::string>> cells_{};
+    std::unordered_map<uint64_t, std::string> roleData_{};
     int columnCount_{0};
 };
 

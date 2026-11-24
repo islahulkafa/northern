@@ -3,6 +3,7 @@
 #include "core/math/color.hpp"
 #include "core/math/geometry.hpp"
 #include "renderer/paint_context.hpp"
+#include "renderer/svg/svg_document.hpp"
 #include "text/font.hpp"
 #include "text/text_layout.hpp"
 #include "widgets/views/item_model.hpp"
@@ -25,6 +26,16 @@ struct StyleOptionViewItem {
     text::TextAlignment alignment{text::TextAlignment::Left};
     float paddingLeft{8.0f};
     float paddingRight{8.0f};
+
+    // Rich delegate capabilities
+    std::shared_ptr<renderer::SvgDocument> icon{nullptr};
+    float iconSize{16.0f};
+    bool showCheckbox{false};
+    bool checkboxChecked{false};
+    std::string badgeText{};
+    core::Color badgeColor{core::Color::transparent()};
+    core::Color badgeTextColor{core::Color{0.96f, 0.96f, 0.96f, 1.0f}};
+    float dpiScale{1.0f};
 };
 
 class ItemDelegate {

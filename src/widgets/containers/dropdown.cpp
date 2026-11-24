@@ -1,27 +1,92 @@
 #include "widgets/containers/dropdown.hpp"
 #include "renderer/paint_context.hpp"
+#include "renderer/svg/svg_document.hpp"
+#include "text/font_manager.hpp"
 #include "text/text_layout.hpp"
 #include "widgets/base/widget_context.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <numbers>
 
 namespace northern::widgets {
 
+namespace {
+
+constexpr float kTypeAheadTimeoutSeconds = 0.60f;
+
+[[nodiscard]] float itemHeightForSize(DropdownSize size, float dpiScale) noexcept {
+    float baseH = 28.0f;
+    switch (size) {
+    case DropdownSize::Compact:
+        baseH = 24.0f;
+        break;
+    case DropdownSize::Comfortable:
+        baseH = 32.0f;
+        break;
+    case DropdownSize::Standard:
+    default:
+        baseH = 28.0f;
+        break;
+    }
+    return baseH * dpiScale;
+}
+
+[[nodiscard]] float controlHeightForSize(DropdownSize size, float dpiScale) noexcept {
+    float baseH = theme::Metrics::ControlHeightStandard;
+    switch (size) {
+    case DropdownSize::Compact:
+        baseH = theme::Metrics::ControlHeightCompact;
+        break;
+    case DropdownSize::Comfortable:
+        baseH = theme::Metrics::ControlHeightComfortable;
+        break;
+    case DropdownSize::Standard:
+    default:
+        baseH = theme::Metrics::ControlHeightStandard;
+        break;
+    }
+    return baseH * dpiScale;
+}
+
+[[nodiscard]] float defaultPointSizeForSize(DropdownSize size) noexcept {
+    switch (size) {
+    case DropdownSize::Compact:
+        return 9.5f;
+    case DropdownSize::Comfortable:
+        return 11.5f;
+    case DropdownSize::Standard:
+    default:
+        return 10.5f;
+    }
+}
+
+} // namespace
+
 class DropdownPopup : public Widget {
 public:
-    DropdownPopup(Dropdown* owner, std::vector<std::string> items, int selectedIndex,
-                  std::shared_ptr<text::Font> font, float targetWidth)
+    DropdownPopup(Dropdown* owner, std::vector<DropdownItem> items, int selectedIndex,
+                  std::shared_ptr<text::Font> font, float targetWidth, DropdownSize size,
+                  float dpiScale, size_t maxVisibleItems)
         : owner_(owner), items_(std::move(items)), selectedIndex_(selectedIndex),
-          font_(std::move(font)), targetWidth_(targetWidth) {
+          font_(std::move(font)), targetWidth_(targetWidth), dpiScale_(dpiScale) {
         setFocusable(false);
         style().width = layout::Length::points(targetWidth_);
 
-        itemHeight_ = 28.0f;
-        float paddingVertical = 8.0f;
-        float contentH = static_cast<float>(items_.size()) * itemHeight_ + paddingVertical;
-        float maxH = 176.0f;
+        itemHeight_ = itemHeightForSize(size, dpiScale_);
+        separatorHeight_ = 6.0f * dpiScale_;
+        scrollbarWidth_ = 6.0f * dpiScale_;
+        scrollbarHitWidth_ = 16.0f * dpiScale_;
+
+        float paddingVertical = 8.0f * dpiScale_;
+        float contentH = paddingVertical;
+        for (const auto& it : items_) {
+            contentH += it.isSeparator ? separatorHeight_ : itemHeight_;
+        }
+
+        size_t maxVis = maxVisibleItems > 0 ? maxVisibleItems : 6;
+        float maxH = static_cast<float>(maxVis) * itemHeight_ + paddingVertical;
         float totalH = std::min(contentH, maxH);
         style().height = layout::Length::points(totalH);
 
@@ -31,14 +96,19 @@ public:
             });
 
         highlightedIndex_ =
-            (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(items_.size()))
+            (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(items_.size()) &&
+             isSelectable(selectedIndex_))
                 ? selectedIndex_
-                : (items_.empty() ? -1 : 0);
+                : findFirstSelectable();
 
         cachedItemLayouts_.reserve(items_.size());
         for (const auto& item : items_) {
-            if (font_ && !item.empty()) {
-                cachedItemLayouts_.push_back(text::TextLayout::create(item, font_));
+            if (item.isSeparator) {
+                cachedItemLayouts_.push_back(std::nullopt);
+                continue;
+            }
+            if (font_ && !item.text.empty()) {
+                cachedItemLayouts_.push_back(text::TextLayout::create(item.text, font_));
             } else {
                 cachedItemLayouts_.push_back(std::nullopt);
             }
@@ -67,27 +137,59 @@ public:
     [[nodiscard]] float verticalScrollOffset() const noexcept { return scrollOffset_; }
     [[nodiscard]] bool isDraggingThumb() const noexcept { return isDraggingThumb_; }
 
+    [[nodiscard]] bool isSelectable(int idx) const noexcept {
+        if (idx < 0 || idx >= static_cast<int>(items_.size())) {
+            return false;
+        }
+        return items_[idx].isEnabled && !items_[idx].isSeparator;
+    }
+
+    [[nodiscard]] int findFirstSelectable() const noexcept {
+        for (size_t i = 0; i < items_.size(); ++i) {
+            if (items_[i].isEnabled && !items_[i].isSeparator) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
+
+    float itemTopOffset(int idx) const noexcept {
+        float top = 4.0f * dpiScale_;
+        for (int i = 0; i < idx && i < static_cast<int>(items_.size()); ++i) {
+            top += items_[i].isSeparator ? separatorHeight_ : itemHeight_;
+        }
+        return top;
+    }
+
+    float totalContentHeight() const noexcept {
+        float h = 8.0f * dpiScale_;
+        for (const auto& it : items_) {
+            h += it.isSeparator ? separatorHeight_ : itemHeight_;
+        }
+        return h;
+    }
+
     core::Rect localTrackRect() const noexcept {
         float w = layoutRect().size.width > 0.0f ? layoutRect().size.width : targetWidth_;
         float h = layoutRect().size.height > 0.0f
                       ? layoutRect().size.height
-                      : (style().height.isPoints() ? style().height.value : 176.0f);
-        return core::Rect{core::Point{w - scrollbarWidth_ - 3.0f, 3.0f},
-                          core::Size{scrollbarWidth_, std::max(0.0f, h - 6.0f)}};
+                      : (style().height.isPoints() ? style().height.value : (176.0f * dpiScale_));
+        return core::Rect{core::Point{w - scrollbarWidth_ - 3.0f * dpiScale_, 3.0f * dpiScale_},
+                          core::Size{scrollbarWidth_, std::max(0.0f, h - 6.0f * dpiScale_)}};
     }
 
     core::Rect localThumbRect() const noexcept {
         core::Rect tRect = localTrackRect();
-        float contentH = static_cast<float>(items_.size()) * itemHeight_ + 8.0f;
+        float contentH = totalContentHeight();
         float h = layoutRect().size.height > 0.0f
                       ? layoutRect().size.height
-                      : (style().height.isPoints() ? style().height.value : 176.0f);
+                      : (style().height.isPoints() ? style().height.value : (176.0f * dpiScale_));
         if (contentH <= h) {
             return core::Rect{};
         }
         float maxScroll = contentH - h;
         float trackH = tRect.size.height;
-        float thumbH = std::clamp(trackH * (h / contentH), 18.0f, trackH);
+        float thumbH = std::clamp(trackH * (h / contentH), 18.0f * dpiScale_, trackH);
         float scrollFraction = std::clamp(scrollOffset_ / maxScroll, 0.0f, 1.0f);
         float thumbY = tRect.origin.y + scrollFraction * (trackH - thumbH);
         return core::Rect{core::Point{tRect.origin.x, thumbY},
@@ -95,14 +197,11 @@ public:
     }
 
     void setHighlightedIndex(int idx) {
-        int count = static_cast<int>(items_.size());
-        if (count == 0) {
-            highlightedIndex_ = -1;
+        if (!isSelectable(idx)) {
             return;
         }
-        int clamped = std::clamp(idx, 0, count - 1);
-        if (highlightedIndex_ != clamped) {
-            highlightedIndex_ = clamped;
+        if (highlightedIndex_ != idx) {
+            highlightedIndex_ = idx;
             scrollItemIntoView(highlightedIndex_);
             markPaintDirty();
         }
@@ -112,28 +211,41 @@ public:
         if (idx < 0 || idx >= static_cast<int>(items_.size())) {
             return;
         }
-        float viewH = layoutRect().size.height > 0.0f
-                          ? layoutRect().size.height
-                          : (style().height.isPoints() ? style().height.value : 176.0f);
-        float itemTop = static_cast<float>(idx) * itemHeight_;
-        float itemBottom = itemTop + itemHeight_;
-        float maxScroll =
-            std::max(0.0f, static_cast<float>(items_.size()) * itemHeight_ + 8.0f - viewH);
+        float viewH =
+            layoutRect().size.height > 0.0f
+                ? layoutRect().size.height
+                : (style().height.isPoints() ? style().height.value : (176.0f * dpiScale_));
+        float itemTop = itemTopOffset(idx);
+        float itemH = items_[idx].isSeparator ? separatorHeight_ : itemHeight_;
+        float itemBottom = itemTop + itemH;
+        float maxScroll = std::max(0.0f, totalContentHeight() - viewH);
 
         if (itemTop < scrollOffset_) {
             scrollOffset_ = std::clamp(itemTop, 0.0f, maxScroll);
             markPaintDirty();
-        } else if (itemBottom > scrollOffset_ + viewH - 8.0f) {
-            scrollOffset_ = std::clamp(itemBottom - viewH + 8.0f, 0.0f, maxScroll);
+        } else if (itemBottom > scrollOffset_ + viewH - 8.0f * dpiScale_) {
+            scrollOffset_ = std::clamp(itemBottom - viewH + 8.0f * dpiScale_, 0.0f, maxScroll);
             markPaintDirty();
         }
     }
 
+    int itemIndexAtLocalY(float localY) const noexcept {
+        float currY = 4.0f * dpiScale_ - scrollOffset_;
+        for (size_t i = 0; i < items_.size(); ++i) {
+            float h = items_[i].isSeparator ? separatorHeight_ : itemHeight_;
+            if (localY >= currY && localY < currY + h) {
+                return static_cast<int>(i);
+            }
+            currY += h;
+        }
+        return -1;
+    }
+
     void onMouseMove(WidgetMouseEvent& ev) override {
-        float contentH = static_cast<float>(items_.size()) * itemHeight_ + 8.0f;
+        float contentH = totalContentHeight();
         float h = layoutRect().size.height > 0.0f
                       ? layoutRect().size.height
-                      : (style().height.isPoints() ? style().height.value : 176.0f);
+                      : (style().height.isPoints() ? style().height.value : (176.0f * dpiScale_));
         float w = layoutRect().size.width > 0.0f ? layoutRect().size.width : targetWidth_;
 
         if (isDraggingThumb_) {
@@ -152,15 +264,13 @@ public:
             return;
         }
 
-        // If hovering over scrollbar hit zone, do not change item highlight
         if (contentH > h && ev.position().x >= w - scrollbarHitWidth_) {
             ev.accept();
             return;
         }
 
-        float localY = ev.position().y - 4.0f + scrollOffset_;
-        int idx = static_cast<int>(localY / itemHeight_);
-        if (idx >= 0 && idx < static_cast<int>(items_.size())) {
+        int idx = itemIndexAtLocalY(ev.position().y);
+        if (idx >= 0 && isSelectable(idx)) {
             if (idx != highlightedIndex_) {
                 highlightedIndex_ = idx;
                 if (owner_) {
@@ -172,16 +282,15 @@ public:
         ev.accept();
     }
 
-    void onMouseLeave() override {
-        // Keep keyboard navigation highlight active
-    }
+    void onMouseLeave() override {}
 
     void onMouseDown(WidgetMouseEvent& ev) override {
         if (ev.button() == platform::MouseButton::Left) {
-            float contentH = static_cast<float>(items_.size()) * itemHeight_ + 8.0f;
-            float h = layoutRect().size.height > 0.0f
-                          ? layoutRect().size.height
-                          : (style().height.isPoints() ? style().height.value : 176.0f);
+            float contentH = totalContentHeight();
+            float h =
+                layoutRect().size.height > 0.0f
+                    ? layoutRect().size.height
+                    : (style().height.isPoints() ? style().height.value : (176.0f * dpiScale_));
             float w = layoutRect().size.width > 0.0f ? layoutRect().size.width : targetWidth_;
 
             if (contentH > h && ev.position().x >= w - scrollbarHitWidth_) {
@@ -225,10 +334,11 @@ public:
                 return;
             }
 
-            float contentH = static_cast<float>(items_.size()) * itemHeight_ + 8.0f;
-            float h = layoutRect().size.height > 0.0f
-                          ? layoutRect().size.height
-                          : (style().height.isPoints() ? style().height.value : 176.0f);
+            float contentH = totalContentHeight();
+            float h =
+                layoutRect().size.height > 0.0f
+                    ? layoutRect().size.height
+                    : (style().height.isPoints() ? style().height.value : (176.0f * dpiScale_));
             float w = layoutRect().size.width > 0.0f ? layoutRect().size.width : targetWidth_;
 
             if (contentH > h && ev.position().x >= w - scrollbarHitWidth_) {
@@ -236,9 +346,8 @@ public:
                 return;
             }
 
-            float localY = ev.position().y - 4.0f + scrollOffset_;
-            int idx = static_cast<int>(localY / itemHeight_);
-            if (idx >= 0 && idx < static_cast<int>(items_.size())) {
+            int idx = itemIndexAtLocalY(ev.position().y);
+            if (idx >= 0 && isSelectable(idx)) {
                 if (owner_) {
                     owner_->selectAndClose(idx);
                 }
@@ -248,10 +357,10 @@ public:
     }
 
     void onMouseWheel(WidgetMouseEvent& ev) override {
-        float contentH = static_cast<float>(items_.size()) * itemHeight_ + 8.0f;
+        float contentH = totalContentHeight();
         float h = layoutRect().size.height > 0.0f
                       ? layoutRect().size.height
-                      : (style().height.isPoints() ? style().height.value : 176.0f);
+                      : (style().height.isPoints() ? style().height.value : (176.0f * dpiScale_));
         float maxScroll = std::max(0.0f, contentH - h);
         if (maxScroll > 0.0f) {
             float deltaY = ev.wheelDelta().y;
@@ -273,68 +382,104 @@ public:
 
         float t = std::clamp(openAnim_.currentValue(), 0.0f, 1.0f);
         float alpha = t;
-        float offsetY = (1.0f - t) * -6.0f;
+        float offsetY = (1.0f - t) * -6.0f * dpiScale_;
         rect.origin.y += offsetY;
 
-        constexpr float kRadius = theme::Metrics::CornerRadiusControl;
-        float radii[4] = {kRadius, kRadius, kRadius, kRadius};
+        float radius = theme::Metrics::CornerRadiusControl * dpiScale_;
+        float radii[4] = {radius, radius, radius, radius};
         const auto& pal = colorPalette();
 
         ctx.drawBox(rect, pal.surfaceOverlay.withAlpha(pal.surfaceOverlay.a * alpha),
                     pal.borderSubtle.withAlpha(pal.borderSubtle.a * alpha),
-                    theme::Metrics::BorderWidthHairline, radii);
+                    std::max(1.0f, std::round(theme::Metrics::BorderWidthHairline * dpiScale_)),
+                    radii);
         ctx.pushClip(rect);
 
-        float contentH = static_cast<float>(items_.size()) * itemHeight_ + 8.0f;
+        float contentH = totalContentHeight();
         float viewH = rect.size.height;
         bool hasScrollbar = contentH > viewH;
-        float rightMargin = hasScrollbar ? (scrollbarHitWidth_ + 4.0f) : 10.0f;
+        float rightMargin =
+            hasScrollbar ? (scrollbarHitWidth_ + 4.0f * dpiScale_) : (10.0f * dpiScale_);
 
-        float itemY = rect.origin.y + 4.0f - scrollOffset_;
-        float padX = 10.0f;
+        float itemY = rect.origin.y + 4.0f * dpiScale_ - scrollOffset_;
+        float padX = 10.0f * dpiScale_;
 
         for (size_t i = 0; i < items_.size(); ++i) {
-            core::Rect itemRect{core::Point{rect.origin.x + 3.0f, itemY},
-                                core::Size{std::max(0.0f, rect.size.width - 6.0f), itemHeight_}};
+            const auto& item = items_[i];
+            float currItemH = item.isSeparator ? separatorHeight_ : itemHeight_;
 
-            if (itemRect.origin.y + itemHeight_ >= rect.origin.y &&
+            core::Rect itemRect{
+                core::Point{rect.origin.x + 3.0f * dpiScale_, itemY},
+                core::Size{std::max(0.0f, rect.size.width - 6.0f * dpiScale_), currItemH}};
+
+            if (itemRect.origin.y + currItemH >= rect.origin.y &&
                 itemRect.origin.y <= rect.origin.y + rect.size.height) {
-                bool isSelected = (static_cast<int>(i) == selectedIndex_);
-                bool isHighlighted = (static_cast<int>(i) == highlightedIndex_);
+                if (item.isSeparator) {
+                    float sepY = itemRect.origin.y + currItemH * 0.5f;
+                    ctx.drawLine(core::Point{rect.origin.x + padX, sepY},
+                                 core::Point{rect.origin.x + rect.size.width - padX, sepY},
+                                 pal.borderSubtle.withAlpha(pal.borderSubtle.a * alpha),
+                                 std::max(1.0f, std::round(1.0f * dpiScale_)));
+                } else {
+                    bool isSelected = (static_cast<int>(i) == selectedIndex_);
+                    bool isHighlighted = (static_cast<int>(i) == highlightedIndex_);
+                    bool isEnabled = item.isEnabled;
 
-                if (isHighlighted || isSelected) {
-                    core::Color itemBg =
-                        isSelected ? pal.surfaceRaised : pal.surfaceRaised.withAlpha(0.5f);
-                    float itemRadii[4] = {4.0f, 4.0f, 4.0f, 4.0f};
-                    ctx.drawRoundedRect(itemRect, itemBg.withAlpha(itemBg.a * alpha), itemRadii);
-                }
+                    if (isEnabled && (isHighlighted || isSelected)) {
+                        core::Color itemBg =
+                            isSelected ? pal.surfaceRaised : pal.surfaceRaised.withAlpha(0.5f);
+                        float itemRadius = 4.0f * dpiScale_;
+                        float itemRadii[4] = {itemRadius, itemRadius, itemRadius, itemRadius};
+                        ctx.drawRoundedRect(itemRect, itemBg.withAlpha(itemBg.a * alpha),
+                                            itemRadii);
+                    }
 
-                float targetCenterY = itemRect.origin.y + itemHeight_ * 0.5f;
-                core::Color textCol = pal.textPrimary.withAlpha(pal.textPrimary.a * alpha);
+                    float targetCenterY = itemRect.origin.y + currItemH * 0.5f;
+                    core::Color textCol =
+                        !isEnabled ? pal.textDisabled.withAlpha(pal.textDisabled.a * alpha)
+                                   : pal.textPrimary.withAlpha(pal.textPrimary.a * alpha);
 
-                // Continuous vector checkmark on the right for selected item
-                if (isSelected) {
-                    float checkCenterX = rect.origin.x + rect.size.width - rightMargin - 4.0f;
-                    core::Point p0{checkCenterX - 4.0f, targetCenterY};
-                    core::Point p1{checkCenterX - 1.5f, targetCenterY + 3.0f};
-                    core::Point p2{checkCenterX + 4.5f, targetCenterY - 3.5f};
-                    ctx.drawLine(p0, p1, textCol, 1.5f);
-                    ctx.drawLine(p1, p2, textCol, 1.5f);
-                }
+                    // Continuous vector checkmark on the right for selected item
+                    if (isSelected) {
+                        float checkCenterX =
+                            rect.origin.x + rect.size.width - rightMargin - 4.0f * dpiScale_;
+                        core::Point p0{checkCenterX - 4.0f * dpiScale_, targetCenterY};
+                        core::Point p1{checkCenterX - 1.5f * dpiScale_,
+                                       targetCenterY + 3.0f * dpiScale_};
+                        core::Point p2{checkCenterX + 4.5f * dpiScale_,
+                                       targetCenterY - 3.5f * dpiScale_};
+                        ctx.drawLine(p0, p1, textCol, 1.5f * dpiScale_);
+                        ctx.drawLine(p1, p2, textCol, 1.5f * dpiScale_);
+                    }
 
-                if (font_ && i < cachedItemLayouts_.size() && cachedItemLayouts_[i]) {
-                    float textY = theme::computeCenteredTextY(targetCenterY, *font_);
-                    float textMaxW = std::max(0.0f, rect.size.width - padX - rightMargin - 16.0f);
-                    core::Rect clipText{core::Point{itemRect.origin.x + padX, itemRect.origin.y},
-                                        core::Size{textMaxW, itemHeight_}};
+                    float contentLeft = itemRect.origin.x + padX;
+                    if (item.icon) {
+                        float iconSize = 14.0f * dpiScale_;
+                        core::Rect iconRect{
+                            core::Point{contentLeft, std::round(targetCenterY - iconSize * 0.5f)},
+                            core::Size{iconSize, iconSize}};
+                        core::Color iconCol = isEnabled ? pal.textSecondary : pal.textDisabled;
+                        ctx.drawSvg(*item.icon, iconRect, iconCol.withAlpha(iconCol.a * alpha));
+                        contentLeft += iconSize + 8.0f * dpiScale_;
+                    }
+
+                    float textMaxW = std::max(
+                        0.0f, (rect.origin.x + rect.size.width - rightMargin - 16.0f * dpiScale_) -
+                                  contentLeft);
+                    core::Rect clipText{core::Point{contentLeft, itemRect.origin.y},
+                                        core::Size{textMaxW, currItemH}};
                     ctx.pushClip(clipText);
-                    ctx.drawTextLayout(core::Point{itemRect.origin.x + padX, textY},
-                                       *cachedItemLayouts_[i], textCol);
+
+                    if (font_ && i < cachedItemLayouts_.size() && cachedItemLayouts_[i]) {
+                        float textY = theme::computeCenteredTextY(targetCenterY, *font_);
+                        ctx.drawTextLayout(core::Point{contentLeft, textY}, *cachedItemLayouts_[i],
+                                           textCol);
+                    }
                     ctx.popClip();
                 }
             }
 
-            itemY += itemHeight_;
+            itemY += currItemH;
         }
 
         // Visual scrollbar indicator for overflow lists
@@ -349,13 +494,14 @@ public:
                 core::Point{rect.origin.x + thRect.origin.x, rect.origin.y + thRect.origin.y},
                 thRect.size};
 
+            float sRadius = 3.0f * dpiScale_;
+            float trackRadii[4] = {sRadius, sRadius, sRadius, sRadius};
             if (isDraggingThumb_) {
-                float trackRadii[4] = {3.0f, 3.0f, 3.0f, 3.0f};
                 ctx.drawRoundedRect(screenTrack, pal.surfaceRaised.withAlpha(0.3f * alpha),
                                     trackRadii);
             }
 
-            float thumbRadii[4] = {3.0f, 3.0f, 3.0f, 3.0f};
+            float thumbRadii[4] = {sRadius, sRadius, sRadius, sRadius};
             core::Color thumbCol =
                 isDraggingThumb_ ? pal.textSecondary : pal.textTertiary.withAlpha(0.5f);
             ctx.drawRoundedRect(screenThumb, thumbCol.withAlpha(thumbCol.a * alpha), thumbRadii);
@@ -366,12 +512,14 @@ public:
 
 private:
     Dropdown* owner_{nullptr};
-    std::vector<std::string> items_{};
+    std::vector<DropdownItem> items_{};
     int selectedIndex_{-1};
     int highlightedIndex_{-1};
     std::shared_ptr<text::Font> font_{nullptr};
     float targetWidth_{160.0f};
+    float dpiScale_{1.0f};
     float itemHeight_{28.0f};
+    float separatorHeight_{6.0f};
     float scrollOffset_{0.0f};
     float scrollbarWidth_{6.0f};
     float scrollbarHitWidth_{16.0f};
@@ -383,23 +531,49 @@ private:
 };
 
 Dropdown::Dropdown(std::vector<std::string> items, int selectedIndex,
-                   std::shared_ptr<text::Font> font)
-    : items_(std::move(items)), selectedIndex_(selectedIndex), font_(std::move(font)) {
+                   std::shared_ptr<text::Font> font, DropdownSize size)
+    : selectedIndex_(selectedIndex), font_(std::move(font)), size_(size) {
     setFocusable(true);
     setCursorShape(platform::CursorShape::PointingHand);
-    style().height = layout::Length::points(theme::Metrics::ControlHeightStandard);
-    style().width = layout::Length::percent(100.0f);
+    setItems(std::move(items));
+    updateDimensions();
+}
 
-    layoutNode_.setMeasureFunc([](const layout::LayoutNode&, float availW, float) -> core::Size {
-        float w = std::max(120.0f, availW);
-        return core::Size{w, theme::Metrics::ControlHeightStandard};
-    });
+Dropdown::Dropdown(std::initializer_list<std::string> items, int selectedIndex,
+                   std::shared_ptr<text::Font> font, DropdownSize size)
+    : Dropdown(std::vector<std::string>(items), selectedIndex, std::move(font), size) {}
+
+Dropdown::Dropdown(std::vector<DropdownItem> items, int selectedIndex,
+                   std::shared_ptr<text::Font> font, DropdownSize size)
+    : selectedIndex_(selectedIndex), font_(std::move(font)), size_(size) {
+    setFocusable(true);
+    setCursorShape(platform::CursorShape::PointingHand);
+    setItems(std::move(items));
+    updateDimensions();
 }
 
 Dropdown::~Dropdown() {
     if (isOpen_ && context_) {
         context_->dismissOverlaysForOwner(this);
     }
+}
+
+float Dropdown::preferredHeight() const noexcept {
+    return controlHeightForSize(size_, dpiScale_);
+}
+
+void Dropdown::updateDimensions() noexcept {
+    float h = preferredHeight();
+    style().height = layout::Length::points(h);
+    style().width = layout::Length::percent(100.0f);
+
+    layoutNode_.setMeasureFunc(
+        [h, this](const layout::LayoutNode&, float availW, float) -> core::Size {
+            float minW = 120.0f * dpiScale_;
+            float w = std::max(minW, availW);
+            return core::Size{w, h};
+        });
+    markLayoutDirty();
 }
 
 void Dropdown::invalidateTextLayouts() {
@@ -409,6 +583,15 @@ void Dropdown::invalidateTextLayouts() {
 }
 
 void Dropdown::setItems(std::vector<std::string> items) {
+    std::vector<DropdownItem> richItems;
+    richItems.reserve(items.size());
+    for (auto& s : items) {
+        richItems.push_back(DropdownItem{.text = std::move(s)});
+    }
+    setItems(std::move(richItems));
+}
+
+void Dropdown::setItems(std::vector<DropdownItem> items) {
     items_ = std::move(items);
     if (selectedIndex_ >= static_cast<int>(items_.size())) {
         selectedIndex_ = items_.empty() ? -1 : static_cast<int>(items_.size()) - 1;
@@ -418,8 +601,19 @@ void Dropdown::setItems(std::vector<std::string> items) {
 }
 
 void Dropdown::addItem(std::string item) {
+    items_.push_back(DropdownItem{.text = std::move(item)});
+    invalidateTextLayouts();
+    markPaintDirty();
+}
+
+void Dropdown::addItem(DropdownItem item) {
     items_.push_back(std::move(item));
     invalidateTextLayouts();
+    markPaintDirty();
+}
+
+void Dropdown::addSeparator() {
+    items_.push_back(DropdownItem{.isSeparator = true, .isEnabled = false});
     markPaintDirty();
 }
 
@@ -430,8 +624,53 @@ void Dropdown::clearItems() {
     markPaintDirty();
 }
 
+const DropdownItem& Dropdown::itemAt(size_t index) const {
+    static const DropdownItem kEmptyItem{};
+    if (index >= items_.size()) {
+        return kEmptyItem;
+    }
+    return items_[index];
+}
+
+std::string Dropdown::itemText(size_t index) const {
+    if (index >= items_.size()) {
+        return "";
+    }
+    return items_[index].text;
+}
+
+void Dropdown::setItemEnabled(int index, bool enabled) {
+    if (index >= 0 && index < static_cast<int>(items_.size())) {
+        if (!items_[index].isSeparator) {
+            items_[index].isEnabled = enabled;
+            if (selectedIndex_ == index && !enabled) {
+                selectedIndex_ = -1;
+                invalidateTextLayouts();
+            }
+            markPaintDirty();
+        }
+    }
+}
+
+bool Dropdown::isItemEnabled(int index) const noexcept {
+    if (index < 0 || index >= static_cast<int>(items_.size())) {
+        return false;
+    }
+    return items_[index].isEnabled && !items_[index].isSeparator;
+}
+
+bool Dropdown::isSeparator(size_t index) const noexcept {
+    if (index >= items_.size()) {
+        return false;
+    }
+    return items_[index].isSeparator;
+}
+
 void Dropdown::setSelectedIndex(int index) {
     int clamped = std::clamp(index, -1, static_cast<int>(items_.size()) - 1);
+    if (clamped >= 0 && !isItemEnabled(clamped)) {
+        return;
+    }
     if (selectedIndex_ != clamped) {
         selectedIndex_ = clamped;
         invalidateTextLayouts();
@@ -442,21 +681,139 @@ void Dropdown::setSelectedIndex(int index) {
 
 std::string Dropdown::selectedText() const {
     if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(items_.size())) {
-        return items_[selectedIndex_];
+        return items_[selectedIndex_].text;
     }
     return "";
 }
 
 void Dropdown::setPlaceholder(std::string placeholder) {
-    placeholder_ = std::move(placeholder);
-    invalidateTextLayouts();
-    markPaintDirty();
+    if (placeholder_ != placeholder) {
+        placeholder_ = std::move(placeholder);
+        invalidateTextLayouts();
+        markPaintDirty();
+    }
 }
 
 void Dropdown::setFont(std::shared_ptr<text::Font> font) {
-    font_ = std::move(font);
-    invalidateTextLayouts();
+    if (font_ != font) {
+        font_ = std::move(font);
+        resolvedDefaultFont_.reset();
+        invalidateTextLayouts();
+        markPaintDirty();
+    }
+}
+
+std::shared_ptr<text::Font> Dropdown::effectiveFont() const {
+    if (font_) {
+        return font_;
+    }
+    if (!resolvedDefaultFont_) {
+        float pt = defaultPointSizeForSize(size_) * dpiScale_;
+        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+    }
+    return resolvedDefaultFont_;
+}
+
+void Dropdown::setSize(DropdownSize size) noexcept {
+    if (size_ != size) {
+        size_ = size;
+        resolvedDefaultFont_.reset();
+        invalidateTextLayouts();
+        updateDimensions();
+        markPaintDirty();
+    }
+}
+
+void Dropdown::setDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        resolvedDefaultFont_.reset();
+        invalidateTextLayouts();
+        updateDimensions();
+        markPaintDirty();
+    }
+}
+
+void Dropdown::setMaxVisibleItems(size_t maxItems) noexcept {
+    maxVisibleItems_ = std::max(size_t{1}, maxItems);
+}
+
+void Dropdown::setBackgroundColor(const core::Color& color) noexcept {
+    overrideBgColor_ = color;
     markPaintDirty();
+}
+
+void Dropdown::setBorderColor(const core::Color& color) noexcept {
+    overrideBorderColor_ = color;
+    markPaintDirty();
+}
+
+void Dropdown::setTextColor(const core::Color& color) noexcept {
+    overrideTextColor_ = color;
+    markPaintDirty();
+}
+
+void Dropdown::setPlaceholderColor(const core::Color& color) noexcept {
+    overridePlaceholderColor_ = color;
+    markPaintDirty();
+}
+
+void Dropdown::clearColorOverrides() noexcept {
+    overrideBgColor_.reset();
+    overrideBorderColor_.reset();
+    overrideTextColor_.reset();
+    overridePlaceholderColor_.reset();
+    markPaintDirty();
+}
+
+core::Color Dropdown::effectiveBackgroundColor() const noexcept {
+    if (overrideBgColor_) {
+        return *overrideBgColor_;
+    }
+    const auto& pal = colorPalette();
+    return pal.surfaceDefault.lerp(pal.surfaceRaised, hoverAnim_.currentValue());
+}
+
+core::Color Dropdown::effectiveBorderColor() const noexcept {
+    if (overrideBorderColor_) {
+        return *overrideBorderColor_;
+    }
+    const auto& pal = colorPalette();
+    return pal.borderSubtle.lerp(pal.borderStrong, hoverAnim_.currentValue());
+}
+
+core::Color Dropdown::effectiveTextColor() const noexcept {
+    return overrideTextColor_.value_or(colorPalette().textPrimary);
+}
+
+core::Color Dropdown::effectivePlaceholderColor() const noexcept {
+    return overridePlaceholderColor_.value_or(colorPalette().textTertiary);
+}
+
+int Dropdown::findNextSelectable(int start, int delta) const noexcept {
+    if (items_.empty()) {
+        return -1;
+    }
+    int count = static_cast<int>(items_.size());
+    if (delta > 0) {
+        int first = (start < 0) ? 0 : start + 1;
+        for (int i = first; i < count; ++i) {
+            if (isItemEnabled(i)) {
+                return i;
+            }
+        }
+        return isItemEnabled(start) ? start : -1;
+    } else if (delta < 0) {
+        int first = (start >= count) ? count - 1 : start - 1;
+        for (int i = first; i >= 0; --i) {
+            if (isItemEnabled(i)) {
+                return i;
+            }
+        }
+        return isItemEnabled(start) ? start : -1;
+    }
+    return isItemEnabled(start) ? start : -1;
 }
 
 void Dropdown::open() {
@@ -464,9 +821,10 @@ void Dropdown::open() {
         return;
     }
     isOpen_ = true;
-    highlightedIndex_ = (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(items_.size()))
+    highlightedIndex_ = (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(items_.size()) &&
+                         isItemEnabled(selectedIndex_))
                             ? selectedIndex_
-                            : (items_.empty() ? -1 : 0);
+                            : findNextSelectable(-1, 1);
 
     chevronAnim_.start(chevronAnim_.currentValue(), 1.0f, 0.18f,
                        core::animation::EasingCurve::OutCubic);
@@ -476,8 +834,9 @@ void Dropdown::open() {
 
     if (context_) {
         core::Rect r = screenRect();
-        float w = std::max(120.0f, r.size.width);
-        auto popup = std::make_unique<DropdownPopup>(this, items_, selectedIndex_, font_, w);
+        float w = std::max(120.0f * dpiScale_, r.size.width);
+        auto popup = std::make_unique<DropdownPopup>(this, items_, selectedIndex_, effectiveFont(),
+                                                     w, size_, dpiScale_, maxVisibleItems_);
         activePopup_ = popup.get();
 
         OverlayDesc desc{};
@@ -486,7 +845,7 @@ void Dropdown::open() {
         desc.autoFlip = true;
         desc.dismissOnOutsideClick = true;
         desc.dismissOnEscape = true;
-        desc.gap = 4.0f;
+        desc.gap = 4.0f * dpiScale_;
         desc.onDismiss = [this]() { onPopupDismissed(); };
 
         Widget* overlayWidget = context_->showOverlay(std::move(popup), desc, this);
@@ -521,7 +880,9 @@ void Dropdown::toggle() {
 }
 
 void Dropdown::selectAndClose(int index) {
-    setSelectedIndex(index);
+    if (isItemEnabled(index)) {
+        setSelectedIndex(index);
+    }
     close();
 }
 
@@ -541,26 +902,94 @@ void Dropdown::navigateHighlight(int delta) {
         return;
     }
     int cur = (highlightedIndex_ >= 0) ? highlightedIndex_ : 0;
-    int next = std::clamp(cur + delta, 0, static_cast<int>(items_.size()) - 1);
-    setPopupHighlightedIndex(next);
+    int next = findNextSelectable(cur, delta);
+    if (next >= 0) {
+        setPopupHighlightedIndex(next);
+    }
 }
 
 void Dropdown::setPopupHighlightedIndex(int idx) {
-    int clamped = items_.empty() ? -1 : std::clamp(idx, 0, static_cast<int>(items_.size()) - 1);
-    if (highlightedIndex_ != clamped) {
-        highlightedIndex_ = clamped;
-        if (activePopup_) {
-            static_cast<DropdownPopup*>(activePopup_)->setHighlightedIndex(clamped);
+    if (idx >= 0 && idx < static_cast<int>(items_.size()) && isItemEnabled(idx)) {
+        if (highlightedIndex_ != idx) {
+            highlightedIndex_ = idx;
+            if (activePopup_) {
+                static_cast<DropdownPopup*>(activePopup_)->setHighlightedIndex(idx);
+            }
+            markPaintDirty();
         }
-        markPaintDirty();
     }
 }
 
 void Dropdown::confirmHighlight() {
-    if (highlightedIndex_ >= 0 && highlightedIndex_ < static_cast<int>(items_.size())) {
+    if (highlightedIndex_ >= 0 && highlightedIndex_ < static_cast<int>(items_.size()) &&
+        isItemEnabled(highlightedIndex_)) {
         selectAndClose(highlightedIndex_);
     } else {
         close();
+    }
+}
+
+void Dropdown::clearTypeAhead() noexcept {
+    typeAheadBuffer_.clear();
+}
+
+void Dropdown::handleTypeAhead(char c) {
+    auto now = std::chrono::steady_clock::now();
+    float elapsed = std::chrono::duration<float>(now - lastTypeAheadTime_).count();
+    if (elapsed > kTypeAheadTimeoutSeconds) {
+        typeAheadBuffer_.clear();
+    }
+    lastTypeAheadTime_ = now;
+    typeAheadBuffer_.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+
+    int startIdx = (highlightedIndex_ >= 0) ? highlightedIndex_ : 0;
+    int count = static_cast<int>(items_.size());
+
+    auto matchesPrefix = [this](int idx) -> bool {
+        if (!isItemEnabled(idx)) {
+            return false;
+        }
+        const std::string& txt = items_[idx].text;
+        if (txt.size() < typeAheadBuffer_.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < typeAheadBuffer_.size(); ++i) {
+            if (std::tolower(static_cast<unsigned char>(txt[i])) != typeAheadBuffer_[i]) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    bool matched = false;
+    for (int step = 0; step < count; ++step) {
+        int idx = (startIdx + step) % count;
+        if (matchesPrefix(idx)) {
+            matched = true;
+            if (isOpen_) {
+                setPopupHighlightedIndex(idx);
+            } else {
+                setSelectedIndex(idx);
+            }
+            break;
+        }
+    }
+
+    // If multi-char buffer failed to match any items, restart buffer with the newest character
+    if (!matched && typeAheadBuffer_.size() > 1) {
+        typeAheadBuffer_ =
+            std::string(1, static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        for (int step = 0; step < count; ++step) {
+            int idx = (startIdx + step) % count;
+            if (matchesPrefix(idx)) {
+                if (isOpen_) {
+                    setPopupHighlightedIndex(idx);
+                } else {
+                    setSelectedIndex(idx);
+                }
+                break;
+            }
+        }
     }
 }
 
@@ -597,6 +1026,16 @@ void Dropdown::onKeyDown(WidgetKeyEvent& ev) {
         return;
     }
 
+    // Type-ahead detection for alphanumeric and space keys
+    char typedChar = 0;
+    if (ev.key() >= platform::Key::A && ev.key() <= platform::Key::Z) {
+        typedChar = static_cast<char>(
+            'a' + (static_cast<int>(ev.key()) - static_cast<int>(platform::Key::A)));
+    } else if (ev.key() >= platform::Key::Num0 && ev.key() <= platform::Key::Num9) {
+        typedChar = static_cast<char>(
+            '0' + (static_cast<int>(ev.key()) - static_cast<int>(platform::Key::Num0)));
+    }
+
     if (isOpen_) {
         if (ev.key() == platform::Key::Down) {
             navigateHighlight(1);
@@ -609,12 +1048,18 @@ void Dropdown::onKeyDown(WidgetKeyEvent& ev) {
             return;
         }
         if (ev.key() == platform::Key::Home) {
-            setPopupHighlightedIndex(0);
+            int first = findNextSelectable(-1, 1);
+            if (first >= 0) {
+                setPopupHighlightedIndex(first);
+            }
             ev.accept();
             return;
         }
         if (ev.key() == platform::Key::End) {
-            setPopupHighlightedIndex(static_cast<int>(items_.size()) - 1);
+            int last = findNextSelectable(static_cast<int>(items_.size()), -1);
+            if (last >= 0) {
+                setPopupHighlightedIndex(last);
+            }
             ev.accept();
             return;
         }
@@ -628,10 +1073,22 @@ void Dropdown::onKeyDown(WidgetKeyEvent& ev) {
             ev.accept();
             return;
         }
+
+        if (typedChar != 0) {
+            handleTypeAhead(typedChar);
+            ev.accept();
+            return;
+        }
     } else {
         if (ev.key() == platform::Key::Space || ev.key() == platform::Key::Enter ||
             ev.key() == platform::Key::Down || ev.key() == platform::Key::Up) {
             open();
+            ev.accept();
+            return;
+        }
+
+        if (typedChar != 0) {
+            handleTypeAhead(typedChar);
             ev.accept();
             return;
         }
@@ -651,47 +1108,65 @@ void Dropdown::paint(renderer::PaintContext& ctx) {
         return;
     }
 
-    const auto& pal = colorPalette();
-    float hoverT = hoverAnim_.currentValue();
-    core::Color bg = pal.surfaceDefault.lerp(pal.surfaceRaised, hoverT);
-    core::Color border = pal.borderSubtle.lerp(pal.borderStrong, hoverT);
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    float borderW = std::max(1.0f, std::round(borderWidth_ * scale));
+    float radii[4] = {cornerRadii_[0] * scale, cornerRadii_[1] * scale, cornerRadii_[2] * scale,
+                      cornerRadii_[3] * scale};
 
-    ctx.drawBox(rect, bg, border, borderWidth_, cornerRadii_);
+    ctx.drawBox(rect, effectiveBackgroundColor(), effectiveBorderColor(), borderW, radii);
 
     if (hasKeyboardFocus()) {
-        theme::paintFocusRing(ctx, rect, cornerRadii_[0]);
+        theme::paintFocusRing(ctx, rect, radii[0]);
     }
 
     float targetCenterY = rect.origin.y + rect.size.height * 0.5f;
-    float padL = 12.0f;
-    float chevronW = 24.0f;
+    float padL = 12.0f * scale;
+    float chevronW = 24.0f * scale;
 
-    // Draw Selected text or Placeholder
-    if (font_) {
+    auto f = effectiveFont();
+
+    // Draw Selected text, optional icon, or Placeholder
+    if (f) {
         std::string display = selectedText();
         bool isPlaceholder = display.empty();
+        const DropdownItem* curItem =
+            (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(items_.size()))
+                ? &items_[selectedIndex_]
+                : nullptr;
+
         if (isPlaceholder) {
             display = placeholder_;
             if (!cachedPlaceholderLayout_) {
-                cachedPlaceholderLayout_ = text::TextLayout::create(display, font_);
+                cachedPlaceholderLayout_ = text::TextLayout::create(display, f);
             }
         } else {
             if (!cachedSelectedLayout_ || cachedSelectedText_ != display) {
-                cachedSelectedLayout_ = text::TextLayout::create(display, font_);
+                cachedSelectedLayout_ = text::TextLayout::create(display, f);
                 cachedSelectedText_ = display;
             }
         }
 
         const auto& activeLayout = isPlaceholder ? cachedPlaceholderLayout_ : cachedSelectedLayout_;
-        core::Color textCol = isPlaceholder ? pal.textTertiary : pal.textPrimary;
-        float textY = theme::computeCenteredTextY(targetCenterY, *font_);
+        core::Color textCol = isPlaceholder ? effectivePlaceholderColor() : effectiveTextColor();
+        float textY = theme::computeCenteredTextY(targetCenterY, *f);
+
+        float contentLeft = rect.origin.x + padL;
+        if (curItem && curItem->icon) {
+            float iconSize = 14.0f * scale;
+            core::Rect iconRect{
+                core::Point{contentLeft, std::round(targetCenterY - iconSize * 0.5f)},
+                core::Size{iconSize, iconSize}};
+            ctx.drawSvg(*curItem->icon, iconRect, colorPalette().textSecondary);
+            contentLeft += iconSize + 8.0f * scale;
+        }
 
         core::Rect clipText{
-            core::Point{rect.origin.x + padL, rect.origin.y},
-            core::Size{std::max(0.0f, rect.size.width - padL - chevronW), rect.size.height}};
+            core::Point{contentLeft, rect.origin.y},
+            core::Size{std::max(0.0f, rect.origin.x + rect.size.width - contentLeft - chevronW),
+                       rect.size.height}};
         ctx.pushClip(clipText);
         if (activeLayout) {
-            ctx.drawTextLayout(core::Point{rect.origin.x + padL, textY}, *activeLayout, textCol);
+            ctx.drawTextLayout(core::Point{contentLeft, textY}, *activeLayout, textCol);
         }
         ctx.popClip();
     }
@@ -702,15 +1177,15 @@ void Dropdown::paint(renderer::PaintContext& ctx) {
     float cosA = std::cos(angle);
     float sinA = std::sin(angle);
 
-    float chevCenterX = rect.origin.x + rect.size.width - 15.0f;
+    float chevCenterX = rect.origin.x + rect.size.width - 15.0f * scale;
     float chevCenterY = targetCenterY;
 
     float vx0 = 0.0f;
-    float vy0 = 2.0f;
-    float w1x0 = -4.0f;
-    float w1y0 = -2.0f;
-    float w2x0 = 4.0f;
-    float w2y0 = -2.0f;
+    float vy0 = 2.0f * scale;
+    float w1x0 = -4.0f * scale;
+    float w1y0 = -2.0f * scale;
+    float w2x0 = 4.0f * scale;
+    float w2y0 = -2.0f * scale;
 
     core::Point pVertex{chevCenterX + (vx0 * cosA - vy0 * sinA),
                         chevCenterY + (vx0 * sinA + vy0 * cosA)};
@@ -719,9 +1194,10 @@ void Dropdown::paint(renderer::PaintContext& ctx) {
     core::Point pWing2{chevCenterX + (w2x0 * cosA - w2y0 * sinA),
                        chevCenterY + (w2x0 * sinA + w2y0 * cosA)};
 
-    core::Color chevCol = pal.textTertiary.lerp(pal.textSecondary, hoverT);
-    ctx.drawLine(pWing1, pVertex, chevCol, 1.5f);
-    ctx.drawLine(pVertex, pWing2, chevCol, 1.5f);
+    const auto& pal = colorPalette();
+    core::Color chevCol = pal.textTertiary.lerp(pal.textSecondary, hoverAnim_.currentValue());
+    ctx.drawLine(pWing1, pVertex, chevCol, 1.5f * scale);
+    ctx.drawLine(pVertex, pWing2, chevCol, 1.5f * scale);
 }
 
 void Dropdown::updateAnimations(float deltaSeconds) {

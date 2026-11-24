@@ -119,6 +119,69 @@ core::Result<CachedGlyph, core::Error> GlyphAtlas::getOrInsert(const Font& font,
     return cached;
 }
 
+std::optional<CachedGlyph> GlyphAtlas::findCustomMask(uint64_t maskKey) const {
+    uint64_t key = maskKey | (1ULL << 63);
+    auto it = cache_.find(key);
+    if (it != cache_.end()) {
+        return it->second;
+    }
+    return std::nullopt;
+}
+
+core::Result<CachedGlyph, core::Error>
+GlyphAtlas::insertCustomMask(uint64_t maskKey, uint32_t w, uint32_t h,
+                             std::span<const uint8_t> alphaData) {
+    uint64_t key = maskKey | (1ULL << 63);
+    auto it = cache_.find(key);
+    if (it != cache_.end()) {
+        return it->second;
+    }
+
+    if (w == 0 || h == 0 || alphaData.size() < static_cast<size_t>(w) * static_cast<size_t>(h)) {
+        return core::Error(core::ErrorCode::InvalidArgument, "Invalid custom mask buffer");
+    }
+
+    uint32_t pad = 1;
+    if (currentShelfX_ + w + pad > width_) {
+        currentShelfX_ = 1;
+        currentShelfY_ += shelfHeight_ + pad;
+        shelfHeight_ = 0;
+    }
+
+    if (currentShelfY_ + h + pad > height_) {
+        return core::Error(core::ErrorCode::OutOfMemory, "Glyph atlas is full");
+    }
+
+    uint32_t x = currentShelfX_;
+    uint32_t y = currentShelfY_;
+
+    currentShelfX_ += w + pad;
+    shelfHeight_ = std::max(shelfHeight_, h);
+
+    for (uint32_t r = 0; r < h; ++r) {
+        const uint8_t* srcRow = alphaData.data() + static_cast<size_t>(r) * w;
+        uint8_t* dstRow = cpuAtlas_.data() + static_cast<size_t>(y + r) * width_ + x;
+        std::memcpy(dstRow, srcRow, w);
+    }
+
+    dirty_ = true;
+    dirtyMinY_ = std::min(dirtyMinY_, y);
+    dirtyMaxY_ = std::max(dirtyMaxY_, y + h);
+
+    CachedGlyph cached{};
+    cached.offset = {0.0f, 0.0f};
+    cached.size = {static_cast<float>(w), static_cast<float>(h)};
+    cached.uvRect = {
+        static_cast<float>(x) / static_cast<float>(width_),
+        static_cast<float>(y) / static_cast<float>(height_),
+        static_cast<float>(w) / static_cast<float>(width_),
+        static_cast<float>(h) / static_cast<float>(height_),
+    };
+
+    cache_[key] = cached;
+    return cached;
+}
+
 core::Result<void, core::Error> GlyphAtlas::flush() {
     if (!dirty_ || dirtyMinY_ >= dirtyMaxY_) {
         return {};

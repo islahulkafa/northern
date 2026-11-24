@@ -12,9 +12,14 @@ set(UNIT_TEST_SOURCES
     unit/test_text.cpp
     unit/test_layout.cpp
     unit/test_widgets.cpp
+    unit/test_button.cpp
+    unit/test_label.cpp
+    unit/test_checkbox.cpp
     unit/test_switch.cpp
     unit/test_radio_button.cpp
+    unit/test_slider.cpp
     unit/test_progress_bar.cpp
+    unit/test_text_input.cpp
     unit/test_animation.cpp
     unit/test_overlay.cpp
     unit/test_dropdown.cpp
@@ -26,12 +31,14 @@ set(UNIT_TEST_SOURCES
     unit/test_scroll_view.cpp
     unit/test_accordion.cpp
     unit/test_container.cpp
+    unit/test_menu_bar.cpp
     unit/test_item_model.cpp
     unit/test_item_selection_model.cpp
     unit/test_header_view.cpp
     unit/test_list_view.cpp
     unit/test_table_view.cpp
     unit/test_tree_view.cpp
+    unit/test_collection_views.cpp
     unit/test_svg.cpp
     unit/test_icon.cpp
     unit/test_title_bar.cpp

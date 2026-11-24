@@ -1,6 +1,8 @@
 #include "text/font.hpp"
 #include "text/font_impl.hpp"
 
+#include <freetype/tttables.h>
+
 #include <atomic>
 #include <cmath>
 
@@ -36,6 +38,10 @@ float Font::pointSize() const noexcept {
     return impl_ ? impl_->pointSize : 0.0f;
 }
 
+float Font::pixelSize() const noexcept {
+    return impl_ ? impl_->pixelSize : 0.0f;
+}
+
 float Font::ascender() const noexcept {
     return impl_ ? impl_->ascender : 0.0f;
 }
@@ -46,6 +52,10 @@ float Font::descender() const noexcept {
 
 float Font::lineHeight() const noexcept {
     return impl_ ? impl_->lineHeight : 0.0f;
+}
+
+float Font::capHeight() const noexcept {
+    return impl_ ? impl_->capHeight : 0.0f;
 }
 
 core::Result<std::shared_ptr<Font>, core::Error> Font::fromFile(std::string_view filePath,
@@ -75,9 +85,21 @@ core::Result<std::shared_ptr<Font>, core::Error> Font::fromFile(std::string_view
     impl->ftFace = face;
     impl->hbFont = hbFont;
     impl->pointSize = pointSize;
+    impl->pixelSize = static_cast<float>(face->size->metrics.y_ppem);
+    if (impl->pixelSize <= 0.0f) {
+        impl->pixelSize = pointSize * (96.0f / 72.0f);
+    }
     impl->ascender = static_cast<float>(face->size->metrics.ascender) / 64.0f;
     impl->descender = static_cast<float>(face->size->metrics.descender) / 64.0f;
     impl->lineHeight = static_cast<float>(face->size->metrics.height) / 64.0f;
+
+    TT_OS2* os2 = static_cast<TT_OS2*>(FT_Get_Sfnt_Table(face, FT_SFNT_OS2));
+    if (os2 && os2->sCapHeight > 0 && face->units_per_EM > 0) {
+        impl->capHeight = static_cast<float>(os2->sCapHeight) *
+                          (impl->pixelSize / static_cast<float>(face->units_per_EM));
+    } else {
+        impl->capHeight = impl->pixelSize * 0.70f;
+    }
 
     return std::shared_ptr<Font>(new Font(std::move(impl)));
 }
@@ -118,9 +140,21 @@ core::Result<std::shared_ptr<Font>, core::Error> Font::fromMemory(std::span<cons
     impl->ftFace = face;
     impl->hbFont = hbFont;
     impl->pointSize = pointSize;
+    impl->pixelSize = static_cast<float>(face->size->metrics.y_ppem);
+    if (impl->pixelSize <= 0.0f) {
+        impl->pixelSize = pointSize * (96.0f / 72.0f);
+    }
     impl->ascender = static_cast<float>(face->size->metrics.ascender) / 64.0f;
     impl->descender = static_cast<float>(face->size->metrics.descender) / 64.0f;
     impl->lineHeight = static_cast<float>(face->size->metrics.height) / 64.0f;
+
+    TT_OS2* os2 = static_cast<TT_OS2*>(FT_Get_Sfnt_Table(face, FT_SFNT_OS2));
+    if (os2 && os2->sCapHeight > 0 && face->units_per_EM > 0) {
+        impl->capHeight = static_cast<float>(os2->sCapHeight) *
+                          (impl->pixelSize / static_cast<float>(face->units_per_EM));
+    } else {
+        impl->capHeight = impl->pixelSize * 0.70f;
+    }
 
     return std::shared_ptr<Font>(new Font(std::move(impl)));
 }

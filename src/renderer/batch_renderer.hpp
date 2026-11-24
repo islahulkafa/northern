@@ -58,6 +58,7 @@ private:
     void emitQuad(const DrawBoxCommand& box);
     void emitLine(const DrawLineCommand& cmd);
     void emitGlyphs(const DrawGlyphsCommand& cmd);
+    void emitSvg(const DrawSvgCommand& cmd);
 
     graphics::Device* device_{nullptr};
     std::unique_ptr<DynamicRingBuffer> ringBuffer_;

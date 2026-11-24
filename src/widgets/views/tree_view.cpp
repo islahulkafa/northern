@@ -1,9 +1,10 @@
 #include "widgets/views/tree_view.hpp"
 
 #include "renderer/paint_context.hpp"
-#include "widgets/controls/icons.hpp"
+#include "text/font_manager.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
+#include "widgets/controls/icons.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -122,9 +123,37 @@ void TreeView::setRowHeight(float height) noexcept {
 void TreeView::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
+        resolvedDefaultFont_.reset();
         if (header_) {
             header_->setFont(font_);
         }
+        markPaintDirty();
+    }
+}
+
+std::shared_ptr<text::Font> TreeView::effectiveFont() const {
+    if (font_) {
+        return font_;
+    }
+    if (!resolvedDefaultFont_) {
+        float pt = 10.0f * dpiScale_;
+        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+    }
+    return resolvedDefaultFont_;
+}
+
+void TreeView::setDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        resolvedDefaultFont_.reset();
+        rowHeight_ = kDefaultRowHeight * dpiScale_;
+        indentPerLevel_ = kDefaultIndentPerLevel * dpiScale_;
+        scrollbarThickness_ = 6.0f * dpiScale_;
+        if (header_) {
+            header_->setDpiScale(dpiScale_);
+        }
+        clampScrollOffsets();
         markPaintDirty();
     }
 }
@@ -306,12 +335,13 @@ void TreeView::paint(renderer::PaintContext& ctx) {
         return;
     }
 
+    const auto& pal = colorPalette();
     float headerH = header_ ? header_->layoutRect().size.height : 0.0f;
     core::Rect gridRect{core::Point{sRect.origin.x, sRect.origin.y + headerH},
                         {sRect.size.width, sRect.size.height - headerH}};
 
     ctx.pushClip(gridRect);
-    ctx.drawRect(gridRect, theme::ColorTokens::SurfaceCanvas);
+    ctx.drawRect(gridRect, pal.surfaceCanvas);
 
     if (model_ && header_ && rowHeight_ > 0.0f && !visibleNodes_.empty()) {
         int rowCount = static_cast<int>(visibleNodes_.size());
@@ -322,6 +352,7 @@ void TreeView::paint(renderer::PaintContext& ctx) {
             rowCount - 1,
             static_cast<int>(std::ceil((scrollOffsetY_ + gridRect.size.height) / rowHeight_)));
 
+        auto f = effectiveFont();
         for (int r = firstRow; r <= lastRow; ++r) {
             float y = gridRect.origin.y + (r * rowHeight_) - scrollOffsetY_;
             const auto& node = visibleNodes_[static_cast<size_t>(r)];
@@ -349,15 +380,33 @@ void TreeView::paint(renderer::PaintContext& ctx) {
                 opt.isAlternate = alternatingRowColors_ && (r % 2 == 1);
                 opt.hasFocus = (hasKeyboardFocus() && selectionModel_.currentIndex() == cellIdx);
                 opt.text = model_->data(cellIdx, ItemDataRole::Display);
-                opt.font = font_ ? font_ : (context_ ? context_->tooltipFont() : nullptr);
+                opt.font = f;
+                opt.dpiScale = dpiScale_;
                 opt.textColor = opt.isSelected
-                                    ? theme::ColorTokens::TextPrimary
-                                    : (opt.isHovered ? theme::ColorTokens::TextPrimary
-                                                     : theme::ColorTokens::TextSecondary);
+                                    ? pal.textPrimary
+                                    : (opt.isHovered ? pal.textPrimary : pal.textSecondary);
+
+                std::string checkVal = model_->data(cellIdx, ItemDataRole::CheckState);
+                if (!checkVal.empty()) {
+                    opt.showCheckbox = true;
+                    opt.checkboxChecked = (checkVal == "1" || checkVal == "true");
+                }
+                opt.badgeText = model_->data(cellIdx, ItemDataRole::BadgeText);
+                if (!opt.badgeText.empty()) {
+                    opt.badgeColor = pal.surfaceOverlay;
+                    opt.badgeTextColor = pal.textPrimary;
+                }
 
                 if (c == 0) {
+                    for (int d = 0; d < node.depth; ++d) {
+                        float lineX =
+                            cellX + (static_cast<float>(d) * indentPerLevel_) + 9.0f * dpiScale_;
+                        ctx.drawLine(core::Point{lineX, y}, core::Point{lineX, y + rowHeight_},
+                                     pal.borderSubtle, 1.0f);
+                    }
                     float indent = static_cast<float>(node.depth) * indentPerLevel_;
-                    opt.paddingLeft = indent + (node.hasChildren ? 20.0f : 8.0f);
+                    opt.paddingLeft =
+                        indent + (node.hasChildren ? (20.0f * dpiScale_) : (8.0f * dpiScale_));
                 }
 
                 if (delegate_) {
@@ -366,14 +415,13 @@ void TreeView::paint(renderer::PaintContext& ctx) {
 
                 if (c == 0 && node.hasChildren) {
                     float indent = static_cast<float>(node.depth) * indentPerLevel_;
-                    core::Color chevCol = isRowHov ? theme::ColorTokens::TextPrimary
-                                                   : theme::ColorTokens::TextSecondary;
+                    core::Color chevCol = isRowHov ? pal.textPrimary : pal.textSecondary;
                     IconId iconId = node.isExpanded ? IconId::ChevronDown : IconId::ChevronRight;
                     if (auto doc = getSvgDocument(iconId)) {
-                        float iconSize = 14.0f;
-                        core::Rect chevRect{
-                            core::Point{cellX + indent + 2.0f, y + (rowHeight_ - iconSize) * 0.5f},
-                            core::Size{iconSize, iconSize}};
+                        float iconSize = 14.0f * dpiScale_;
+                        core::Rect chevRect{core::Point{cellX + indent + 2.0f * dpiScale_,
+                                                        y + (rowHeight_ - iconSize) * 0.5f},
+                                            core::Size{iconSize, iconSize}};
                         ctx.drawSvg(*doc, chevRect, chevCol);
                     }
                 }
@@ -386,11 +434,13 @@ void TreeView::paint(renderer::PaintContext& ctx) {
         core::Rect screenThumb{
             core::Point{sRect.origin.x + localThumb.origin.x, sRect.origin.y + localThumb.origin.y},
             localThumb.size};
-        core::Color thumbCol = isDraggingVThumb_
-                                   ? theme::ColorTokens::TextSecondary
-                                   : (isHoveringVThumb_ ? theme::ColorTokens::TextTertiary
-                                                        : core::Color{1.0f, 1.0f, 1.0f, 0.18f});
-        ctx.drawRoundedRect(screenThumb, thumbCol, 3.0f);
+        core::Color thumbCol =
+            isDraggingVThumb_
+                ? pal.textSecondary
+                : (isHoveringVThumb_ ? pal.textTertiary : core::Color{1.0f, 1.0f, 1.0f, 0.20f});
+        float rV[4] = {scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f,
+                       scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f};
+        ctx.drawRoundedRect(screenThumb, thumbCol, rV);
     }
 
     if (maxScrollOffsetX() > 0.0f) {
@@ -398,13 +448,16 @@ void TreeView::paint(renderer::PaintContext& ctx) {
         core::Rect screenThumb{
             core::Point{sRect.origin.x + localThumb.origin.x, sRect.origin.y + localThumb.origin.y},
             localThumb.size};
-        core::Color thumbCol = isDraggingHThumb_
-                                   ? theme::ColorTokens::TextSecondary
-                                   : (isHoveringHThumb_ ? theme::ColorTokens::TextTertiary
-                                                        : core::Color{1.0f, 1.0f, 1.0f, 0.18f});
-        ctx.drawRoundedRect(screenThumb, thumbCol, 3.0f);
+        core::Color thumbCol =
+            isDraggingHThumb_
+                ? pal.textSecondary
+                : (isHoveringHThumb_ ? pal.textTertiary : core::Color{1.0f, 1.0f, 1.0f, 0.20f});
+        float rH[4] = {scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f,
+                       scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f};
+        ctx.drawRoundedRect(screenThumb, thumbCol, rH);
     }
 
+    ctx.drawBorder(sRect, pal.borderSubtle, 1.0f);
     ctx.popClip();
 }
 
@@ -455,30 +508,55 @@ void TreeView::onMouseMove(WidgetMouseEvent& ev) {
 
 void TreeView::onMouseDown(WidgetMouseEvent& ev) {
     if (ev.button() == platform::MouseButton::Left) {
-        core::Rect vThumb = verticalThumbRect();
-        if (maxScrollOffsetY() > 0.0f && vThumb.contains(ev.position())) {
-            isDraggingVThumb_ = true;
-            dragStartMouseY_ = ev.position().y;
-            dragStartScrollY_ = scrollOffsetY_;
-            if (context_) {
-                context_->setMouseGrabWidget(this);
+        if (maxScrollOffsetY() > 0.0f) {
+            float trackX = layoutRect().size.width - scrollbarThickness_ - 6.0f;
+            if (ev.position().x >= trackX) {
+                core::Rect vThumb = verticalThumbRect();
+                if (vThumb.contains(ev.position())) {
+                    isDraggingVThumb_ = true;
+                    dragStartMouseY_ = ev.position().y;
+                    dragStartScrollY_ = scrollOffsetY_;
+                    if (context_) {
+                        context_->setMouseGrabWidget(this);
+                    }
+                } else {
+                    float headerH = header_ ? header_->layoutRect().size.height : 0.0f;
+                    float gridH = layoutRect().size.height - headerH;
+                    if (ev.position().y < vThumb.origin.y) {
+                        scrollBy(0.0f, -gridH * 0.8f);
+                    } else {
+                        scrollBy(0.0f, gridH * 0.8f);
+                    }
+                }
+                ev.accept();
+                markPaintDirty();
+                return;
             }
-            ev.accept();
-            markPaintDirty();
-            return;
         }
 
-        core::Rect hThumb = horizontalThumbRect();
-        if (maxScrollOffsetX() > 0.0f && hThumb.contains(ev.position())) {
-            isDraggingHThumb_ = true;
-            dragStartMouseX_ = ev.position().x;
-            dragStartScrollX_ = scrollOffsetX_;
-            if (context_) {
-                context_->setMouseGrabWidget(this);
+        if (maxScrollOffsetX() > 0.0f) {
+            float trackY = layoutRect().size.height - scrollbarThickness_ - 6.0f;
+            if (ev.position().y >= trackY) {
+                core::Rect hThumb = horizontalThumbRect();
+                if (hThumb.contains(ev.position())) {
+                    isDraggingHThumb_ = true;
+                    dragStartMouseX_ = ev.position().x;
+                    dragStartScrollX_ = scrollOffsetX_;
+                    if (context_) {
+                        context_->setMouseGrabWidget(this);
+                    }
+                } else {
+                    float viewW = layoutRect().size.width;
+                    if (ev.position().x < hThumb.origin.x) {
+                        scrollBy(-viewW * 0.8f, 0.0f);
+                    } else {
+                        scrollBy(viewW * 0.8f, 0.0f);
+                    }
+                }
+                ev.accept();
+                markPaintDirty();
+                return;
             }
-            ev.accept();
-            markPaintDirty();
-            return;
         }
 
         int r = visibleRowAt(ev.position().y);
@@ -488,7 +566,7 @@ void TreeView::onMouseDown(WidgetMouseEvent& ev) {
 
             float indent = static_cast<float>(node.depth) * indentPerLevel_;
             float gridX = ev.position().x + scrollOffsetX_;
-            if (node.hasChildren && gridX >= indent && gridX <= indent + 20.0f) {
+            if (node.hasChildren && gridX >= indent && gridX <= indent + 20.0f * dpiScale_) {
                 toggle(node.index);
                 ev.accept();
                 markPaintDirty();
@@ -549,6 +627,10 @@ void TreeView::onKeyDown(WidgetKeyEvent& ev) {
         curRow = 0;
     }
 
+    float headerH = header_ ? header_->layoutRect().size.height : 0.0f;
+    int pageItems =
+        std::max(1, static_cast<int>((layoutRect().size.height - headerH) / rowHeight_));
+
     if (ev.key() == platform::Key::Up) {
         int next = std::max(0, curRow - 1);
         ModelIndex idx = visibleNodes_[static_cast<size_t>(next)].index;
@@ -559,6 +641,38 @@ void TreeView::onKeyDown(WidgetKeyEvent& ev) {
         ev.accept();
     } else if (ev.key() == platform::Key::Down) {
         int next = std::min(static_cast<int>(visibleNodes_.size()) - 1, curRow + 1);
+        ModelIndex idx = visibleNodes_[static_cast<size_t>(next)].index;
+        selectionModel_.select(idx, SelectionFlag::ClearAndSelect);
+        selectionModel_.setCurrentIndex(idx);
+        scrollTo(next);
+        markPaintDirty();
+        ev.accept();
+    } else if (ev.key() == platform::Key::PageUp) {
+        int next = std::max(0, curRow - pageItems);
+        ModelIndex idx = visibleNodes_[static_cast<size_t>(next)].index;
+        selectionModel_.select(idx, SelectionFlag::ClearAndSelect);
+        selectionModel_.setCurrentIndex(idx);
+        scrollTo(next);
+        markPaintDirty();
+        ev.accept();
+    } else if (ev.key() == platform::Key::PageDown) {
+        int next = std::min(static_cast<int>(visibleNodes_.size()) - 1, curRow + pageItems);
+        ModelIndex idx = visibleNodes_[static_cast<size_t>(next)].index;
+        selectionModel_.select(idx, SelectionFlag::ClearAndSelect);
+        selectionModel_.setCurrentIndex(idx);
+        scrollTo(next);
+        markPaintDirty();
+        ev.accept();
+    } else if (ev.key() == platform::Key::Home) {
+        int next = 0;
+        ModelIndex idx = visibleNodes_[static_cast<size_t>(next)].index;
+        selectionModel_.select(idx, SelectionFlag::ClearAndSelect);
+        selectionModel_.setCurrentIndex(idx);
+        scrollTo(next);
+        markPaintDirty();
+        ev.accept();
+    } else if (ev.key() == platform::Key::End) {
+        int next = static_cast<int>(visibleNodes_.size()) - 1;
         ModelIndex idx = visibleNodes_[static_cast<size_t>(next)].index;
         selectionModel_.select(idx, SelectionFlag::ClearAndSelect);
         selectionModel_.setCurrentIndex(idx);

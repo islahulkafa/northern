@@ -77,7 +77,14 @@ void PaintContext::drawLine(const core::Point& p0, const core::Point& p1, const 
 
 void PaintContext::drawSvg(const SvgDocument& doc, const core::Rect& bounds,
                            const core::Color& tintColor) {
-    doc.render(*this, bounds, tintColor);
+    if (!doc.isValid() || bounds.size.width <= 0.0f || bounds.size.height <= 0.0f) {
+        return;
+    }
+    DrawSvgCommand cmd{};
+    cmd.docImpl = doc.impl();
+    cmd.bounds = bounds;
+    cmd.tintColor = tintColor;
+    commands_.push_back(std::move(cmd));
 }
 
 void PaintContext::drawText(const core::Point& pos, std::string_view text,

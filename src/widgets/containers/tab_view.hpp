@@ -94,6 +94,10 @@ public:
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
+    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
+
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
 
     // Reordering & Trailing '+' Button
     void setReorderable(bool reorderable) noexcept { reorderable_ = reorderable; }
@@ -153,6 +157,8 @@ private:
     bool hoveredAddBtn_{false};
 
     std::shared_ptr<text::Font> font_{nullptr};
+    mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
+    float dpiScale_{1.0f};
     float tabHeight_{32.0f};
     float tabPaddingX_{12.0f};
     float minTabWidth_{64.0f};
@@ -200,6 +206,8 @@ public:
     void setTabBarStyle(TabBarStyle style) noexcept;
     void setReorderable(bool reorderable) noexcept;
     void setAddButtonVisible(bool visible) noexcept;
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
 
     [[nodiscard]] TabBar* tabBar() noexcept { return tabBar_; }
     [[nodiscard]] const TabBar* tabBar() const noexcept { return tabBar_; }
@@ -215,6 +223,7 @@ private:
     TabBar* tabBar_{nullptr};
     Container* deck_{nullptr};
     std::vector<Widget*> pages_{};
+    float dpiScale_{1.0f};
 };
 
 } // namespace northern::widgets

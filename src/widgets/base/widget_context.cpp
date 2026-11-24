@@ -3,6 +3,7 @@
 #include "widgets/controls/tooltip.hpp"
 
 #include <algorithm>
+#include <cctype>
 
 namespace northern::widgets {
 
@@ -285,6 +286,165 @@ void WidgetContext::handleMouseLeave() {
     updateHoverTarget(nullptr);
 }
 
+std::optional<KeyChord> WidgetContext::parseShortcut(std::string_view str) {
+    if (str.empty()) {
+        return std::nullopt;
+    }
+
+    KeyChord chord{};
+    size_t start = 0;
+    while (start < str.size()) {
+        size_t plusPos = str.find('+', start);
+        std::string_view token;
+        if (plusPos == std::string_view::npos) {
+            token = str.substr(start);
+            start = str.size();
+        } else if (plusPos == start && start > 0) {
+            token = "+";
+            start = str.size();
+        } else {
+            token = str.substr(start, plusPos - start);
+            start = plusPos + 1;
+        }
+
+        while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front()))) {
+            token.remove_prefix(1);
+        }
+        while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back()))) {
+            token.remove_suffix(1);
+        }
+
+        if (token.empty()) {
+            continue;
+        }
+
+        std::string lower;
+        lower.reserve(token.size());
+        for (char c : token) {
+            lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        }
+
+        if (lower == "ctrl" || lower == "control") {
+            chord.modifiers |= platform::KeyModifier::Control;
+        } else if (lower == "shift") {
+            chord.modifiers |= platform::KeyModifier::Shift;
+        } else if (lower == "alt") {
+            chord.modifiers |= platform::KeyModifier::Alt;
+        } else if (lower == "super" || lower == "cmd" || lower == "win") {
+            chord.modifiers |= platform::KeyModifier::Super;
+        } else {
+            if (lower.size() == 1) {
+                char c = lower[0];
+                if (c >= 'a' && c <= 'z') {
+                    chord.key = static_cast<platform::Key>(static_cast<uint32_t>(platform::Key::A) +
+                                                           (c - 'a'));
+                } else if (c >= '0' && c <= '9') {
+                    chord.key = static_cast<platform::Key>(
+                        static_cast<uint32_t>(platform::Key::Num0) + (c - '0'));
+                } else if (c == '+') {
+                    chord.key = platform::Key::Equal;
+                } else if (c == '-') {
+                    chord.key = platform::Key::Minus;
+                } else if (c == '/') {
+                    chord.key = platform::Key::Slash;
+                } else if (c == ',') {
+                    chord.key = platform::Key::Comma;
+                } else if (c == '.') {
+                    chord.key = platform::Key::Period;
+                }
+            } else if (lower[0] == 'f' && lower.size() >= 2 && lower.size() <= 3) {
+                int fNum = 0;
+                for (size_t i = 1; i < lower.size(); ++i) {
+                    if (lower[i] >= '0' && lower[i] <= '9') {
+                        fNum = fNum * 10 + (lower[i] - '0');
+                    } else {
+                        fNum = 0;
+                        break;
+                    }
+                }
+                if (fNum >= 1 && fNum <= 24) {
+                    chord.key = static_cast<platform::Key>(
+                        static_cast<uint32_t>(platform::Key::F1) + (fNum - 1));
+                }
+            } else if (lower == "escape" || lower == "esc") {
+                chord.key = platform::Key::Escape;
+            } else if (lower == "enter" || lower == "return") {
+                chord.key = platform::Key::Enter;
+            } else if (lower == "tab") {
+                chord.key = platform::Key::Tab;
+            } else if (lower == "space") {
+                chord.key = platform::Key::Space;
+            } else if (lower == "backspace") {
+                chord.key = platform::Key::Backspace;
+            } else if (lower == "delete" || lower == "del") {
+                chord.key = platform::Key::Delete;
+            } else if (lower == "insert" || lower == "ins") {
+                chord.key = platform::Key::Insert;
+            } else if (lower == "home") {
+                chord.key = platform::Key::Home;
+            } else if (lower == "end") {
+                chord.key = platform::Key::End;
+            } else if (lower == "pageup" || lower == "pgup") {
+                chord.key = platform::Key::PageUp;
+            } else if (lower == "pagedown" || lower == "pgdn") {
+                chord.key = platform::Key::PageDown;
+            } else if (lower == "up") {
+                chord.key = platform::Key::Up;
+            } else if (lower == "down") {
+                chord.key = platform::Key::Down;
+            } else if (lower == "left") {
+                chord.key = platform::Key::Left;
+            } else if (lower == "right") {
+                chord.key = platform::Key::Right;
+            }
+        }
+    }
+
+    if (chord.key == platform::Key::Unknown) {
+        return std::nullopt;
+    }
+    return chord;
+}
+
+void WidgetContext::registerAccelerator(const std::string& shortcutStr,
+                                        std::function<void()> callback) {
+    if (auto chord = parseShortcut(shortcutStr)) {
+        registerAccelerator(*chord, std::move(callback));
+    }
+}
+
+void WidgetContext::registerAccelerator(const KeyChord& chord, std::function<void()> callback) {
+    if (chord.key != platform::Key::Unknown && callback) {
+        accelerators_[chord] = std::move(callback);
+    }
+}
+
+void WidgetContext::unregisterAccelerator(const std::string& shortcutStr) {
+    if (auto chord = parseShortcut(shortcutStr)) {
+        unregisterAccelerator(*chord);
+    }
+}
+
+void WidgetContext::unregisterAccelerator(const KeyChord& chord) {
+    accelerators_.erase(chord);
+}
+
+bool WidgetContext::dispatchAccelerator(platform::Key key, platform::KeyModifier modifiers) {
+    if (accelerators_.empty() || key == platform::Key::Unknown) {
+        return false;
+    }
+    platform::KeyModifier relevant =
+        modifiers & (platform::KeyModifier::Shift | platform::KeyModifier::Control |
+                     platform::KeyModifier::Alt | platform::KeyModifier::Super);
+    KeyChord chord{key, relevant};
+    auto it = accelerators_.find(chord);
+    if (it != accelerators_.end() && it->second) {
+        it->second();
+        return true;
+    }
+    return false;
+}
+
 void WidgetContext::handleKeyEvent(const platform::KeyEvent& ev) {
     flushDeletedWidgets();
     if (ev.isDown) {
@@ -297,6 +457,10 @@ void WidgetContext::handleKeyEvent(const platform::KeyEvent& ev) {
             dismissTopOverlay();
             return;
         }
+    }
+
+    if (ev.isDown && dispatchAccelerator(ev.key, ev.modifiers)) {
+        return;
     }
 
     bool accepted = false;
@@ -478,20 +642,47 @@ void WidgetContext::setTooltipFont(std::shared_ptr<text::Font> font) {
     }
 }
 
+void WidgetContext::setTooltipDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (tooltipDpiScale_ != clamped) {
+        tooltipDpiScale_ = clamped;
+        if (activeTooltip_) {
+            activeTooltip_->setDpiScale(tooltipDpiScale_);
+        }
+    }
+}
+
+Widget* WidgetContext::resolveTooltipSource(Widget* hovered) const noexcept {
+    for (Widget* curr = hovered; curr; curr = curr->parent()) {
+        if (curr->isVisible() && curr->isEnabled() && !curr->tooltipText().empty()) {
+            return curr;
+        }
+    }
+    return nullptr;
+}
+
 void WidgetContext::dismissTooltip() {
+    bool wasVisible = tooltipVisible_ || activeTooltip_ != nullptr;
+    if (tooltipVisible_) {
+        tooltipWarmupRemainingSeconds_ = tooltipWarmupWindowSeconds_;
+    }
     tooltipVisible_ = false;
     tooltipAlphaAnim_.stop();
     activeTooltip_.reset();
+    if (wasVisible) {
+        markTooltipDirty();
+    }
 }
 
 void WidgetContext::showTooltipForHoveredWidget() {
-    if (!hoveredWidget_ || hoveredWidget_->tooltipText().empty() || !overlayStack_.empty()) {
+    Widget* source = resolveTooltipSource(hoveredWidget_);
+    if (!source || !overlayStack_.empty()) {
         return;
     }
 
-    auto tip = std::make_unique<Tooltip>(hoveredWidget_->tooltipText(),
-                                         hoveredWidget_->tooltipShortcut(), tooltipFont_);
-    tip->setContext(this);
+    auto tip = std::make_unique<Tooltip>(source->tooltipText(), source->tooltipShortcut(),
+                                         tooltipFont_, source->tooltipDescription());
+    tip->setDpiScale(tooltipDpiScale_);
 
     core::Size tipSize = tip->preferredSize();
     core::Size viewport = (currentViewportSize_.width > 0.0f && currentViewportSize_.height > 0.0f)
@@ -499,17 +690,20 @@ void WidgetContext::showTooltipForHoveredWidget() {
                               : core::Size{1920.0f, 1080.0f};
 
     OverlayDesc desc{};
-    desc.anchorRect = hoveredWidget_->screenRect();
-    desc.preferredPlacement = OverlayPlacement::Bottom;
+    desc.anchorRect = source->screenRect();
+    desc.preferredPlacement = source->tooltipPlacement();
     desc.autoFlip = true;
-    desc.gap = 6.0f;
+    desc.gap = 6.0f * tooltipDpiScale_;
 
     core::Point pos = computeOverlayPosition(viewport, tipSize, desc);
     tip->layoutNode().setLayoutRect(core::Rect{pos, tipSize});
     tip->setAlpha(0.0f);
+    tip->setContext(this);
 
     activeTooltip_ = std::move(tip);
     tooltipVisible_ = true;
+    tooltipWarmupRemainingSeconds_ = tooltipWarmupWindowSeconds_;
+    tooltipDirty_ = true;
     tooltipAlphaAnim_.start(0.0f, 1.0f, 0.12f, core::animation::EasingCurve::OutCubic);
 }
 
@@ -629,11 +823,18 @@ void WidgetContext::advanceAnimations(float deltaSeconds) {
         }
     }
 
-    if (hoveredWidget_ && !hoveredWidget_->tooltipText().empty() && !mouseGrabWidget_ &&
-        overlayStack_.empty()) {
+    if (!tooltipVisible_ && tooltipWarmupRemainingSeconds_ > 0.0f) {
+        tooltipWarmupRemainingSeconds_ =
+            std::max(0.0f, tooltipWarmupRemainingSeconds_ - deltaSeconds);
+    }
+
+    if (resolveTooltipSource(hoveredWidget_) && !mouseGrabWidget_ && overlayStack_.empty()) {
         if (!tooltipVisible_) {
             hoverDurationSeconds_ += deltaSeconds;
-            if (hoverDurationSeconds_ >= tooltipDelaySeconds_) {
+            float activeDelay = (tooltipWarmupRemainingSeconds_ > 0.0f)
+                                    ? std::min(tooltipDelaySeconds_, tooltipWarmupDelaySeconds_)
+                                    : tooltipDelaySeconds_;
+            if (hoverDurationSeconds_ >= activeDelay) {
                 showTooltipForHoveredWidget();
             }
         }
@@ -659,8 +860,11 @@ void WidgetContext::render(renderer::PaintContext& ctx, const core::Size& viewpo
         retainedPaintContext_ = std::make_unique<renderer::PaintContext>();
     }
 
-    bool needsRepaint = isPaintDirty_ || hasActiveAnimations() || retainedPaintContext_->commands().empty();
-    if (!needsRepaint && rootWidget_ && (rootWidget_->isLayoutDirty() || rootWidget_->isPaintDirty())) {
+    bool needsRepaint = isPaintDirty_ || !animatedWidgets_.empty() ||
+                        animationManager_.hasActiveAnimations() ||
+                        retainedPaintContext_->commands().empty();
+    if (!needsRepaint && rootWidget_ &&
+        (rootWidget_->isLayoutDirty() || rootWidget_->isPaintDirty())) {
         needsRepaint = true;
     }
     if (!needsRepaint) {
@@ -689,10 +893,11 @@ void WidgetContext::render(renderer::PaintContext& ctx, const core::Size& viewpo
             if (entry.widget && entry.widget->isVisible()) {
                 if (entry.desc.isModal) {
                     retainedPaintContext_->drawRect(rootVisibleRect,
-                                                   core::Color{0.0f, 0.0f, 0.0f, 0.55f});
+                                                    core::Color{0.0f, 0.0f, 0.0f, 0.55f});
                 }
                 if (entry.widget->isLayoutDirty()) {
-                    entry.widget->layoutNode().computeLayout(viewportSize.width, viewportSize.height);
+                    entry.widget->layoutNode().computeLayout(viewportSize.width,
+                                                             viewportSize.height);
                     core::Size overlaySize = entry.widget->layoutNode().layoutRect().size;
                     entry.computedPosition =
                         computeOverlayPosition(viewportSize, overlaySize, entry.desc);
@@ -704,15 +909,16 @@ void WidgetContext::render(renderer::PaintContext& ctx, const core::Size& viewpo
             }
         }
 
-        if (tooltipVisible_ && activeTooltip_) {
-            activeTooltip_->paint(*retainedPaintContext_);
-            activeTooltip_->clearPaintDirty();
-        }
-
         isPaintDirty_ = false;
     }
 
     ctx.append(*retainedPaintContext_);
+
+    if (tooltipVisible_ && activeTooltip_) {
+        activeTooltip_->paint(ctx);
+        activeTooltip_->clearPaintDirty();
+    }
+    tooltipDirty_ = false;
 }
 
 void WidgetContext::renderWidget(Widget* widget, renderer::PaintContext& ctx,
@@ -777,6 +983,34 @@ Widget* WidgetContext::showOverlay(std::unique_ptr<Widget> content, const Overla
     entry.desc = desc;
     entry.owner = owner;
     entry.computedPosition = pos;
+    entry.isOwned = true;
+
+    Widget* ptr = entry.widget.get();
+    overlayStack_.push_back(std::move(entry));
+    return ptr;
+}
+
+Widget* WidgetContext::showOverlay(Widget* content, const OverlayDesc& desc, Widget* owner) {
+    if (!content) {
+        return nullptr;
+    }
+    dismissTooltip();
+    content->setContext(this);
+
+    float availW = currentViewportSize_.width > 0.0f ? currentViewportSize_.width : 1920.0f;
+    float availH = currentViewportSize_.height > 0.0f ? currentViewportSize_.height : 1080.0f;
+    content->layoutNode().computeLayout(availW, availH);
+
+    core::Size overlaySize = content->layoutNode().layoutRect().size;
+    core::Point pos = computeOverlayPosition(core::Size{availW, availH}, overlaySize, desc);
+    content->layoutNode().setLayoutRect(core::Rect{pos, overlaySize});
+
+    OverlayEntry entry{};
+    entry.widget = std::unique_ptr<Widget>(content);
+    entry.desc = desc;
+    entry.owner = owner;
+    entry.computedPosition = pos;
+    entry.isOwned = false;
 
     Widget* ptr = entry.widget.get();
     overlayStack_.push_back(std::move(entry));
@@ -803,6 +1037,9 @@ void WidgetContext::dismissTopOverlay() {
     }
     if (entry.desc.onDismiss) {
         entry.desc.onDismiss();
+    }
+    if (!entry.isOwned) {
+        entry.widget.release();
     }
 }
 
@@ -831,6 +1068,9 @@ void WidgetContext::dismissOverlaysForOwner(Widget* owner) {
                 mouseGrabWidget_ = nullptr;
             }
             auto onDismiss = std::move(it->desc.onDismiss);
+            if (!it->isOwned) {
+                it->widget.release();
+            }
             it = overlayStack_.erase(it);
             if (onDismiss) {
                 onDismiss();

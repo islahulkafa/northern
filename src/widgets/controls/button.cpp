@@ -1,12 +1,32 @@
 #include "widgets/controls/button.hpp"
 #include "renderer/paint_context.hpp"
 #include "renderer/svg/svg_document.hpp"
+#include "text/font_manager.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
+#include "widgets/controls/icons.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <numbers>
 
 namespace northern::widgets {
+
+namespace {
+
+constexpr float defaultPointSizeForSize(ButtonSize s) noexcept {
+    switch (s) {
+    case ButtonSize::Compact:
+        return 9.5f;
+    case ButtonSize::Standard:
+        return 10.5f;
+    case ButtonSize::Comfortable:
+        return 11.5f;
+    }
+    return 10.5f;
+}
+
+} // namespace
 
 Button::Button(std::string text, std::shared_ptr<text::Font> font, ButtonVariant variant,
                ButtonSize size)
@@ -17,74 +37,131 @@ Button::Button(std::string text, std::shared_ptr<text::Font> font, ButtonVariant
     applySizeMetrics();
     applyVariantStyle();
 
-    layoutNode_.setMeasureFunc([this](const layout::LayoutNode&, float availW,
-                                      float) -> core::Size {
-        float textW = 0.0f;
-        float textH = 0.0f;
-        if (font_ && !text_.empty()) {
-            if (isTextLayoutDirty_ || !cachedTextLayout_) {
-                cachedTextLayout_ = text::TextLayout::create(text_, font_);
-                isTextLayoutDirty_ = false;
+    layoutNode_.setMeasureFunc(
+        [this](const layout::LayoutNode&, float availW, float) -> core::Size {
+            auto f = effectiveFont();
+            float textW = 0.0f;
+            float textH = 0.0f;
+            if (f && !text_.empty()) {
+                if (isTextLayoutDirty_ || !cachedTextLayout_) {
+                    cachedTextLayout_ = text::TextLayout::create(text_, f);
+                    isTextLayoutDirty_ = false;
+                }
+                textW = cachedTextLayout_->size().width;
+                textH = cachedTextLayout_->size().height;
             }
-            textW = cachedTextLayout_->size().width;
-            textH = cachedTextLayout_->size().height;
-        }
 
-        bool hasIcon = (icon_ && icon_->isValid());
-        float contentW = textW;
-        if (hasIcon) {
-            if (text_.empty()) {
-                contentW = iconSize_;
-            } else {
-                contentW += iconSize_ + iconGap_;
+            bool hasIcon = (icon_ && icon_->isValid());
+            bool showSpinner = isLoading_;
+            bool hasIndicator = showSpinner || hasIcon;
+            float contentW = textW;
+            if (hasIndicator) {
+                if (text_.empty()) {
+                    contentW = iconSize_;
+                } else {
+                    contentW += iconSize_ + iconGap_;
+                }
             }
-        }
 
-        float padH = style().padding.left.resolve(availW, 0.0f) +
-                     style().padding.right.resolve(availW, 0.0f);
-        float h = style().height.resolve(0.0f, 0.0f);
-        if (h <= 0.0f) {
-            float padV = style().padding.top.resolve(0.0f, 0.0f) +
-                         style().padding.bottom.resolve(0.0f, 0.0f);
-            h = std::max(textH, hasIcon ? iconSize_ : 0.0f) + padV;
-        }
+            float padH = style().padding.left.resolve(availW, 0.0f) +
+                         style().padding.right.resolve(availW, 0.0f);
+            float h = style().height.resolve(0.0f, 0.0f);
+            if (h <= 0.0f) {
+                float padV = style().padding.top.resolve(0.0f, 0.0f) +
+                             style().padding.bottom.resolve(0.0f, 0.0f);
+                h = std::max(textH, hasIndicator ? iconSize_ : 0.0f) + padV;
+            }
 
-        float w = (text_.empty() && hasIcon) ? h : (contentW + padH);
-        return core::Size{w, h};
-    });
+            float w = (text_.empty() && hasIndicator) ? h : (contentW + padH);
+            return core::Size{w, h};
+        });
+}
+
+Button::Button(std::string text, IconId icon, ButtonVariant variant, ButtonSize size)
+    : Button(std::move(text), nullptr, variant, size) {
+    setIcon(icon);
+}
+
+Button::Button(IconId icon, ButtonVariant variant, ButtonSize size)
+    : Button("", nullptr, variant, size) {
+    setIcon(icon);
 }
 
 void Button::setSize(ButtonSize size) noexcept {
     if (size_ != size) {
         size_ = size;
+        resolvedDefaultFont_.reset();
+        isTextLayoutDirty_ = true;
         applySizeMetrics();
     }
 }
 
+void Button::setDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        resolvedDefaultFont_.reset();
+        isTextLayoutDirty_ = true;
+        applySizeMetrics();
+        applyVariantStyle();
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+void Button::setLoading(bool loading) noexcept {
+    if (isLoading_ != loading) {
+        isLoading_ = loading;
+        if (isLoading_) {
+            spinnerAnim_.start(0.0f, 1.0f, 0.8f, core::animation::EasingCurve::Linear);
+            if (context_) {
+                context_->registerAnimatedWidget(this);
+            }
+        } else {
+            spinnerAnim_.stop();
+        }
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+std::shared_ptr<text::Font> Button::effectiveFont() const {
+    if (font_) {
+        return font_;
+    }
+    if (!resolvedDefaultFont_) {
+        float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+        float pt = defaultPointSizeForSize(size_) * scale;
+        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+    }
+    return resolvedDefaultFont_;
+}
+
 void Button::applySizeMetrics() noexcept {
-    float h = theme::Metrics::ControlHeightStandard;
-    float padH = 12.0f;
-    float defIcon = 16.0f;
-    float radius = theme::Metrics::CornerRadiusControl;
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    float h = theme::Metrics::ControlHeightStandard * scale;
+    float padH = 12.0f * scale;
+    float defIcon = 16.0f * scale;
+    float radius = theme::Metrics::CornerRadiusControl * scale;
 
     switch (size_) {
     case ButtonSize::Compact:
-        h = theme::Metrics::ControlHeightCompact;
-        padH = 8.0f;
-        defIcon = 14.0f;
-        radius = 4.0f;
+        h = theme::Metrics::ControlHeightCompact * scale;
+        padH = 8.0f * scale;
+        defIcon = 14.0f * scale;
+        radius = 4.0f * scale;
         break;
     case ButtonSize::Standard:
-        h = theme::Metrics::ControlHeightStandard;
-        padH = 12.0f;
-        defIcon = 16.0f;
-        radius = theme::Metrics::CornerRadiusControl;
+        h = theme::Metrics::ControlHeightStandard * scale;
+        padH = 12.0f * scale;
+        defIcon = 16.0f * scale;
+        radius = theme::Metrics::CornerRadiusControl * scale;
         break;
     case ButtonSize::Comfortable:
-        h = theme::Metrics::ControlHeightComfortable;
-        padH = 16.0f;
-        defIcon = 18.0f;
-        radius = theme::Metrics::CornerRadiusControl;
+        h = theme::Metrics::ControlHeightComfortable * scale;
+        padH = 16.0f * scale;
+        defIcon = 18.0f * scale;
+        radius = theme::Metrics::CornerRadiusControl * scale;
         break;
     }
 
@@ -95,9 +172,8 @@ void Button::applySizeMetrics() noexcept {
         .right = layout::Length::points(padH),
         .bottom = layout::Length::points(0.0f),
     };
-    if (iconSize_ <= 0.0f || iconSize_ == 14.0f || iconSize_ == 16.0f || iconSize_ == 18.0f) {
-        iconSize_ = defIcon;
-    }
+    iconSize_ = defIcon;
+    iconGap_ = 6.0f * scale;
     setCornerRadius(radius);
     markLayoutDirty();
 }
@@ -107,10 +183,14 @@ void Button::setIcon(std::shared_ptr<renderer::SvgDocument> icon, IconPlacement 
     icon_ = std::move(icon);
     iconPlacement_ = placement;
     if (iconSize > 0.0f) {
-        iconSize_ = iconSize;
+        iconSize_ = iconSize * (dpiScale_ > 0.0f ? dpiScale_ : 1.0f);
     }
     markLayoutDirty();
     markPaintDirty();
+}
+
+void Button::setIcon(IconId icon, IconPlacement placement, float iconSize) noexcept {
+    setIcon(getSvgDocument(icon), placement, iconSize);
 }
 
 void Button::setIconSize(float size) noexcept {
@@ -141,8 +221,10 @@ void Button::setVariant(ButtonVariant variant) noexcept {
 }
 
 void Button::applyVariantStyle() noexcept {
-    borderWidth_ =
-        (variant_ == ButtonVariant::Secondary) ? theme::Metrics::BorderWidthHairline : 0.0f;
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    borderWidth_ = (variant_ == ButtonVariant::Secondary || variant_ == ButtonVariant::Outline)
+                       ? std::max(1.0f, std::round(theme::Metrics::BorderWidthHairline * scale))
+                       : 0.0f;
     updateTargetColors(false);
 }
 
@@ -156,6 +238,7 @@ core::Color Button::effectiveIdleBackgroundColor() const noexcept {
         return pal.accentDefault;
     case ButtonVariant::Secondary:
         return pal.surfaceRaised;
+    case ButtonVariant::Outline:
     case ButtonVariant::Ghost:
         return core::Color::transparent();
     case ButtonVariant::Destructive:
@@ -173,14 +256,15 @@ core::Color Button::effectiveHoverBackgroundColor() const noexcept {
     case ButtonVariant::Primary:
         return pal.accentHover;
     case ButtonVariant::Secondary:
-        return pal.mode == theme::ThemeMode::Dark ? core::Color{0.188f, 0.188f, 0.204f, 1.0f}
-                                                  : core::Color{0.90f, 0.90f, 0.92f, 1.0f};
-    case ButtonVariant::Ghost:
+        return pal.surfaceOverlay;
+    case ButtonVariant::Outline:
         return pal.mode == theme::ThemeMode::Dark ? core::Color{1.0f, 1.0f, 1.0f, 0.06f}
+                                                  : core::Color{0.0f, 0.0f, 0.0f, 0.04f};
+    case ButtonVariant::Ghost:
+        return pal.mode == theme::ThemeMode::Dark ? core::Color{1.0f, 1.0f, 1.0f, 0.08f}
                                                   : core::Color{0.0f, 0.0f, 0.0f, 0.06f};
     case ButtonVariant::Destructive:
-        return pal.mode == theme::ThemeMode::Dark ? core::Color::fromRgba8(220, 38, 38, 255)
-                                                  : core::Color::fromRgba8(239, 68, 68, 255);
+        return pal.danger.lerp(core::Color::black(), 0.15f);
     }
     return pal.surfaceRaised;
 }
@@ -195,11 +279,14 @@ core::Color Button::effectivePressedBackgroundColor() const noexcept {
         return pal.accentActive;
     case ButtonVariant::Secondary:
         return pal.surfaceDefault;
+    case ButtonVariant::Outline:
+        return pal.mode == theme::ThemeMode::Dark ? core::Color{1.0f, 1.0f, 1.0f, 0.12f}
+                                                  : core::Color{0.0f, 0.0f, 0.0f, 0.08f};
     case ButtonVariant::Ghost:
-        return pal.mode == theme::ThemeMode::Dark ? core::Color{1.0f, 1.0f, 1.0f, 0.10f}
+        return pal.mode == theme::ThemeMode::Dark ? core::Color{1.0f, 1.0f, 1.0f, 0.14f}
                                                   : core::Color{0.0f, 0.0f, 0.0f, 0.10f};
     case ButtonVariant::Destructive:
-        return core::Color::fromRgba8(185, 28, 28, 255);
+        return pal.danger.lerp(core::Color::black(), 0.25f);
     }
     return pal.surfaceDefault;
 }
@@ -208,8 +295,12 @@ core::Color Button::effectiveIdleBorderColor() const noexcept {
     if (customBorder_) {
         return idleBorderColor_;
     }
+    const auto& pal = colorPalette();
     if (variant_ == ButtonVariant::Secondary) {
-        return colorPalette().borderDefault;
+        return pal.borderSubtle;
+    }
+    if (variant_ == ButtonVariant::Outline) {
+        return pal.borderDefault;
     }
     return core::Color::transparent();
 }
@@ -218,8 +309,9 @@ core::Color Button::effectiveHoverBorderColor() const noexcept {
     if (customBorder_) {
         return hoverBorderColor_;
     }
-    if (variant_ == ButtonVariant::Secondary) {
-        return colorPalette().borderStrong;
+    const auto& pal = colorPalette();
+    if (variant_ == ButtonVariant::Secondary || variant_ == ButtonVariant::Outline) {
+        return pal.borderStrong;
     }
     return core::Color::transparent();
 }
@@ -228,8 +320,9 @@ core::Color Button::effectivePressedBorderColor() const noexcept {
     if (customBorder_) {
         return pressedBorderColor_;
     }
-    if (variant_ == ButtonVariant::Secondary) {
-        return colorPalette().borderDefault;
+    const auto& pal = colorPalette();
+    if (variant_ == ButtonVariant::Secondary || variant_ == ButtonVariant::Outline) {
+        return pal.borderDefault;
     }
     return core::Color::transparent();
 }
@@ -244,8 +337,10 @@ core::Color Button::effectiveIdleTextColor() const noexcept {
     case ButtonVariant::Destructive:
         return core::Color::white();
     case ButtonVariant::Secondary:
-    case ButtonVariant::Ghost:
+    case ButtonVariant::Outline:
         return pal.textPrimary;
+    case ButtonVariant::Ghost:
+        return pal.textSecondary;
     }
     return pal.textPrimary;
 }
@@ -253,6 +348,10 @@ core::Color Button::effectiveIdleTextColor() const noexcept {
 core::Color Button::effectiveHoverTextColor() const noexcept {
     if (customText_) {
         return hoverTextColor_;
+    }
+    const auto& pal = colorPalette();
+    if (variant_ == ButtonVariant::Ghost) {
+        return pal.textPrimary;
     }
     return effectiveIdleTextColor();
 }
@@ -267,6 +366,7 @@ core::Color Button::effectivePressedTextColor() const noexcept {
     case ButtonVariant::Destructive:
         return core::Color::white();
     case ButtonVariant::Secondary:
+    case ButtonVariant::Outline:
     case ButtonVariant::Ghost:
         return pal.textSecondary;
     }
@@ -278,20 +378,26 @@ void Button::setText(std::string text) {
         text_ = std::move(text);
         isTextLayoutDirty_ = true;
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
 void Button::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
+        resolvedDefaultFont_.reset();
         isTextLayoutDirty_ = true;
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
 ButtonState Button::state() const noexcept {
     if (!isEnabled()) {
         return ButtonState::Disabled;
+    }
+    if (isLoading_) {
+        return ButtonState::Idle;
     }
     if (isPressed_) {
         return ButtonState::Pressed;
@@ -382,7 +488,7 @@ void Button::updateTargetColors(bool animated) {
     core::Color targetBg;
     core::Color targetBorder;
 
-    if (st == ButtonState::Disabled) {
+    if (!isEnabled()) {
         targetBg = effectiveIdleBackgroundColor().withAlpha(0.35f);
         targetBorder = effectiveIdleBorderColor().withAlpha(0.20f);
     } else {
@@ -412,15 +518,25 @@ void Button::updateTargetColors(bool animated) {
 void Button::updateAnimations(float deltaSeconds) {
     bgAnim_.update(deltaSeconds);
     borderAnim_.update(deltaSeconds);
-    markPaintDirty();
+    if (isLoading_) {
+        spinnerAnim_.update(deltaSeconds);
+        if (!spinnerAnim_.isRunning()) {
+            spinnerAnim_.start(0.0f, 1.0f, 0.8f, core::animation::EasingCurve::Linear);
+        }
+        if (context_) {
+            context_->registerAnimatedWidget(this);
+        }
+        markPaintDirty();
+    }
 }
 
 bool Button::hasActiveAnimations() const noexcept {
-    return bgAnim_.isRunning() || borderAnim_.isRunning();
+    return bgAnim_.isRunning() || borderAnim_.isRunning() ||
+           (isLoading_ && spinnerAnim_.isRunning());
 }
 
 void Button::onMouseEnter() {
-    if (!isEnabled()) {
+    if (!isEnabled() || isLoading_) {
         return;
     }
     isHovered_ = true;
@@ -428,7 +544,7 @@ void Button::onMouseEnter() {
 }
 
 void Button::onMouseLeave() {
-    if (!isEnabled()) {
+    if (!isEnabled() || isLoading_) {
         return;
     }
     isHovered_ = false;
@@ -436,7 +552,7 @@ void Button::onMouseLeave() {
 }
 
 void Button::onMouseMove(WidgetMouseEvent& ev) {
-    if (!isEnabled()) {
+    if (!isEnabled() || isLoading_) {
         return;
     }
     if (isPressed_) {
@@ -452,7 +568,7 @@ void Button::onMouseMove(WidgetMouseEvent& ev) {
 }
 
 void Button::onMouseDown(WidgetMouseEvent& ev) {
-    if (!isEnabled()) {
+    if (!isEnabled() || isLoading_) {
         return;
     }
     if (ev.button() == platform::MouseButton::Left) {
@@ -464,7 +580,7 @@ void Button::onMouseDown(WidgetMouseEvent& ev) {
 }
 
 void Button::onMouseUp(WidgetMouseEvent& ev) {
-    if (!isEnabled()) {
+    if (!isEnabled() || isLoading_) {
         return;
     }
     if (ev.button() == platform::MouseButton::Left && isPressed_) {
@@ -481,7 +597,7 @@ void Button::onMouseUp(WidgetMouseEvent& ev) {
 }
 
 void Button::onKeyDown(WidgetKeyEvent& ev) {
-    if (!isEnabled()) {
+    if (!isEnabled() || isLoading_) {
         return;
     }
     if (ev.key() == platform::Key::Space || ev.key() == platform::Key::Enter) {
@@ -501,19 +617,21 @@ void Button::paint(renderer::PaintContext& ctx) {
     core::Color border;
     core::Color textColor;
 
-    if (st == ButtonState::Disabled) {
+    if (!isEnabled()) {
         bg = effectiveIdleBackgroundColor().withAlpha(0.35f);
         border = effectiveIdleBorderColor().withAlpha(0.20f);
         textColor = colorPalette().textDisabled;
     } else {
-        bg = bgAnim_.isRunning() ? bgAnim_.currentValue()
-             : ((st == ButtonState::Pressed)   ? effectivePressedBackgroundColor()
-                : (st == ButtonState::Hovered) ? effectiveHoverBackgroundColor()
-                                               : effectiveIdleBackgroundColor());
-        border = borderAnim_.isRunning() ? borderAnim_.currentValue()
-                 : ((st == ButtonState::Pressed)   ? effectivePressedBorderColor()
-                    : (st == ButtonState::Hovered) ? effectiveHoverBorderColor()
-                                                   : effectiveIdleBorderColor());
+        bg = bgAnim_.isRunning()
+                 ? bgAnim_.currentValue()
+                 : ((st == ButtonState::Pressed)   ? effectivePressedBackgroundColor()
+                    : (st == ButtonState::Hovered) ? effectiveHoverBackgroundColor()
+                                                   : effectiveIdleBackgroundColor());
+        border = borderAnim_.isRunning()
+                     ? borderAnim_.currentValue()
+                     : ((st == ButtonState::Pressed)   ? effectivePressedBorderColor()
+                        : (st == ButtonState::Hovered) ? effectiveHoverBorderColor()
+                                                       : effectiveIdleBorderColor());
         textColor = (st == ButtonState::Pressed)   ? effectivePressedTextColor()
                     : (st == ButtonState::Hovered) ? effectiveHoverTextColor()
                                                    : effectiveIdleTextColor();
@@ -525,46 +643,81 @@ void Button::paint(renderer::PaintContext& ctx) {
         theme::paintFocusRing(ctx, rect, cornerRadii_[0]);
     }
 
+    auto f = effectiveFont();
     bool hasIcon = (icon_ && icon_->isValid());
-    bool hasText = (font_ && !text_.empty() && textColor.a > 0.0f);
+    bool showSpinner = isLoading_;
+    bool hasIndicator = showSpinner || hasIcon;
+    bool hasText = (f && !text_.empty() && textColor.a > 0.0f);
 
-    if (hasIcon && !hasText) {
-        // Icon-only centered
+    auto drawSpinner = [&](const core::Rect& spinRect, const core::Color& col) {
+        float startAngle = spinnerAnim_.currentValue() * 2.0f * std::numbers::pi_v<float>;
+        float arcSpan = 1.5f * std::numbers::pi_v<float>;
+        constexpr int kSegments = 10;
+        float radius = spinRect.size.width * 0.38f;
+        core::Point center{spinRect.origin.x + spinRect.size.width * 0.5f,
+                           spinRect.origin.y + spinRect.size.height * 0.5f};
+        float strokeW = std::max(1.5f, 1.75f * (dpiScale_ > 0.0f ? dpiScale_ : 1.0f));
+
+        for (int seg = 0; seg < kSegments; ++seg) {
+            float t0 = static_cast<float>(seg) / static_cast<float>(kSegments);
+            float t1 = static_cast<float>(seg + 1) / static_cast<float>(kSegments);
+            float a0 = startAngle + t0 * arcSpan;
+            float a1 = startAngle + t1 * arcSpan;
+            core::Point p0{center.x + std::cos(a0) * radius, center.y + std::sin(a0) * radius};
+            core::Point p1{center.x + std::cos(a1) * radius, center.y + std::sin(a1) * radius};
+            float segAlpha = 0.2f + 0.8f * t1;
+            ctx.drawLine(p0, p1, col.withAlpha(col.a * segAlpha), strokeW);
+        }
+    };
+
+    float targetCenterY = rect.origin.y + rect.size.height * 0.5f;
+    float indicatorY = std::round(targetCenterY - iconSize_ * 0.5f);
+    float textY = f ? theme::computeCenteredTextY(targetCenterY, *f) : targetCenterY;
+
+    if (hasIndicator && !hasText) {
+        // Indicator-only centered
         float s = std::min(iconSize_, std::min(rect.size.width, rect.size.height));
         float ox = rect.origin.x + (rect.size.width - s) * 0.5f;
-        float oy = rect.origin.y + (rect.size.height - s) * 0.5f;
-        ctx.drawSvg(*icon_, core::Rect{{ox, oy}, {s, s}}, textColor);
-    } else if (hasIcon && hasText) {
-        // Icon + Text layout
+        float oy = std::round(targetCenterY - s * 0.5f);
+        core::Rect indRect{{ox, oy}, {s, s}};
+        if (showSpinner) {
+            drawSpinner(indRect, textColor);
+        } else if (hasIcon) {
+            ctx.drawSvg(*icon_, indRect, textColor);
+        }
+    } else if (hasIndicator && hasText) {
+        // Indicator + Text layout
         if (isTextLayoutDirty_ || !cachedTextLayout_) {
-            cachedTextLayout_ = text::TextLayout::create(text_, font_);
+            cachedTextLayout_ = text::TextLayout::create(text_, f);
             isTextLayoutDirty_ = false;
         }
         float textW = cachedTextLayout_->size().width;
         float totalW = iconSize_ + iconGap_ + textW;
         float startX = rect.origin.x + std::max(0.0f, (rect.size.width - totalW) * 0.5f);
-        float iconY = rect.origin.y + (rect.size.height - iconSize_) * 0.5f;
-        float textY = theme::computeCenteredTextY(rect.origin.y + rect.size.height * 0.5f, *font_);
 
-        if (iconPlacement_ == IconPlacement::Leading) {
-            ctx.drawSvg(*icon_, core::Rect{{startX, iconY}, {iconSize_, iconSize_}}, textColor);
+        if (showSpinner || iconPlacement_ == IconPlacement::Leading) {
+            core::Rect indRect{{startX, indicatorY}, {iconSize_, iconSize_}};
+            if (showSpinner) {
+                drawSpinner(indRect, textColor);
+            } else {
+                ctx.drawSvg(*icon_, indRect, textColor);
+            }
             ctx.drawTextLayout(core::Point{startX + iconSize_ + iconGap_, textY},
                                *cachedTextLayout_, textColor);
         } else {
             ctx.drawTextLayout(core::Point{startX, textY}, *cachedTextLayout_, textColor);
             ctx.drawSvg(*icon_,
-                        core::Rect{{startX + textW + iconGap_, iconY}, {iconSize_, iconSize_}},
+                        core::Rect{{startX + textW + iconGap_, indicatorY}, {iconSize_, iconSize_}},
                         textColor);
         }
     } else if (hasText) {
         // Text-only centered
         if (isTextLayoutDirty_ || !cachedTextLayout_) {
-            cachedTextLayout_ = text::TextLayout::create(text_, font_);
+            cachedTextLayout_ = text::TextLayout::create(text_, f);
             isTextLayoutDirty_ = false;
         }
         float textW = cachedTextLayout_->size().width;
         float textX = rect.origin.x + std::max(0.0f, (rect.size.width - textW) * 0.5f);
-        float textY = theme::computeCenteredTextY(rect.origin.y + rect.size.height * 0.5f, *font_);
         ctx.drawTextLayout(core::Point{textX, textY}, *cachedTextLayout_, textColor);
     }
 }

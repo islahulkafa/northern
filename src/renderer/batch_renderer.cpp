@@ -150,7 +150,7 @@ void BatchRenderer::emitQuad(const DrawBoxCommand& box) {
     }
     auto alloc = allocRes.value();
 
-    float pad = 1.5f;
+    float pad = 2.0f;
     float x = box.rect.origin.x - pad;
     float y = box.rect.origin.y - pad;
     float w = box.rect.size.width + 2.0f * pad;
@@ -218,12 +218,13 @@ void BatchRenderer::emitQuad(const DrawBoxCommand& box) {
 }
 
 void BatchRenderer::emitLine(const DrawLineCommand& cmd) {
+    if (cmd.thickness <= 0.0f) {
+        return;
+    }
+
     float dx = cmd.p1.x - cmd.p0.x;
     float dy = cmd.p1.y - cmd.p0.y;
     float len = std::sqrt(dx * dx + dy * dy);
-    if (len <= 0.0001f || cmd.thickness <= 0.0f) {
-        return;
-    }
 
     auto allocRes = ringBuffer_->allocate(4, 6);
     if (allocRes.isErr()) {
@@ -231,15 +232,19 @@ void BatchRenderer::emitLine(const DrawLineCommand& cmd) {
     }
     auto alloc = allocRes.value();
 
-    float pad = 1.5f;
+    float pad = 2.0f;
     float halfL = len * 0.5f;
     float halfW = cmd.thickness * 0.5f;
 
     core::Point center{(cmd.p0.x + cmd.p1.x) * 0.5f, (cmd.p0.y + cmd.p1.y) * 0.5f};
-    core::Point T{dx / len, dy / len};
-    core::Point N{-T.y, T.x};
+    core::Point T{1.0f, 0.0f};
+    core::Point N{0.0f, 1.0f};
+    if (len > 0.0001f) {
+        T = {dx / len, dy / len};
+        N = {-T.y, T.x};
+    }
 
-    float extL = halfL + pad;
+    float extL = halfL + halfW + pad;
     float extW = halfW + pad;
 
     core::Point pt0 = center - T * extL - N * extW;
@@ -263,11 +268,12 @@ void BatchRenderer::emitLine(const DrawLineCommand& cmd) {
     Vertex2D* v = alloc.vertexData;
     float radius = halfW;
     float radii[4] = {radius, radius, radius, radius};
+    core::Size boxSize{len + cmd.thickness, cmd.thickness};
 
     v[0].position = pt0;
     v[0].color = cmd.color;
     v[0].localPos = {-extL, -extW};
-    v[0].boxSize = {len, cmd.thickness};
+    v[0].boxSize = boxSize;
     std::copy_n(radii, 4, v[0].cornerRadii);
     v[0].borderColor = core::Color::transparent();
     v[0].borderWidth = 0.0f;
@@ -275,7 +281,7 @@ void BatchRenderer::emitLine(const DrawLineCommand& cmd) {
     v[1].position = pt1;
     v[1].color = cmd.color;
     v[1].localPos = {extL, -extW};
-    v[1].boxSize = {len, cmd.thickness};
+    v[1].boxSize = boxSize;
     std::copy_n(radii, 4, v[1].cornerRadii);
     v[1].borderColor = core::Color::transparent();
     v[1].borderWidth = 0.0f;
@@ -283,7 +289,7 @@ void BatchRenderer::emitLine(const DrawLineCommand& cmd) {
     v[2].position = pt2;
     v[2].color = cmd.color;
     v[2].localPos = {extL, extW};
-    v[2].boxSize = {len, cmd.thickness};
+    v[2].boxSize = boxSize;
     std::copy_n(radii, 4, v[2].cornerRadii);
     v[2].borderColor = core::Color::transparent();
     v[2].borderWidth = 0.0f;
@@ -291,7 +297,7 @@ void BatchRenderer::emitLine(const DrawLineCommand& cmd) {
     v[3].position = pt3;
     v[3].color = cmd.color;
     v[3].localPos = {-extL, extW};
-    v[3].boxSize = {len, cmd.thickness};
+    v[3].boxSize = boxSize;
     std::copy_n(radii, 4, v[3].cornerRadii);
     v[3].borderColor = core::Color::transparent();
     v[3].borderWidth = 0.0f;
@@ -327,7 +333,8 @@ void BatchRenderer::emitGlyphs(const DrawGlyphsCommand& cmd) {
         float targetY = cmd.origin.y + g.position.y;
         float basePixelX = std::floor(targetX);
         float fractX = targetX - basePixelX;
-        uint8_t subpixelBin = static_cast<uint8_t>(std::clamp(static_cast<int>(fractX * 4.0f), 0, 3));
+        uint8_t subpixelBin =
+            static_cast<uint8_t>(std::clamp(static_cast<int>(fractX * 4.0f), 0, 3));
 
         auto gRes = glyphAtlas_->getOrInsert(*cmd.font, g.glyphId, subpixelBin);
         if (gRes.isErr()) {
@@ -409,6 +416,102 @@ void BatchRenderer::emitGlyphs(const DrawGlyphsCommand& cmd) {
     }
 }
 
+void BatchRenderer::emitSvg(const DrawSvgCommand& cmd) {
+    if (!cmd.docImpl || !glyphAtlas_ || cmd.bounds.size.width <= 0.0f ||
+        cmd.bounds.size.height <= 0.0f) {
+        return;
+    }
+
+    uint32_t targetW =
+        static_cast<uint32_t>(std::clamp(std::round(cmd.bounds.size.width), 1.0f, 512.0f));
+    uint32_t targetH =
+        static_cast<uint32_t>(std::clamp(std::round(cmd.bounds.size.height), 1.0f, 512.0f));
+    constexpr uint32_t kPad = 1;
+    uint32_t maskW = targetW + kPad * 2;
+    uint32_t maskH = targetH + kPad * 2;
+
+    uint32_t docId = SvgDocument::implId(*cmd.docImpl);
+    uint64_t maskKey = (static_cast<uint64_t>(docId) << 32) |
+                       (static_cast<uint64_t>(targetW & 0xFFFFu) << 16) |
+                       static_cast<uint64_t>(targetH & 0xFFFFu);
+
+    text::CachedGlyph cached{};
+    if (auto found = glyphAtlas_->findCustomMask(maskKey)) {
+        cached = *found;
+    } else {
+        std::vector<uint8_t> maskBuf(static_cast<size_t>(maskW) * static_cast<size_t>(maskH), 0);
+        if (SvgDocument::rasterizeImpl(*cmd.docImpl, targetW, targetH, kPad, maskBuf).isErr()) {
+            return;
+        }
+        auto insRes = glyphAtlas_->insertCustomMask(maskKey, maskW, maskH, maskBuf);
+        if (insRes.isErr()) {
+            return;
+        }
+        cached = insRes.value();
+    }
+
+    if (cached.size.width <= 0.0f || cached.size.height <= 0.0f) {
+        return;
+    }
+
+    auto allocRes = ringBuffer_->allocate(4, 6);
+    if (allocRes.isErr()) {
+        return;
+    }
+    auto alloc = allocRes.value();
+
+    core::RectI activeScissor = currentScissor();
+    graphics::TextureHandle atlasTex = glyphAtlas_->texture();
+
+    if (batches_.empty() || batches_.back().scissorRect != activeScissor ||
+        batches_.back().type != BatchType::Text || batches_.back().texture != atlasTex) {
+        DrawBatch batch{};
+        batch.type = BatchType::Text;
+        batch.firstIndex = alloc.firstIndex;
+        batch.indexCount = 6;
+        batch.scissorRect = activeScissor;
+        batch.texture = atlasTex;
+        batches_.push_back(batch);
+    } else {
+        batches_.back().indexCount += 6;
+    }
+
+    float x = std::round(cmd.bounds.origin.x) - static_cast<float>(kPad);
+    float y = std::round(cmd.bounds.origin.y) - static_cast<float>(kPad);
+    float w = cached.size.width;
+    float h = cached.size.height;
+
+    float u0 = cached.uvRect.origin.x;
+    float v0 = cached.uvRect.origin.y;
+    float u1 = u0 + cached.uvRect.size.width;
+    float v1 = v0 + cached.uvRect.size.height;
+
+    Vertex2D* v = alloc.vertexData;
+    v[0].position = {x, y};
+    v[0].color = cmd.tintColor;
+    v[0].localPos = {u0, v0};
+
+    v[1].position = {x + w, y};
+    v[1].color = cmd.tintColor;
+    v[1].localPos = {u1, v0};
+
+    v[2].position = {x + w, y + h};
+    v[2].color = cmd.tintColor;
+    v[2].localPos = {u1, v1};
+
+    v[3].position = {x, y + h};
+    v[3].color = cmd.tintColor;
+    v[3].localPos = {u0, v1};
+
+    uint32_t baseV = alloc.firstVertex;
+    alloc.indexData[0] = baseV + 0;
+    alloc.indexData[1] = baseV + 1;
+    alloc.indexData[2] = baseV + 2;
+    alloc.indexData[3] = baseV + 2;
+    alloc.indexData[4] = baseV + 3;
+    alloc.indexData[5] = baseV + 0;
+}
+
 void BatchRenderer::render(const PaintContext& context, graphics::CommandBuffer& cmdBuffer) {
     for (const auto& cmd : context.commands()) {
         std::visit(
@@ -420,6 +523,8 @@ void BatchRenderer::render(const PaintContext& context, graphics::CommandBuffer&
                     emitLine(c);
                 } else if constexpr (std::is_same_v<T, DrawGlyphsCommand>) {
                     emitGlyphs(c);
+                } else if constexpr (std::is_same_v<T, DrawSvgCommand>) {
+                    emitSvg(c);
                 } else if constexpr (std::is_same_v<T, PushClipCommand>) {
                     pushScissor(c.clipRect);
                 } else if constexpr (std::is_same_v<T, PopClipCommand>) {

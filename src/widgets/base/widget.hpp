@@ -3,6 +3,7 @@
 #include "core/math/geometry.hpp"
 #include "layout/layout_node.hpp"
 #include "platform/mouse_types.hpp"
+#include "widgets/base/overlay.hpp"
 #include "widgets/base/widget_events.hpp"
 
 #include <functional>
@@ -18,7 +19,7 @@ class PaintContext;
 namespace northern::theme {
 class Theme;
 struct ColorPalette;
-}
+} // namespace northern::theme
 
 namespace northern::widgets {
 
@@ -104,9 +105,15 @@ public:
     void setCursorShape(platform::CursorShape shape) noexcept;
     [[nodiscard]] platform::CursorShape cursorShape() const noexcept { return cursorShape_; }
 
-    void setTooltip(std::string text, std::string shortcut = {});
+    void setTooltip(std::string text, std::string shortcut = {}, std::string description = {},
+                    OverlayPlacement placement = OverlayPlacement::Bottom);
+    void setTooltipPlacement(OverlayPlacement placement) noexcept;
     [[nodiscard]] const std::string& tooltipText() const noexcept { return tooltipText_; }
     [[nodiscard]] const std::string& tooltipShortcut() const noexcept { return tooltipShortcut_; }
+    [[nodiscard]] const std::string& tooltipDescription() const noexcept {
+        return tooltipDescription_;
+    }
+    [[nodiscard]] OverlayPlacement tooltipPlacement() const noexcept { return tooltipPlacement_; }
 
     // Context Menu
     void setContextMenuBuilder(std::function<std::unique_ptr<ContextMenu>()> builder);
@@ -160,6 +167,8 @@ protected:
     platform::CursorShape cursorShape_{platform::CursorShape::Arrow};
     std::string tooltipText_{};
     std::string tooltipShortcut_{};
+    std::string tooltipDescription_{};
+    OverlayPlacement tooltipPlacement_{OverlayPlacement::Bottom};
     std::function<std::unique_ptr<ContextMenu>()> contextMenuBuilder_{nullptr};
 };
 

@@ -7,6 +7,8 @@
 #include "graphics/gpu_handle.hpp"
 #include "text/font.hpp"
 #include <memory>
+#include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -33,6 +35,11 @@ public:
 
     core::Result<CachedGlyph, core::Error> getOrInsert(const Font& font, uint32_t glyphId,
                                                        uint8_t subpixelBin = 0);
+
+    [[nodiscard]] std::optional<CachedGlyph> findCustomMask(uint64_t maskKey) const;
+    core::Result<CachedGlyph, core::Error> insertCustomMask(uint64_t maskKey, uint32_t width,
+                                                            uint32_t height,
+                                                            std::span<const uint8_t> alphaData);
 
     core::Result<void, core::Error> flush();
     [[nodiscard]] bool isDirty() const noexcept { return dirty_; }

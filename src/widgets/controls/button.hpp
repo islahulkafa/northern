@@ -17,8 +17,9 @@ class SvgDocument;
 
 namespace northern::widgets {
 
+enum class IconId;
 enum class ButtonState { Idle, Hovered, Pressed, Disabled };
-enum class ButtonVariant { Secondary, Primary, Ghost, Destructive };
+enum class ButtonVariant { Secondary, Primary, Outline, Ghost, Destructive, Danger = Destructive };
 enum class ButtonSize : uint8_t { Compact, Standard, Comfortable };
 enum class IconPlacement : uint8_t { Leading, Trailing };
 
@@ -26,6 +27,10 @@ class Button : public Widget {
 public:
     explicit Button(std::string text = "", std::shared_ptr<text::Font> font = nullptr,
                     ButtonVariant variant = ButtonVariant::Secondary,
+                    ButtonSize size = ButtonSize::Standard);
+    Button(std::string text, IconId icon, ButtonVariant variant = ButtonVariant::Secondary,
+           ButtonSize size = ButtonSize::Standard);
+    explicit Button(IconId icon, ButtonVariant variant = ButtonVariant::Secondary,
                     ButtonSize size = ButtonSize::Standard);
     ~Button() override = default;
 
@@ -36,6 +41,7 @@ public:
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
+    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
 
     [[nodiscard]] ButtonVariant variant() const noexcept { return variant_; }
     void setVariant(ButtonVariant variant) noexcept;
@@ -43,9 +49,17 @@ public:
     [[nodiscard]] ButtonSize size() const noexcept { return size_; }
     void setSize(ButtonSize size) noexcept;
 
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
+
+    // Loading state & spinner
+    void setLoading(bool loading) noexcept;
+    [[nodiscard]] bool isLoading() const noexcept { return isLoading_; }
+
     // Vector Icon integration
     void setIcon(std::shared_ptr<renderer::SvgDocument> icon,
-                 IconPlacement placement = IconPlacement::Leading,
+                 IconPlacement placement = IconPlacement::Leading, float iconSize = 0.0f) noexcept;
+    void setIcon(IconId icon, IconPlacement placement = IconPlacement::Leading,
                  float iconSize = 0.0f) noexcept;
     [[nodiscard]] std::shared_ptr<renderer::SvgDocument> icon() const noexcept { return icon_; }
     [[nodiscard]] IconPlacement iconPlacement() const noexcept { return iconPlacement_; }
@@ -106,17 +120,21 @@ private:
     std::shared_ptr<text::Font> font_{nullptr};
     ButtonVariant variant_{ButtonVariant::Secondary};
     ButtonSize size_{ButtonSize::Standard};
+    float dpiScale_{1.0f};
+    bool isLoading_{false};
 
     std::shared_ptr<renderer::SvgDocument> icon_{nullptr};
     IconPlacement iconPlacement_{IconPlacement::Leading};
     float iconSize_{16.0f};
     float iconGap_{6.0f};
 
+    mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
     mutable std::optional<text::TextLayout> cachedTextLayout_{};
     mutable bool isTextLayoutDirty_{true};
 
     core::animation::PropertyAnimation<core::Color> bgAnim_{};
     core::animation::PropertyAnimation<core::Color> borderAnim_{};
+    core::animation::PropertyAnimation<float> spinnerAnim_{};
 
     bool customBg_{false};
     bool customBorder_{false};

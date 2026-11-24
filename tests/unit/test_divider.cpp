@@ -1,3 +1,6 @@
+#include "renderer/paint_context.hpp"
+#include "widgets/base/theme.hpp"
+#include "widgets/base/widget_context.hpp"
 #include "widgets/controls/divider.hpp"
 #include <gtest/gtest.h>
 
@@ -56,4 +59,84 @@ TEST(DividerTest, LabeledDividerProperties) {
 
     div.setTextColor(core::Color{0.0f, 1.0f, 0.0f, 1.0f});
     EXPECT_EQ(div.textColor(), (core::Color{0.0f, 1.0f, 0.0f, 1.0f}));
+}
+
+TEST(DividerTest, ThemingAndVariants) {
+    WidgetContext ctx;
+    auto divUnique = std::make_unique<Divider>();
+    Divider* div = divUnique.get();
+    ctx.setRootWidget(std::move(divUnique));
+
+    const auto& pal = ctx.theme().colors();
+    EXPECT_EQ(div->variant(), DividerVariant::Subtle);
+    EXPECT_EQ(div->effectiveColor(), pal.borderSubtle);
+    EXPECT_EQ(div->effectiveTextColor(), pal.textTertiary);
+
+    div->setVariant(DividerVariant::Default);
+    EXPECT_EQ(div->variant(), DividerVariant::Default);
+    EXPECT_EQ(div->effectiveColor(), pal.borderDefault);
+
+    div->setVariant(DividerVariant::Strong);
+    EXPECT_EQ(div->variant(), DividerVariant::Strong);
+    EXPECT_EQ(div->effectiveColor(), pal.borderStrong);
+
+    // Overrides take precedence
+    core::Color customColor{0.2f, 0.4f, 0.6f, 1.0f};
+    div->setColor(customColor);
+    EXPECT_EQ(div->effectiveColor(), customColor);
+    EXPECT_EQ(div->color(), customColor);
+}
+
+TEST(DividerTest, InsetsAndTrimming) {
+    Divider div(DividerOrientation::Horizontal);
+    EXPECT_FLOAT_EQ(div.insetStart(), 0.0f);
+    EXPECT_FLOAT_EQ(div.insetEnd(), 0.0f);
+
+    div.setInset(16.0f);
+    EXPECT_FLOAT_EQ(div.insetStart(), 16.0f);
+    EXPECT_FLOAT_EQ(div.insetEnd(), 16.0f);
+
+    div.setInset(8.0f, 24.0f);
+    EXPECT_FLOAT_EQ(div.insetStart(), 8.0f);
+    EXPECT_FLOAT_EQ(div.insetEnd(), 24.0f);
+
+    // Negative insets clamp to 0
+    div.setInset(-5.0f, -10.0f);
+    EXPECT_FLOAT_EQ(div.insetStart(), 0.0f);
+    EXPECT_FLOAT_EQ(div.insetEnd(), 0.0f);
+}
+
+TEST(DividerTest, LabelAlignmentAndOffset) {
+    Divider div("ALIGNMENT");
+    EXPECT_EQ(div.labelAlignment(), DividerAlignment::Center);
+    EXPECT_FLOAT_EQ(div.labelOffset(), 24.0f);
+
+    div.setLabelAlignment(DividerAlignment::Start);
+    EXPECT_EQ(div.labelAlignment(), DividerAlignment::Start);
+
+    div.setLabelOffset(32.0f);
+    EXPECT_FLOAT_EQ(div.labelOffset(), 32.0f);
+
+    div.setLabelAlignment(DividerAlignment::End);
+    EXPECT_EQ(div.labelAlignment(), DividerAlignment::End);
+}
+
+TEST(DividerTest, PaintExecutionGeneratesDrawCommands) {
+    WidgetContext ctx;
+    auto divUnique = std::make_unique<Divider>("PAINT TEST");
+    Divider* div = divUnique.get();
+    div->setInset(8.0f);
+    ctx.setRootWidget(std::move(divUnique));
+    ctx.handleResize(core::Size{300.0f, 24.0f});
+
+    renderer::PaintContext paintCtx;
+    div->paint(paintCtx);
+
+    EXPECT_FALSE(paintCtx.commands().empty());
+
+    // Test Vertical Divider Paint
+    div->setOrientation(DividerOrientation::Vertical);
+    renderer::PaintContext vPaintCtx;
+    div->paint(vPaintCtx);
+    EXPECT_FALSE(vPaintCtx.commands().empty());
 }

@@ -12,14 +12,14 @@ Built around a retained, parent-owned widget tree, custom 2D SDF batch rendering
 
 ## Why Northern?
 
-- **Retained Parent-Owned Tree**: Widgets are owned via `std::unique_ptr` hierarchies with generation-checked GPU handles, deferred `deleteLater()`, and strict layout-vs-paint invalidation separation.
-- **GPU-Accelerated 2D Pipeline**: Custom `BatchRenderer` coalesces signed-distance-field (SDF) primitives, rounded hairline borders, and glyph atlas quads into minimal draw calls.
-- **Native Typography**: Full Unicode text shaping with HarfBuzz and subpixel-ready glyph rasterization via FreeType behind a private text subsystem.
+- **Retained Parent-Owned Tree**: Widgets are owned via `std::unique_ptr` hierarchies with generation-checked GPU handles, deferred `deleteLater()`, retained display lists, and strict layout-vs-paint invalidation separation.
+- **GPU-Accelerated 2D Pipeline**: Custom `BatchRenderer` coalesces signed-distance-field (SDF) primitives, rounded hairline borders, and glyph atlas quads into minimal draw calls with Vulkan block suballocation and timeline-synchronized staging.
+- **Native Typography & Vector Rasterization**: Full Unicode text shaping with HarfBuzz, FreeType glyph rasterization, and analytical vector shape rasterization (`VectorRasterizer`) behind a private text subsystem.
 - **Zero-Macro C++20 Signals & Motion**: Type-safe `Signal<Args...>` with `Trackable` lifetime guards alongside an analytical damped-harmonic spring and easing engine.
-- **Desktop-First Ergonomics**: Native `Tab`/`Shift+Tab` focus-visible rings, cursor shape dispatch (`IBeam`, `PointingHand`, `ResizeEW`, `ResizeNS`), 500ms delayed tooltips, and top-level overlay popups (`Dropdown`, `ContextMenu`).
-- **Multi-Panel Containers**: Live resizable `SplitView`, 32px workbench `TabBar`/`TabView` with closable tabs and keyboard cycling, and smooth animated `CollapsibleSection`/`Accordion`.
-- **Virtualized Collection Views**: $O(1)$ visible slice `ListView`, 2D grid `TableView` with draggable resizable column `HeaderView`, and hierarchical `TreeView` with vector rotating chevrons, role-based `ItemModel`, and independent `ItemSelectionModel`.
-- **Frameless Window Shell & Modal Dialogs**: Custom DWM title bar with Windows 11 Snap Layouts integration (`HTMAXBUTTON`), resolution-independent SVG vector icon subsystem (`NanoSVG`), in-window modal `Dialog` / `MessageBox` with backdrop scrim and focus trapping, and native OS `FileDialog`.
+- **Desktop-First Ergonomics**: DPI-aware scaling (`setDpiScale`), native `Tab`/`Shift+Tab` focus-visible rings, cursor shape dispatch (`IBeam`, `PointingHand`, `ResizeEW`, `ResizeNS`), 500ms delayed tooltips, and top-level overlay popups (`Dropdown`, `ContextMenu`, `MenuBar`).
+- **Multi-Panel Containers**: Top-level `MenuBar` with cascading submenus and keyboard accelerators, live resizable `SplitView`, `TabBar`/`TabView` (`Underline`, `Pill`, `EditorCard` styles, SVG icons, drag-to-reorder), and animated `CollapsibleSection`/`Accordion`.
+- **Virtualized Collection Views**: $O(1)$ visible slice `ListView`, 2D grid `TableView` with draggable resizable column `HeaderView`, and hierarchical `TreeView` with rotating vector chevrons, role-based `ItemModel`, `ItemSelectionModel`, and `ItemDelegate` badge pills.
+- **Frameless Window Shell & OS Integration**: Custom DWM `TitleBar` with Windows 11 Snap Layouts integration (`HTMAXBUTTON`), resolution-independent SVG vector icons (`NanoSVG`), native OS `FileDialog`, multi-monitor `Display` queries, and OS dark/light theme synchronization.
 
 > [!NOTE]
 > Windows (`Win32`) and `Vulkan 1.3+` are actively implemented and tested. `Direct3D 11`, `Wayland`, and `X11` backends are planned in the module layout and currently deferred.
@@ -44,9 +44,9 @@ cmake --build build
 Expected output:
 
 ```text
-[==========] Running 157 tests from 37 test suites.
+[==========] Running 324 tests from 54 test suites.
 ...
-[  PASSED  ] 157 tests.
+[  PASSED  ] 324 tests.
 ```
 
 Launch the interactive desktop workstation demo:
@@ -58,11 +58,11 @@ Launch the interactive desktop workstation demo:
 ### Minimal C++20 Example
 
 ```cpp
-#include "widgets/button.hpp"
-#include "widgets/container.hpp"
-#include "widgets/dropdown.hpp"
-#include "widgets/label.hpp"
-#include "widgets/widget_context.hpp"
+#include "widgets/base/widget_context.hpp"
+#include "widgets/containers/container.hpp"
+#include "widgets/containers/dropdown.hpp"
+#include "widgets/controls/button.hpp"
+#include "widgets/controls/label.hpp"
 
 using namespace northern::widgets;
 
@@ -97,12 +97,12 @@ Northern enforces a strict acyclic module hierarchy. Platform headers (`<windows
 ```mermaid
 flowchart TD
     Widgets["Widgets (Retained Tree, Signals, Overlays)"]
-    Layout["Layout (Flexbox Solver, Constraints)"]
+    Layout["Layout (Zero-Heap FlexSolver, Constraints)"]
     Renderer["Renderer (2D Batching, SDF Shaders, PaintContext)"]
-    Text["Text (HarfBuzz Shaping, FreeType Atlas)"]
+    Text["Text (HarfBuzz Shaping, FreeType Atlas, VectorRasterizer)"]
     GAL["Graphics Abstraction Layer (Vulkan 1.3+)"]
     PAL["Platform Abstraction Layer (Win32)"]
-    Core["Core (Handles, Result, Math, Signals, Animation)"]
+    Core["Core (Handles, Result, Arena, Signals, Animation)"]
 
     Widgets --> Layout
     Widgets --> Renderer
@@ -136,6 +136,6 @@ flowchart TD
 | :--- | :--- |
 | [Getting Started](docs/getting-started.md) | Toolchain prerequisites, CMake + Ninja build, test verification, and demo launch |
 | [Architecture Overview](docs/architecture.md) | Module dependency graph, repository layout, pImpl encapsulation, and frame lifecycle |
-| [Widgets & UI Systems](docs/widgets.md) | Retained widget catalog, virtualized collection views, `Tab` focus traversal, cursor dispatch, overlays, and animations |
+| [Widgets & UI Systems](docs/widgets.md) | Retained widget catalog, `MenuBar`, `TabView`, virtualized collection views, focus traversal, and animations |
 | [Desktop Design Language](docs/design-languages.md) | Optical Zinc surface ramp, Cobalt accent rules, 4px density grid, and focus/motion specs |
 | [Agent & Engineering Guidelines](AGENTS.md) | Thread ownership boundaries, GPU handle lifetime rules, and coding conventions |

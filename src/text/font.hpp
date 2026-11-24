@@ -26,9 +26,11 @@ public:
 
     [[nodiscard]] uint32_t id() const noexcept;
     [[nodiscard]] float pointSize() const noexcept;
+    [[nodiscard]] float pixelSize() const noexcept;
     [[nodiscard]] float ascender() const noexcept;
     [[nodiscard]] float descender() const noexcept;
     [[nodiscard]] float lineHeight() const noexcept;
+    [[nodiscard]] float capHeight() const noexcept;
 
     struct Impl;
     [[nodiscard]] Impl* impl() const noexcept { return impl_.get(); }

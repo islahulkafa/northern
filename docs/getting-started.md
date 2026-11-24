@@ -48,9 +48,15 @@ Execute the headless GoogleTest binary directly to verify all subsystems (`core`
 Expected output:
 
 ```text
-[==========] Running 186 tests from 44 test suites.
+[==========] Running 324 tests from 54 test suites.
 ...
-[  PASSED  ] 186 tests.
+[  PASSED  ] 324 tests.
+```
+
+Run a specific test suite or test case using GoogleTest filters:
+
+```powershell
+.\build\tests\unit_tests.exe --gtest_filter=TabViewTest.*
 ```
 
 > [!TIP]
@@ -58,7 +64,7 @@ Expected output:
 
 ## Launch the desktop demo
 
-Run the interactive Vulkan windowing showcase to inspect focus traversal, cursor dispatch, animated controls, tooltips, dropdown overlays, and context menus:
+Run the interactive Vulkan windowing showcase featuring the custom `TitleBar`, top-level `MenuBar` (with theme toggling), and `TabView` switching between virtualized `TableView`, `TreeView`, and `ListView` pages:
 
 ```powershell
 .\build\examples\example_windowing.exe
@@ -69,5 +75,5 @@ Run the interactive Vulkan windowing showcase to inspect focus traversal, cursor
 Verify formatting compliance against [.clang-format](../.clang-format) before opening a pull request:
 
 ```powershell
-clang-format --dry-run --Werror src/widgets/**/*.hpp src/widgets/**/*.cpp
+clang-format --dry-run --Werror src/widgets/containers/tab_view.hpp src/widgets/containers/tab_view.cpp
 ```

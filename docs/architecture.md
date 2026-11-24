@@ -11,7 +11,7 @@ flowchart TD
     Widgets["Widgets (Retained Tree, Overlays, Theme)"]
     Layout["Layout (FlexSolver, LayoutNode, Style)"]
     Renderer["Renderer (BatchRenderer, PaintContext, SDF Shaders)"]
-    Text["Text (FontManager, TextShaper, GlyphAtlas)"]
+    Text["Text (FontManager, TextShaper, GlyphAtlas, VectorRasterizer)"]
     GAL["Graphics Abstraction Layer (Vulkan 1.3+)"]
     PAL["Platform Abstraction Layer (Win32)"]
     Core["Core (Result, HandlePool, Signals, Math, Animation)"]
@@ -43,11 +43,11 @@ northern/
 │   ├── core/           # Concurrency (ThreadPool, TaskQueue), Arena, Logging, Math, Signals
 │   ├── platform/       # Window, Clipboard, Events, Win32 backend
 │   ├── graphics/       # GAL (Device, CommandBuffer), Vulkan 1.3 (BlockAllocator, StagingPool), MockDevice
-│   ├── renderer/       # BatchRenderer, PaintContext, DynamicRingBuffer
-│   ├── text/           # FontManager, TextShaper, TextLayout, GlyphAtlas
+│   ├── renderer/       # BatchRenderer, PaintContext, DynamicRingBuffer, SvgDocument
+│   ├── text/           # FontManager, TextShaper, TextLayout, GlyphAtlas, VectorRasterizer
 │   ├── layout/         # Style, LayoutNode, FlexSolver
-│   └── widgets/        # Retained widget tree, Overlay system, Theme tokens
-├── tests/              # GoogleTest unit suite (186 tests across 44 suites)
+│   └── widgets/        # Retained widget tree (base, containers, controls, dialogs, views)
+├── tests/              # GoogleTest unit suite (324 tests across 54 suites)
 ├── CMakeLists.txt      # Root CMake 3.25+ build definition
 └── vcpkg.json          # Dependency manifest (harfbuzz, freetype, gtest)
 ```

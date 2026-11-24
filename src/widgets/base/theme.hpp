@@ -4,6 +4,7 @@
 #include "core/math/geometry.hpp"
 #include "renderer/paint_context.hpp"
 #include "text/font.hpp"
+#include "text/font_manager.hpp"
 
 namespace northern::theme {
 
@@ -134,6 +135,7 @@ public:
 
     [[nodiscard]] const ColorPalette& colors() const noexcept { return palette_; }
     [[nodiscard]] ThemeMode mode() const noexcept { return palette_.mode; }
+    [[nodiscard]] bool isDark() const noexcept { return palette_.mode == ThemeMode::Dark; }
     void setPalette(ColorPalette palette) noexcept { palette_ = std::move(palette); }
 
     [[nodiscard]] static const Theme& dark() noexcept {
@@ -172,8 +174,73 @@ inline void paintFocusRing(renderer::PaintContext& ctx, const core::Rect& rect, 
 }
 
 inline float computeCenteredTextY(float targetCenterY, const text::Font& font) {
-    float capHeight = font.pointSize() * 0.70f;
+    float capHeight = font.capHeight();
+    if (capHeight <= 0.0f) {
+        float px = font.pixelSize();
+        capHeight = (px > 0.0f) ? (px * 0.70f) : (font.pointSize() * (96.0f / 72.0f) * 0.70f);
+    }
     return targetCenterY + capHeight * 0.5f - font.ascender();
+}
+
+enum class TextRole : uint8_t {
+    Primary,
+    Secondary,
+    Tertiary,
+    Disabled,
+    Accent,
+    Success,
+    Warning,
+    Danger,
+    Info,
+};
+
+enum class TypographyStyle : uint8_t {
+    Display,
+    Title,
+    Subtitle,
+    Body,
+    BodyStrong,
+    Caption,
+    Monospace,
+};
+
+[[nodiscard]] constexpr float typographyPointSize(TypographyStyle style) noexcept {
+    switch (style) {
+    case TypographyStyle::Display:
+        return 24.0f;
+    case TypographyStyle::Title:
+        return 18.0f;
+    case TypographyStyle::Subtitle:
+        return 15.0f;
+    case TypographyStyle::Body:
+    case TypographyStyle::BodyStrong:
+        return 14.0f;
+    case TypographyStyle::Caption:
+        return 12.0f;
+    case TypographyStyle::Monospace:
+        return 13.0f;
+    }
+    return 14.0f;
+}
+
+[[nodiscard]] inline std::shared_ptr<text::Font> resolveFont(TypographyStyle style,
+                                                             float dpiScale = 1.0f) {
+    float scale = dpiScale > 0.0f ? dpiScale : 1.0f;
+    float pt = typographyPointSize(style) * scale;
+    auto& mgr = text::FontManager::instance();
+    switch (style) {
+    case TypographyStyle::Display:
+    case TypographyStyle::Title:
+    case TypographyStyle::BodyStrong:
+        return mgr.boldFont(pt).valueOr(nullptr);
+    case TypographyStyle::Monospace:
+        return mgr.monospaceFont(pt).valueOr(nullptr);
+    case TypographyStyle::Subtitle:
+    case TypographyStyle::Body:
+    case TypographyStyle::Caption:
+    default:
+        return mgr.defaultFont(pt).valueOr(nullptr);
+    }
 }
 
 } // namespace northern::theme

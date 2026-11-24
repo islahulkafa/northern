@@ -183,3 +183,109 @@ TEST(RendererTest, BatchCoalescingAndSplitting) {
     renderer->end();
     device->destroyTexture(targetTex);
 }
+
+TEST(RendererTest, LineRenderingCapsuleGeometryAndShortSegments) {
+    using namespace northern;
+    using namespace northern::graphics;
+    using namespace northern::renderer;
+
+    auto devRes = Device::create();
+    ASSERT_TRUE(devRes.isOk());
+    auto device = std::move(devRes.value());
+
+    auto rendRes = BatchRenderer::create(*device, Format::B8G8R8A8_Unorm);
+    ASSERT_TRUE(rendRes.isOk());
+    auto renderer = std::move(rendRes.value());
+
+    PaintContext ctx;
+    // Standard line
+    ctx.drawLine({10, 10}, {20, 10}, core::Color::fromRgba8(255, 255, 255), 2.0f);
+    // Short line (shorter than thickness)
+    ctx.drawLine({30, 10}, {30.5f, 10}, core::Color::fromRgba8(255, 255, 255), 2.0f);
+    // Dot (zero-length line)
+    ctx.drawLine({50, 10}, {50, 10}, core::Color::fromRgba8(255, 255, 255), 2.0f);
+
+    TextureDesc targetDesc{
+        .width = 100,
+        .height = 100,
+        .format = Format::B8G8R8A8_Unorm,
+        .usage = TextureUsage::ColorAttachment,
+        .debugName = "LineTestRenderTarget",
+    };
+    auto targetRes = device->createTexture(targetDesc);
+    ASSERT_TRUE(targetRes.isOk());
+    TextureHandle targetTex = targetRes.value();
+
+    RenderingDesc renderingDesc{};
+    renderingDesc.renderArea = {{0, 0}, {100, 100}};
+    renderingDesc.colorAttachment.target = targetTex;
+    renderingDesc.colorAttachment.clear = true;
+    renderingDesc.colorAttachment.clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+
+    renderer->begin({100, 100}, 0);
+    auto cmdRes = device->createCommandBuffer();
+    ASSERT_TRUE(cmdRes.isOk());
+    auto cmd = std::move(cmdRes.value());
+    cmd->begin();
+    cmd->beginRendering(renderingDesc);
+    renderer->render(ctx, *cmd);
+    EXPECT_EQ(renderer->batchCount(), 1);
+    cmd->endRendering();
+    cmd->end();
+    renderer->end();
+    device->destroyTexture(targetTex);
+}
+
+TEST(RendererTest, SvgAnalyticalAtlasCachingAndBatchCoalescing) {
+    using namespace northern;
+    using namespace northern::graphics;
+    using namespace northern::renderer;
+
+    auto devRes = Device::create();
+    ASSERT_TRUE(devRes.isOk());
+    auto device = std::move(devRes.value());
+
+    auto rendRes = BatchRenderer::create(*device, Format::B8G8R8A8_Unorm);
+    ASSERT_TRUE(rendRes.isOk());
+    auto renderer = std::move(rendRes.value());
+
+    auto svgRes = SvgDocument::fromString(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" "
+        "stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"8\"/>"
+        "<line x1=\"21\" y1=\"21\" x2=\"16.65\" y2=\"16.65\"/></svg>");
+    ASSERT_TRUE(svgRes.isOk());
+
+    PaintContext ctx;
+    ctx.drawSvg(*svgRes.value(), {{12.0f, 20.0f}, {20.0f, 20.0f}}, core::Color::white());
+    ctx.drawSvg(*svgRes.value(), {{48.0f, 20.0f}, {20.0f, 20.0f}},
+                core::Color::fromRgba8(37, 99, 235));
+
+    TextureDesc targetDesc{
+        .width = 128,
+        .height = 64,
+        .format = Format::B8G8R8A8_Unorm,
+        .usage = TextureUsage::ColorAttachment,
+        .debugName = "SvgAtlasTestTarget",
+    };
+    auto targetRes = device->createTexture(targetDesc);
+    ASSERT_TRUE(targetRes.isOk());
+    TextureHandle targetTex = targetRes.value();
+
+    RenderingDesc renderingDesc{};
+    renderingDesc.renderArea = {{0, 0}, {128, 64}};
+    renderingDesc.colorAttachment.target = targetTex;
+    renderingDesc.colorAttachment.clear = true;
+
+    renderer->begin({128, 64}, 0);
+    auto cmdRes = device->createCommandBuffer();
+    ASSERT_TRUE(cmdRes.isOk());
+    auto cmd = std::move(cmdRes.value());
+    cmd->begin();
+    cmd->beginRendering(renderingDesc);
+    renderer->render(ctx, *cmd);
+    EXPECT_EQ(renderer->batchCount(), 1);
+    cmd->endRendering();
+    cmd->end();
+    renderer->end();
+    device->destroyTexture(targetTex);
+}
