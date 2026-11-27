@@ -133,3 +133,110 @@ TEST(SliderTest, InlineValueReadoutAndStepTicksEmission) {
     // Inactive track + active track + 5 step ticks (0, 25, 50, 75, 100) + thumb = 8 boxes
     EXPECT_EQ(boxCount, 8);
 }
+
+TEST(SliderTest, WhiteThumbAndSpringHoverScale) {
+    WidgetContext ctx;
+    auto owned = std::make_unique<Slider>(0.0f, 100.0f, 50.0f);
+    Slider* s = owned.get();
+    ctx.setRootWidget(std::move(owned));
+
+    EXPECT_EQ(s->effectiveThumbColor(), core::Color::white());
+    s->onMouseEnter();
+    EXPECT_TRUE(s->hasActiveAnimations());
+    for (int i = 0; i < 60; ++i) {
+        s->updateAnimations(1.0f / 60.0f);
+    }
+    EXPECT_FALSE(s->hasActiveAnimations());
+}
+
+TEST(SliderTest, MouseGrabDragCommitAndCleanupOnDisableBlur) {
+    WidgetContext ctx;
+    auto owned = std::make_unique<Slider>(0.0f, 100.0f, 20.0f);
+    Slider* s = owned.get();
+    s->style().width = layout::Length::points(240.0f);
+    ctx.setRootWidget(std::move(owned));
+    s->layoutNode().computeLayout(240.0f, 30.0f);
+
+    int commits = 0;
+    s->onValueCommitted.connect([&](float) { ++commits; });
+
+    WidgetMouseEvent pressIn{core::Point{50.0f, 12.0f}, platform::MouseButton::Left,
+                             platform::KeyModifier::None};
+    s->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), s);
+
+    // Dragging outside vertical bounds still updates value while grabbed
+    WidgetMouseEvent dragOut{core::Point{230.0f, 150.0f}, platform::MouseButton::Left,
+                             platform::KeyModifier::None};
+    s->onMouseMove(dragOut);
+    EXPECT_GT(s->value(), 80.0f);
+
+    WidgetMouseEvent releaseOut{core::Point{230.0f, 150.0f}, platform::MouseButton::Left,
+                                platform::KeyModifier::None};
+    s->onMouseUp(releaseOut);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_EQ(commits, 1);
+
+    // Disabling mid-drag releases grab and switches cursor to Arrow
+    s->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), s);
+    s->setEnabled(false);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_EQ(s->cursorShape(), platform::CursorShape::Arrow);
+
+    s->setEnabled(true);
+    EXPECT_EQ(s->cursorShape(), platform::CursorShape::PointingHand);
+
+    // Focus lost mid-drag releases grab
+    s->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), s);
+    s->onFocusLost();
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+}
+
+TEST(SliderTest, ContextDpiAdoptionCustomOverrideAndThemeRefresh) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    auto owned =
+        std::make_unique<Slider>(SliderSize::Standard, SliderRole::Accent, 0.0f, 100.0f, 50.0f);
+    Slider* s = owned.get();
+    ctx.setRootWidget(std::move(owned));
+
+    EXPECT_FLOAT_EQ(s->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(s->trackHeight(), 6.0f);
+    EXPECT_FLOAT_EQ(s->thumbRadius(), 10.5f);
+    ASSERT_NE(s->effectiveFont(), nullptr);
+    EXPECT_FLOAT_EQ(s->effectiveFont()->pointSize(), 18.0f);
+
+    // Explicit trackHeight/thumbRadius overrides survive DPI changes
+    Slider custom(0.0f, 100.0f, 50.0f);
+    custom.setTrackHeight(10.0f);
+    custom.setThumbRadius(12.0f);
+    custom.setDpiScale(2.0f);
+    EXPECT_FLOAT_EQ(custom.trackHeight(), 10.0f);
+    EXPECT_FLOAT_EQ(custom.thumbRadius(), 12.0f);
+
+    // Explicit setDpiScale survives context attachment
+    WidgetContext ctx2;
+    ctx2.setDpiScale(1.5f);
+    auto explicitOwned = std::make_unique<Slider>(0.0f, 100.0f, 50.0f);
+    Slider* explicitSlider = explicitOwned.get();
+    explicitSlider->setDpiScale(2.0f);
+    ctx2.setRootWidget(std::move(explicitOwned));
+    EXPECT_FLOAT_EQ(explicitSlider->dpiScale(), 2.0f);
+
+    // Idle updateAnimations does not mark paint dirty
+    s->clearPaintDirty();
+    s->updateAnimations(0.016f);
+    EXPECT_FALSE(s->isPaintDirty());
+
+    // Disabled inactive track mutes alpha; theme change marks paint dirty
+    float enabledInactiveAlpha = s->effectiveInactiveTrackColor().a;
+    s->setEnabled(false);
+    EXPECT_LT(s->effectiveInactiveTrackColor().a, enabledInactiveAlpha);
+
+    s->setEnabled(true);
+    s->clearPaintDirty();
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_TRUE(s->isPaintDirty());
+}

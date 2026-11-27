@@ -10,7 +10,7 @@
 namespace northern::widgets {
 
 namespace {
-constexpr float kCollapseAnimDuration = 0.15f;
+constexpr float kCollapseAnimDuration = 0.22f;
 constexpr float kHoverAnimDuration = 0.12f;
 constexpr float kDoubleClickMaxMs = 300.0f;
 constexpr float kDoubleClickMaxDistSq = 16.0f;
@@ -37,6 +37,76 @@ void SplitView::setOrientation(SplitOrientation orientation) {
         setCursorShape(platform::CursorShape::Arrow);
         updatePaneStyles();
         markLayoutDirty();
+    }
+}
+
+void SplitView::setSplitStyle(SplitStyle style) {
+    if (splitStyle_ != style) {
+        splitStyle_ = style;
+        hasCustomSashThickness_ = false;
+        hasCustomGrabMargin_ = false;
+        float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+        if (splitStyle_ == SplitStyle::Hairline) {
+            sashThickness_ = 1.0f * scale;
+            grabMargin_ = 4.0f * scale;
+        } else {
+            sashThickness_ = 6.0f * scale;
+            grabMargin_ = 2.0f * scale;
+        }
+        updatePaneStyles();
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+void SplitView::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiMetrics(scale);
+}
+
+void SplitView::applyDpiMetrics(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        if (!hasCustomSashThickness_) {
+            sashThickness_ = (splitStyle_ == SplitStyle::Hairline ? 1.0f : 6.0f) * dpiScale_;
+        }
+        if (!hasCustomGrabMargin_) {
+            grabMargin_ = (splitStyle_ == SplitStyle::Hairline ? 4.0f : 2.0f) * dpiScale_;
+        }
+        updatePaneStyles();
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+void SplitView::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        float ctxDpi = contextDpiScale();
+        if (ctxDpi > 0.0f && ctxDpi != dpiScale_) {
+            applyDpiMetrics(ctxDpi);
+        }
+    }
+    markPaintDirty();
+}
+
+void SplitView::onThemeChanged() {
+    markPaintDirty();
+}
+
+void SplitView::onEnabledChanged() {
+    if (!isEnabled()) {
+        if (context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
+        isDraggingSash_ = false;
+        if (isHoveredSash_) {
+            isHoveredSash_ = false;
+            setCursorShape(platform::CursorShape::Arrow);
+        }
+        hoverAnim_.stop();
+        hoverAnim_.setCurrentValue(0.0f);
+        markPaintDirty();
     }
 }
 
@@ -186,7 +256,8 @@ void SplitView::toggleCollapse(bool animated) {
 }
 
 void SplitView::setSashThickness(float thickness) noexcept {
-    float clamped = std::max(2.0f, thickness);
+    hasCustomSashThickness_ = true;
+    float clamped = std::max(1.0f, thickness);
     if (sashThickness_ != clamped) {
         sashThickness_ = clamped;
         updatePaneStyles();
@@ -195,6 +266,7 @@ void SplitView::setSashThickness(float thickness) noexcept {
 }
 
 void SplitView::setGrabMargin(float margin) noexcept {
+    hasCustomGrabMargin_ = true;
     grabMargin_ = std::max(0.0f, margin);
 }
 
@@ -304,7 +376,7 @@ void SplitView::applyCollapseState(SplitCollapseState newState, bool animated) {
     float target = (newState == SplitCollapseState::None) ? 1.0f : 0.0f;
     if (animated) {
         collapseAnim_.start(collapseAnim_.currentValue(), target, kCollapseAnimDuration,
-                            core::animation::EasingCurve::OutCubic);
+                            core::animation::EasingCurve::InOutCubic);
         if (context_) {
             context_->registerAnimatedWidget(this);
         }
@@ -602,16 +674,19 @@ core::Rect SplitView::gripScreenRect() const noexcept {
     if (sRect.size.width <= 0.0f || sRect.size.height <= 0.0f) {
         return core::Rect{};
     }
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    float gripLen = kGripLength * scale;
+    float gripThick = kGripThickness * scale;
     if (orientation_ == SplitOrientation::Horizontal) {
-        float gripH = std::min(kGripLength, sRect.size.height * 0.5f);
-        float gx = sRect.origin.x + (sRect.size.width - kGripThickness) * 0.5f;
+        float gripH = std::min(gripLen, sRect.size.height * 0.5f);
+        float gx = sRect.origin.x + (sRect.size.width - gripThick) * 0.5f;
         float gy = sRect.origin.y + (sRect.size.height - gripH) * 0.5f;
-        return core::Rect{core::Point{gx, gy}, core::Size{kGripThickness, gripH}};
+        return core::Rect{core::Point{gx, gy}, core::Size{gripThick, gripH}};
     } else {
-        float gripW = std::min(kGripLength, sRect.size.width * 0.5f);
+        float gripW = std::min(gripLen, sRect.size.width * 0.5f);
         float gx = sRect.origin.x + (sRect.size.width - gripW) * 0.5f;
-        float gy = sRect.origin.y + (sRect.size.height - kGripThickness) * 0.5f;
-        return core::Rect{core::Point{gx, gy}, core::Size{gripW, kGripThickness}};
+        float gy = sRect.origin.y + (sRect.size.height - gripThick) * 0.5f;
+        return core::Rect{core::Point{gx, gy}, core::Size{gripW, gripThick}};
     }
 }
 
@@ -637,6 +712,10 @@ void SplitView::nudgeSplit(float deltaPixels) {
 }
 
 void SplitView::onMouseMove(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        onMouseLeave();
+        return;
+    }
     core::Rect hitRect = sashHitRect();
 
     if (isDraggingSash_) {
@@ -697,7 +776,10 @@ void SplitView::onMouseMove(WidgetMouseEvent& ev) {
 }
 
 void SplitView::onMouseDown(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left) {
+    if (!isEnabled()) {
+        return;
+    }
+    if (ev.isPrimaryButton()) {
         core::Rect hitRect = sashHitRect();
         if (hitRect.contains(ev.position())) {
             auto now = std::chrono::steady_clock::now();
@@ -707,8 +789,9 @@ void SplitView::onMouseDown(WidgetMouseEvent& ev) {
             float dy = ev.position().y - lastClickPos_.y;
             float distSq = dx * dx + dy * dy;
 
-            bool isDoubleClick =
-                (elapsedMs > 0 && elapsedMs < kDoubleClickMaxMs && distSq <= kDoubleClickMaxDistSq);
+            bool hasPrevClick = (lastClickTime_.time_since_epoch().count() > 0);
+            bool isDoubleClick = hasPrevClick && (elapsedMs >= 0 && elapsedMs < kDoubleClickMaxMs &&
+                                                  distSq <= kDoubleClickMaxDistSq);
             lastClickTime_ = now;
             lastClickPos_ = ev.position();
 
@@ -733,13 +816,13 @@ void SplitView::onMouseDown(WidgetMouseEvent& ev) {
 }
 
 void SplitView::onMouseUp(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left && isDraggingSash_) {
+    if (ev.isPrimaryButton() && isDraggingSash_) {
         isDraggingSash_ = false;
         if (context_) {
             context_->releaseMouseGrab();
         }
         core::Rect hitRect = sashHitRect();
-        if (!hitRect.contains(ev.position())) {
+        if (!isEnabled() || !hitRect.contains(ev.position())) {
             isHoveredSash_ = false;
             setCursorShape(platform::CursorShape::Arrow);
             hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, kHoverAnimDuration,
@@ -754,7 +837,7 @@ void SplitView::onMouseUp(WidgetMouseEvent& ev) {
 }
 
 void SplitView::onMouseLeave() {
-    if (!isDraggingSash_ && isHoveredSash_) {
+    if ((!isDraggingSash_ || !isEnabled()) && isHoveredSash_) {
         isHoveredSash_ = false;
         setCursorShape(platform::CursorShape::Arrow);
         hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, kHoverAnimDuration,
@@ -767,13 +850,12 @@ void SplitView::onMouseLeave() {
 }
 
 void SplitView::onKeyDown(WidgetKeyEvent& ev) {
-    if (!ev.isDown()) {
+    if (!ev.isDown() || !isEnabled()) {
         return;
     }
 
-    float step = platform::hasModifier(ev.modifiers(), platform::KeyModifier::Shift)
-                     ? kKeyboardLargeStepPx
-                     : kKeyboardStepPx;
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    float step = (ev.hasShift() ? kKeyboardLargeStepPx : kKeyboardStepPx) * scale;
     float avail = availableSplitSpan();
 
     switch (ev.key()) {
@@ -876,43 +958,55 @@ void SplitView::paint(renderer::PaintContext& ctx) {
         return;
     }
 
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
     const auto& pal = colorPalette();
-    float hoverT = hoverAnim_.currentValue();
+    const bool enabled = isEnabled();
+    float hoverT = enabled ? hoverAnim_.currentValue() : 0.0f;
+    bool dragging = enabled && isDraggingSash_;
+    bool kbFocus = enabled && hasKeyboardFocus();
 
-    if (isDraggingSash_) {
-        ctx.drawRect(sRect, pal.accentDefault.withAlpha(0.14f));
-    } else if (hoverT > 0.001f) {
-        ctx.drawRect(sRect, pal.surfaceRaised.withAlpha(0.22f * hoverT));
+    if (enabled && splitStyle_ == SplitStyle::Classic) {
+        if (dragging) {
+            ctx.drawRect(sRect, pal.accentDefault.withAlpha(0.14f));
+        } else if (hoverT > 0.001f) {
+            ctx.drawRect(sRect, pal.surfaceRaised.withAlpha(0.22f * hoverT));
+        }
     }
 
     core::Color lineCol = pal.borderSubtle.lerp(pal.borderStrong, hoverT);
-    if (isDraggingSash_) {
+    float lineW = theme::Metrics::BorderWidthHairline * scale;
+    if (dragging) {
         lineCol = pal.accentDefault;
+        lineW = 2.0f * scale;
     }
 
     if (orientation_ == SplitOrientation::Horizontal) {
         float midX = sRect.origin.x + sRect.size.width * 0.5f;
         ctx.drawLine(core::Point{midX, sRect.origin.y},
-                     core::Point{midX, sRect.origin.y + sRect.size.height}, lineCol, 1.0f);
+                     core::Point{midX, sRect.origin.y + sRect.size.height}, lineCol, lineW);
     } else {
         float midY = sRect.origin.y + sRect.size.height * 0.5f;
         ctx.drawLine(core::Point{sRect.origin.x, midY},
-                     core::Point{sRect.origin.x + sRect.size.width, midY}, lineCol, 1.0f);
+                     core::Point{sRect.origin.x + sRect.size.width, midY}, lineCol, lineW);
     }
 
-    core::Rect gripRect = gripScreenRect();
-    if (gripRect.size.width > 0.0f && gripRect.size.height > 0.0f) {
-        core::Color gripCol = pal.borderDefault.lerp(pal.borderStrong, hoverT);
-        if (isDraggingSash_) {
-            gripCol = pal.accentDefault;
-        }
-        ctx.drawRoundedRect(gripRect, gripCol, kGripCornerRadius);
+    bool showGrip =
+        enabled && (splitStyle_ == SplitStyle::Classic || hoverT > 0.001f || dragging || kbFocus);
+    if (showGrip) {
+        core::Rect gripRect = gripScreenRect();
+        if (gripRect.size.width > 0.0f && gripRect.size.height > 0.0f) {
+            float gripAlpha =
+                (splitStyle_ == SplitStyle::Classic || dragging || kbFocus) ? 1.0f : hoverT;
+            core::Color gripCol = pal.borderDefault.lerp(pal.borderStrong, hoverT);
+            if (dragging) {
+                gripCol = pal.accentDefault;
+            }
+            float gripRadius = kGripCornerRadius * scale;
+            ctx.drawRoundedRect(gripRect, gripCol.withAlpha(gripCol.a * gripAlpha), gripRadius);
 
-        if (hasKeyboardFocus()) {
-            core::Rect focusRect{
-                core::Point{gripRect.origin.x - 2.0f, gripRect.origin.y - 2.0f},
-                core::Size{gripRect.size.width + 4.0f, gripRect.size.height + 4.0f}};
-            ctx.drawBorder(focusRect, pal.accentFocusRing, 1.5f, kGripCornerRadius + 2.0f);
+            if (kbFocus) {
+                paintFocusRing(ctx, gripRect, gripRadius);
+            }
         }
     }
 }

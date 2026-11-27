@@ -118,15 +118,41 @@ public:
             scrollItemIntoView(highlightedIndex_);
         }
 
+        itemHoverAnims_.resize(items_.size());
+        if (highlightedIndex_ >= 0 &&
+            highlightedIndex_ < static_cast<int>(itemHoverAnims_.size())) {
+            itemHoverAnims_[highlightedIndex_].setCurrentValue(1.0f);
+        }
+
         openAnim_.start(0.0f, 1.0f, 0.16f, core::animation::EasingCurve::OutCubic);
     }
 
     void updateAnimations(float deltaSeconds) override {
-        openAnim_.update(deltaSeconds);
-        markPaintDirty();
+        bool needsPaint = false;
+        if (openAnim_.isRunning()) {
+            openAnim_.update(deltaSeconds);
+            needsPaint = true;
+        }
+        for (auto& anim : itemHoverAnims_) {
+            if (anim.isRunning()) {
+                anim.update(deltaSeconds);
+                needsPaint = true;
+            }
+        }
+        if (needsPaint) {
+            markPaintDirty();
+        }
     }
     [[nodiscard]] bool hasActiveAnimations() const noexcept override {
-        return openAnim_.isRunning();
+        if (openAnim_.isRunning()) {
+            return true;
+        }
+        for (const auto& anim : itemHoverAnims_) {
+            if (anim.isRunning()) {
+                return true;
+            }
+        }
+        return false;
     }
     [[nodiscard]] float openAnimationProgress() const noexcept { return openAnim_.currentValue(); }
 
@@ -200,11 +226,37 @@ public:
         if (!isSelectable(idx)) {
             return;
         }
-        if (highlightedIndex_ != idx) {
-            highlightedIndex_ = idx;
-            scrollItemIntoView(highlightedIndex_);
-            markPaintDirty();
+        setPopupHighlightInternal(idx, false);
+        scrollItemIntoView(highlightedIndex_);
+    }
+
+    void setPopupHighlightInternal(int idx, bool animated) {
+        if (highlightedIndex_ == idx) {
+            return;
         }
+        highlightedIndex_ = idx;
+        bool startedAny = false;
+        for (size_t i = 0; i < itemHoverAnims_.size(); ++i) {
+            bool isTarget =
+                (static_cast<int>(i) == highlightedIndex_) && isSelectable(static_cast<int>(i));
+            float target = isTarget ? 1.0f : 0.0f;
+            if (animated) {
+                if (std::abs(itemHoverAnims_[i].targetValue() - target) > 0.001f ||
+                    (!itemHoverAnims_[i].isRunning() &&
+                     std::abs(itemHoverAnims_[i].currentValue() - target) > 0.001f)) {
+                    itemHoverAnims_[i].start(itemHoverAnims_[i].currentValue(), target, 0.12f,
+                                             core::animation::EasingCurve::OutCubic);
+                    startedAny = true;
+                }
+            } else {
+                itemHoverAnims_[i].stop();
+                itemHoverAnims_[i].setCurrentValue(target);
+            }
+        }
+        if (startedAny && context_) {
+            context_->registerAnimatedWidget(this);
+        }
+        markPaintDirty();
     }
 
     void scrollItemIntoView(int idx) {
@@ -270,22 +322,29 @@ public:
         }
 
         int idx = itemIndexAtLocalY(ev.position().y);
-        if (idx >= 0 && isSelectable(idx)) {
-            if (idx != highlightedIndex_) {
-                highlightedIndex_ = idx;
-                if (owner_) {
-                    owner_->setPopupHighlightedIndex(idx);
-                }
-                markPaintDirty();
+        int nextIdx = (idx >= 0 && isSelectable(idx)) ? idx : -1;
+        if (nextIdx != highlightedIndex_) {
+            setPopupHighlightInternal(nextIdx, true);
+            if (nextIdx >= 0 && owner_) {
+                owner_->setPopupHighlightedIndex(nextIdx);
             }
         }
         ev.accept();
     }
 
-    void onMouseLeave() override {}
+    void onMouseLeave() override {
+        if (context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
+        if (pressedIndex_ != -1) {
+            pressedIndex_ = -1;
+            markPaintDirty();
+        }
+        setPopupHighlightInternal(-1, true);
+    }
 
     void onMouseDown(WidgetMouseEvent& ev) override {
-        if (ev.button() == platform::MouseButton::Left) {
+        if (ev.isPrimaryButton()) {
             float contentH = totalContentHeight();
             float h =
                 layoutRect().size.height > 0.0f
@@ -316,17 +375,29 @@ public:
                         dragStartScrollOffset_ = scrollOffset_;
                     }
                 }
+                if (isDraggingThumb_ && context_) {
+                    context_->setMouseGrabWidget(this);
+                }
                 markPaintDirty();
                 ev.accept();
                 return;
             }
 
+            int idx = itemIndexAtLocalY(ev.position().y);
+            int nextPressed = (idx >= 0 && isSelectable(idx)) ? idx : -1;
+            if (pressedIndex_ != nextPressed) {
+                pressedIndex_ = nextPressed;
+                markPaintDirty();
+            }
             ev.accept();
         }
     }
 
     void onMouseUp(WidgetMouseEvent& ev) override {
-        if (ev.button() == platform::MouseButton::Left) {
+        if (ev.isPrimaryButton()) {
+            if (context_ && context_->mouseGrabWidget() == this) {
+                context_->releaseMouseGrab();
+            }
             if (isDraggingThumb_) {
                 isDraggingThumb_ = false;
                 markPaintDirty();
@@ -341,13 +412,19 @@ public:
                     : (style().height.isPoints() ? style().height.value : (176.0f * dpiScale_));
             float w = layoutRect().size.width > 0.0f ? layoutRect().size.width : targetWidth_;
 
+            int pressed = pressedIndex_;
+            if (pressedIndex_ != -1) {
+                pressedIndex_ = -1;
+                markPaintDirty();
+            }
+
             if (contentH > h && ev.position().x >= w - scrollbarHitWidth_) {
                 ev.accept();
                 return;
             }
 
             int idx = itemIndexAtLocalY(ev.position().y);
-            if (idx >= 0 && isSelectable(idx)) {
+            if (pressed >= 0 && idx == pressed && isSelectable(idx)) {
                 if (owner_) {
                     owner_->selectAndClose(idx);
                 }
@@ -385,7 +462,7 @@ public:
         float offsetY = (1.0f - t) * -6.0f * dpiScale_;
         rect.origin.y += offsetY;
 
-        float radius = theme::Metrics::CornerRadiusControl * dpiScale_;
+        float radius = theme::Metrics::CornerRadiusOverlay * dpiScale_;
         float radii[4] = {radius, radius, radius, radius};
         const auto& pal = colorPalette();
 
@@ -399,23 +476,23 @@ public:
         float viewH = rect.size.height;
         bool hasScrollbar = contentH > viewH;
         float rightMargin =
-            hasScrollbar ? (scrollbarHitWidth_ + 4.0f * dpiScale_) : (10.0f * dpiScale_);
+            hasScrollbar ? (scrollbarHitWidth_ + 4.0f * dpiScale_) : (12.0f * dpiScale_);
 
         float itemY = rect.origin.y + 4.0f * dpiScale_ - scrollOffset_;
-        float padX = 10.0f * dpiScale_;
+        float padX = 12.0f * dpiScale_;
 
         for (size_t i = 0; i < items_.size(); ++i) {
             const auto& item = items_[i];
             float currItemH = item.isSeparator ? separatorHeight_ : itemHeight_;
 
             core::Rect itemRect{
-                core::Point{rect.origin.x + 3.0f * dpiScale_, itemY},
-                core::Size{std::max(0.0f, rect.size.width - 6.0f * dpiScale_), currItemH}};
+                core::Point{rect.origin.x + 4.0f * dpiScale_, itemY + 1.0f * dpiScale_},
+                core::Size{std::max(0.0f, rect.size.width - 8.0f * dpiScale_),
+                           std::max(0.0f, currItemH - 2.0f * dpiScale_)}};
 
-            if (itemRect.origin.y + currItemH >= rect.origin.y &&
-                itemRect.origin.y <= rect.origin.y + rect.size.height) {
+            if (itemY + currItemH >= rect.origin.y && itemY <= rect.origin.y + rect.size.height) {
                 if (item.isSeparator) {
-                    float sepY = itemRect.origin.y + currItemH * 0.5f;
+                    float sepY = itemY + currItemH * 0.5f;
                     ctx.drawLine(core::Point{rect.origin.x + padX, sepY},
                                  core::Point{rect.origin.x + rect.size.width - padX, sepY},
                                  pal.borderSubtle.withAlpha(pal.borderSubtle.a * alpha),
@@ -423,24 +500,31 @@ public:
                 } else {
                     bool isSelected = (static_cast<int>(i) == selectedIndex_);
                     bool isHighlighted = (static_cast<int>(i) == highlightedIndex_);
+                    bool isPressed = isHighlighted && (static_cast<int>(i) == pressedIndex_);
                     bool isEnabled = item.isEnabled;
+                    float ht = (i < itemHoverAnims_.size())
+                                   ? std::clamp(itemHoverAnims_[i].currentValue(), 0.0f, 1.0f)
+                                   : (isHighlighted ? 1.0f : 0.0f);
 
-                    if (isEnabled && (isHighlighted || isSelected)) {
-                        core::Color itemBg =
-                            isSelected ? pal.surfaceRaised : pal.surfaceRaised.withAlpha(0.5f);
-                        float itemRadius = 4.0f * dpiScale_;
+                    if (isEnabled && (isPressed || ht > 0.001f || isSelected)) {
+                        float rowAlpha =
+                            isPressed ? 0.85f : std::max(isSelected ? 0.35f : 0.0f, 0.55f * ht);
+                        float itemRadius = theme::resolveConcentricRadius(
+                                               theme::Metrics::CornerRadiusOverlay, 4.0f) *
+                                           dpiScale_;
                         float itemRadii[4] = {itemRadius, itemRadius, itemRadius, itemRadius};
-                        ctx.drawRoundedRect(itemRect, itemBg.withAlpha(itemBg.a * alpha),
+                        ctx.drawRoundedRect(itemRect, pal.surfaceRaised.withAlpha(rowAlpha * alpha),
                                             itemRadii);
                     }
 
-                    float targetCenterY = itemRect.origin.y + currItemH * 0.5f;
+                    float targetCenterY = itemY + currItemH * 0.5f;
                     core::Color textCol =
                         !isEnabled ? pal.textDisabled.withAlpha(pal.textDisabled.a * alpha)
                                    : pal.textPrimary.withAlpha(pal.textPrimary.a * alpha);
 
-                    // Continuous vector checkmark on the right for selected item
                     if (isSelected) {
+                        core::Color checkCol =
+                            isEnabled ? pal.accentDefault.withAlpha(alpha) : textCol;
                         float checkCenterX =
                             rect.origin.x + rect.size.width - rightMargin - 4.0f * dpiScale_;
                         core::Point p0{checkCenterX - 4.0f * dpiScale_, targetCenterY};
@@ -448,11 +532,11 @@ public:
                                        targetCenterY + 3.0f * dpiScale_};
                         core::Point p2{checkCenterX + 4.5f * dpiScale_,
                                        targetCenterY - 3.5f * dpiScale_};
-                        ctx.drawLine(p0, p1, textCol, 1.5f * dpiScale_);
-                        ctx.drawLine(p1, p2, textCol, 1.5f * dpiScale_);
+                        ctx.drawLine(p0, p1, checkCol, 1.5f * dpiScale_);
+                        ctx.drawLine(p1, p2, checkCol, 1.5f * dpiScale_);
                     }
 
-                    float contentLeft = itemRect.origin.x + padX;
+                    float contentLeft = rect.origin.x + padX;
                     if (item.icon) {
                         float iconSize = 14.0f * dpiScale_;
                         core::Rect iconRect{
@@ -466,7 +550,7 @@ public:
                     float textMaxW = std::max(
                         0.0f, (rect.origin.x + rect.size.width - rightMargin - 16.0f * dpiScale_) -
                                   contentLeft);
-                    core::Rect clipText{core::Point{contentLeft, itemRect.origin.y},
+                    core::Rect clipText{core::Point{contentLeft, itemY},
                                         core::Size{textMaxW, currItemH}};
                     ctx.pushClip(clipText);
 
@@ -515,6 +599,7 @@ private:
     std::vector<DropdownItem> items_{};
     int selectedIndex_{-1};
     int highlightedIndex_{-1};
+    int pressedIndex_{-1};
     std::shared_ptr<text::Font> font_{nullptr};
     float targetWidth_{160.0f};
     float dpiScale_{1.0f};
@@ -527,6 +612,7 @@ private:
     float dragStartMouseY_{0.0f};
     float dragStartScrollOffset_{0.0f};
     std::vector<std::optional<text::TextLayout>> cachedItemLayouts_{};
+    std::vector<core::animation::PropertyAnimation<float>> itemHoverAnims_{};
     core::animation::PropertyAnimation<float> openAnim_{0.0f};
 };
 
@@ -725,12 +811,47 @@ void Dropdown::setSize(DropdownSize size) noexcept {
 }
 
 void Dropdown::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiMetrics(scale);
+}
+
+void Dropdown::applyDpiMetrics(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
         resolvedDefaultFont_.reset();
         invalidateTextLayouts();
         updateDimensions();
+        markPaintDirty();
+    }
+}
+
+void Dropdown::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        float ctxDpi = contextDpiScale();
+        if (ctxDpi > 0.0f && ctxDpi != dpiScale_) {
+            applyDpiMetrics(ctxDpi);
+        }
+    }
+    markPaintDirty();
+}
+
+void Dropdown::onThemeChanged() {
+    invalidateTextLayouts();
+    markPaintDirty();
+}
+
+void Dropdown::onEnabledChanged() {
+    if (!isEnabled()) {
+        isHovered_ = false;
+        hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, 0.12f,
+                         core::animation::EasingCurve::OutCubic);
+        if (context_) {
+            context_->registerAnimatedWidget(this);
+        }
+        if (isOpen_) {
+            close();
+        }
         markPaintDirty();
     }
 }
@@ -772,6 +893,9 @@ core::Color Dropdown::effectiveBackgroundColor() const noexcept {
         return *overrideBgColor_;
     }
     const auto& pal = colorPalette();
+    if (!isEnabled()) {
+        return pal.surfaceBase;
+    }
     return pal.surfaceDefault.lerp(pal.surfaceRaised, hoverAnim_.currentValue());
 }
 
@@ -780,14 +904,23 @@ core::Color Dropdown::effectiveBorderColor() const noexcept {
         return *overrideBorderColor_;
     }
     const auto& pal = colorPalette();
+    if (!isEnabled()) {
+        return pal.borderSubtle;
+    }
     return pal.borderSubtle.lerp(pal.borderStrong, hoverAnim_.currentValue());
 }
 
 core::Color Dropdown::effectiveTextColor() const noexcept {
+    if (!isEnabled()) {
+        return colorPalette().textDisabled;
+    }
     return overrideTextColor_.value_or(colorPalette().textPrimary);
 }
 
 core::Color Dropdown::effectivePlaceholderColor() const noexcept {
+    if (!isEnabled()) {
+        return colorPalette().textDisabled;
+    }
     return overridePlaceholderColor_.value_or(colorPalette().textTertiary);
 }
 
@@ -817,7 +950,7 @@ int Dropdown::findNextSelectable(int start, int delta) const noexcept {
 }
 
 void Dropdown::open() {
-    if (isOpen_) {
+    if (isOpen_ || !isEnabled()) {
         return;
     }
     isOpen_ = true;
@@ -994,6 +1127,9 @@ void Dropdown::handleTypeAhead(char c) {
 }
 
 void Dropdown::onMouseEnter() {
+    if (!isEnabled()) {
+        return;
+    }
     isHovered_ = true;
     hoverAnim_.start(hoverAnim_.currentValue(), 1.0f, 0.12f,
                      core::animation::EasingCurve::OutCubic);
@@ -1004,6 +1140,9 @@ void Dropdown::onMouseEnter() {
 }
 
 void Dropdown::onMouseLeave() {
+    if (!isEnabled() && isOpen_) {
+        close();
+    }
     isHovered_ = false;
     hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, 0.12f,
                      core::animation::EasingCurve::OutCubic);
@@ -1014,15 +1153,18 @@ void Dropdown::onMouseLeave() {
 }
 
 void Dropdown::onMouseDown(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left) {
-        setFocus();
+    if (!isEnabled()) {
+        return;
+    }
+    if (ev.isPrimaryButton()) {
+        setFocus(FocusReason::Pointer);
         toggle();
         ev.accept();
     }
 }
 
 void Dropdown::onKeyDown(WidgetKeyEvent& ev) {
-    if (!ev.isDown()) {
+    if (!ev.isDown() || !isEnabled()) {
         return;
     }
 
@@ -1115,8 +1257,8 @@ void Dropdown::paint(renderer::PaintContext& ctx) {
 
     ctx.drawBox(rect, effectiveBackgroundColor(), effectiveBorderColor(), borderW, radii);
 
-    if (hasKeyboardFocus()) {
-        theme::paintFocusRing(ctx, rect, radii[0]);
+    if (isEnabled() && hasKeyboardFocus()) {
+        paintFocusRing(ctx, rect, radii[0]);
     }
 
     float targetCenterY = rect.origin.y + rect.size.height * 0.5f;
@@ -1156,7 +1298,8 @@ void Dropdown::paint(renderer::PaintContext& ctx) {
             core::Rect iconRect{
                 core::Point{contentLeft, std::round(targetCenterY - iconSize * 0.5f)},
                 core::Size{iconSize, iconSize}};
-            ctx.drawSvg(*curItem->icon, iconRect, colorPalette().textSecondary);
+            ctx.drawSvg(*curItem->icon, iconRect,
+                        isEnabled() ? colorPalette().textSecondary : colorPalette().textDisabled);
             contentLeft += iconSize + 8.0f * scale;
         }
 
@@ -1195,7 +1338,9 @@ void Dropdown::paint(renderer::PaintContext& ctx) {
                        chevCenterY + (w2x0 * sinA + w2y0 * cosA)};
 
     const auto& pal = colorPalette();
-    core::Color chevCol = pal.textTertiary.lerp(pal.textSecondary, hoverAnim_.currentValue());
+    float accentMix = std::max(hoverAnim_.currentValue(), chevronAnim_.currentValue());
+    core::Color chevCol =
+        isEnabled() ? pal.textTertiary.lerp(pal.accentDefault, accentMix) : pal.textDisabled;
     ctx.drawLine(pWing1, pVertex, chevCol, 1.5f * scale);
     ctx.drawLine(pVertex, pWing2, chevCol, 1.5f * scale);
 }

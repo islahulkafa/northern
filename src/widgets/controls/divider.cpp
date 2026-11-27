@@ -5,18 +5,21 @@
 #include "widgets/base/theme.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace northern::widgets {
 
 Divider::Divider(DividerOrientation orientation, float thickness)
-    : orientation_(orientation), thickness_(std::max(1.0f, thickness)) {
+    : orientation_(orientation), hasCustomThickness_(std::abs(thickness - 1.0f) > 0.001f),
+      thickness_(std::max(1.0f, thickness)) {
     setFocusable(false);
     updateMeasureAndStyle();
 }
 
 Divider::Divider(std::string label, std::shared_ptr<text::Font> font, float thickness)
-    : orientation_(DividerOrientation::Horizontal), thickness_(std::max(1.0f, thickness)),
-      label_(std::move(label)), font_(std::move(font)) {
+    : orientation_(DividerOrientation::Horizontal),
+      hasCustomThickness_(std::abs(thickness - 1.0f) > 0.001f),
+      thickness_(std::max(1.0f, thickness)), label_(std::move(label)), font_(std::move(font)) {
     setFocusable(false);
     updateMeasureAndStyle();
 }
@@ -26,15 +29,18 @@ void Divider::setOrientation(DividerOrientation orientation) noexcept {
         orientation_ = orientation;
         updateMeasureAndStyle();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
 void Divider::setThickness(float thickness) noexcept {
+    hasCustomThickness_ = true;
     float clamped = std::max(1.0f, thickness);
     if (thickness_ != clamped) {
         thickness_ = clamped;
         updateMeasureAndStyle();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -53,6 +59,7 @@ void Divider::setLabelAlignment(DividerAlignment alignment) noexcept {
 }
 
 void Divider::setLabelOffset(float offset) noexcept {
+    hasCustomLabelOffset_ = true;
     float clamped = std::max(0.0f, offset);
     if (labelOffset_ != clamped) {
         labelOffset_ = clamped;
@@ -86,16 +93,46 @@ void Divider::setLabel(std::string label) {
         cachedTextLayout_.reset();
         updateMeasureAndStyle();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
 void Divider::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
+        resolvedDefaultFont_.reset();
         isTextLayoutDirty_ = true;
         cachedTextLayout_.reset();
         updateMeasureAndStyle();
         markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+void Divider::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void Divider::applyDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        if (!hasCustomThickness_) {
+            thickness_ = std::max(1.0f, std::round(1.0f * dpiScale_));
+        }
+        if (!hasCustomGap_) {
+            gap_ = 8.0f * dpiScale_;
+        }
+        if (!hasCustomLabelOffset_) {
+            labelOffset_ = 24.0f * dpiScale_;
+        }
+        resolvedDefaultFont_.reset();
+        isTextLayoutDirty_ = true;
+        cachedTextLayout_.reset();
+        updateMeasureAndStyle();
+        markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -105,6 +142,7 @@ void Divider::setTextColor(const core::Color& color) noexcept {
 }
 
 void Divider::setGap(float gap) noexcept {
+    hasCustomGap_ = true;
     float clamped = std::max(0.0f, gap);
     if (gap_ != clamped) {
         gap_ = clamped;
@@ -112,11 +150,16 @@ void Divider::setGap(float gap) noexcept {
     }
 }
 
-std::shared_ptr<text::Font> Divider::resolveFont() const {
+std::shared_ptr<text::Font> Divider::effectiveFont() const {
     if (font_) {
         return font_;
     }
-    return text::FontManager::instance().defaultFont(11.0f).valueOr(nullptr);
+    if (!resolvedDefaultFont_) {
+        float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+        resolvedDefaultFont_ =
+            text::FontManager::instance().defaultFont(11.0f * scale).valueOr(nullptr);
+    }
+    return resolvedDefaultFont_;
 }
 
 void Divider::ensureTextLayout() const {
@@ -128,7 +171,7 @@ void Divider::ensureTextLayout() const {
         isTextLayoutDirty_ = false;
         return;
     }
-    auto f = resolveFont();
+    auto f = effectiveFont();
     if (!f) {
         cachedTextLayout_.reset();
         isTextLayoutDirty_ = false;
@@ -139,32 +182,53 @@ void Divider::ensureTextLayout() const {
 }
 
 core::Color Divider::effectiveColor() const noexcept {
-    if (overrideColor_) {
-        return *overrideColor_;
-    }
-    const auto& pal = colorPalette();
-    switch (variant_) {
-    case DividerVariant::Subtle:
+    core::Color col = overrideColor_ ? *overrideColor_ : [&]() {
+        const auto& pal = colorPalette();
+        switch (variant_) {
+        case DividerVariant::Subtle:
+            return pal.borderSubtle;
+        case DividerVariant::Default:
+            return pal.borderDefault;
+        case DividerVariant::Strong:
+            return pal.borderStrong;
+        }
         return pal.borderSubtle;
-    case DividerVariant::Default:
-        return pal.borderDefault;
-    case DividerVariant::Strong:
-        return pal.borderStrong;
-    }
-    return pal.borderSubtle;
+    }();
+    return isEnabled() ? col : col.withAlpha(col.a * 0.45f);
 }
 
 core::Color Divider::effectiveTextColor() const noexcept {
+    if (!isEnabled()) {
+        return colorPalette().textDisabled;
+    }
     if (overrideTextColor_) {
         return *overrideTextColor_;
     }
     return colorPalette().textTertiary;
 }
 
+void Divider::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void Divider::onThemeChanged() {
+    isTextLayoutDirty_ = true;
+    cachedTextLayout_.reset();
+    updateMeasureAndStyle();
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+void Divider::onEnabledChanged() {
+    markPaintDirty();
+}
+
 void Divider::updateMeasureAndStyle() {
     if (orientation_ == DividerOrientation::Horizontal) {
         style().width = layout::Length::percent(100.0f);
-        auto f = resolveFont();
+        auto f = effectiveFont();
         float contentH =
             label_.empty() ? thickness_ : (f ? std::max(thickness_, f->lineHeight()) : 16.0f);
         style().height = layout::Length::points(contentH);
@@ -172,7 +236,7 @@ void Divider::updateMeasureAndStyle() {
         layoutNode_.setMeasureFunc(
             [this](const layout::LayoutNode&, float availW, float) -> core::Size {
                 float w = (availW > 0.0f) ? availW : 100.0f;
-                auto resolvedF = resolveFont();
+                auto resolvedF = effectiveFont();
                 float h = label_.empty()
                               ? thickness_
                               : (resolvedF ? std::max(thickness_, resolvedF->lineHeight()) : 16.0f);
@@ -233,7 +297,7 @@ void Divider::paint(renderer::PaintContext& ctx) {
 
     if (textW + 2.0f * gap_ >= availW) {
         textX = startX + (availW - textW) * 0.5f;
-        auto f = resolveFont();
+        auto f = effectiveFont();
         float textY = f ? theme::computeCenteredTextY(y, *f) : (y - layout.size().height * 0.5f);
         ctx.drawTextLayout(core::Point{textX, textY}, layout, effectiveTextColor());
         return;
@@ -266,7 +330,7 @@ void Divider::paint(renderer::PaintContext& ctx) {
         ctx.drawLine(core::Point{startX, y}, core::Point{leftLineEnd, y}, lineColor, thickness_);
     }
 
-    auto f = resolveFont();
+    auto f = effectiveFont();
     float textY = f ? theme::computeCenteredTextY(y, *f) : (y - layout.size().height * 0.5f);
     ctx.drawTextLayout(core::Point{textX, textY}, layout, effectiveTextColor());
 

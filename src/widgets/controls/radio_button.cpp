@@ -3,6 +3,7 @@
 #include "widgets/base/widget_context.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace northern::widgets {
 
@@ -79,6 +80,7 @@ void RadioButton::setText(std::string text) {
         text_ = std::move(text);
         cachedTextLayout_.reset();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -91,6 +93,7 @@ void RadioButton::setFont(std::shared_ptr<text::Font> font) {
         font_ = std::move(font);
         cachedTextLayout_.reset();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -99,6 +102,11 @@ void RadioButton::setSize(RadioSize size) noexcept {
 }
 
 void RadioButton::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void RadioButton::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         float ratio = clamped / dpiScale_;
@@ -110,6 +118,7 @@ void RadioButton::setDpiScale(float scale) {
             cachedTextLayout_.reset();
         }
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -119,6 +128,7 @@ void RadioButton::setCircleSize(float diameter) noexcept {
         circleDiameter_ = clamped;
         dotDiameter_ = clamped * 0.5f;
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -221,6 +231,16 @@ core::Color RadioButton::effectiveTextColor() const noexcept {
     return isEnabled() ? pal.textPrimary : pal.textDisabled;
 }
 
+void RadioButton::cancelActiveInteraction() {
+    if (isPressed_ && context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    isPressed_ = false;
+    isHovered_ = false;
+    hoverAnim_.stop();
+    hoverAnim_.setCurrentValue(0.0f);
+}
+
 void RadioButton::onMouseEnter() {
     if (!isEnabled()) {
         return;
@@ -236,7 +256,6 @@ void RadioButton::onMouseEnter() {
 
 void RadioButton::onMouseLeave() {
     isHovered_ = false;
-    isPressed_ = false;
     if (isEnabled()) {
         hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, 0.12f,
                          core::animation::EasingCurve::OutCubic);
@@ -251,8 +270,11 @@ void RadioButton::onMouseDown(WidgetMouseEvent& ev) {
     if (!isEnabled()) {
         return;
     }
-    if (ev.button() == platform::MouseButton::Left) {
+    if (ev.isPrimaryButton()) {
         isPressed_ = true;
+        if (context_) {
+            context_->setMouseGrabWidget(this);
+        }
         setFocus(FocusReason::Pointer);
         ev.accept();
         markPaintDirty();
@@ -261,13 +283,23 @@ void RadioButton::onMouseDown(WidgetMouseEvent& ev) {
 
 void RadioButton::onMouseUp(WidgetMouseEvent& ev) {
     if (!isEnabled()) {
+        if (isPressed_ && context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
         isPressed_ = false;
         return;
     }
-    if (ev.button() == platform::MouseButton::Left && isPressed_) {
+    if (ev.isPrimaryButton() && isPressed_) {
+        if (context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
+        core::Rect rect = layoutRect();
+        bool inside =
+            (rect.size.width <= 0.0f || rect.size.height <= 0.0f) || hitTest(ev.position());
         isPressed_ = false;
+        isHovered_ = inside;
         ev.accept();
-        if (hitTest(ev.position()) && !isChecked_) {
+        if (inside && !isChecked_) {
             setChecked(true);
         } else {
             markPaintDirty();
@@ -276,7 +308,7 @@ void RadioButton::onMouseUp(WidgetMouseEvent& ev) {
 }
 
 void RadioButton::onKeyDown(WidgetKeyEvent& ev) {
-    if (!isEnabled()) {
+    if (!isEnabled() || !ev.isDown()) {
         return;
     }
     if (ev.key() == platform::Key::Space || ev.key() == platform::Key::Enter) {
@@ -287,14 +319,50 @@ void RadioButton::onKeyDown(WidgetKeyEvent& ev) {
     }
 }
 
+void RadioButton::onFocusGained() {
+    markPaintDirty();
+}
+
+void RadioButton::onFocusLost() {
+    cancelActiveInteraction();
+    markPaintDirty();
+}
+
+void RadioButton::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void RadioButton::onThemeChanged() {
+    cachedTextLayout_.reset();
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+void RadioButton::onEnabledChanged() {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+        setCursorShape(platform::CursorShape::Arrow);
+    } else {
+        setCursorShape(platform::CursorShape::PointingHand);
+    }
+    markPaintDirty();
+}
+
 void RadioButton::updateAnimations(float deltaSeconds) {
+    bool changed = false;
     if (checkAnim_.isRunning()) {
         checkAnim_.update(deltaSeconds);
+        changed = true;
     }
     if (hoverAnim_.isRunning()) {
         hoverAnim_.update(deltaSeconds);
+        changed = true;
     }
-    markPaintDirty();
+    if (changed) {
+        markPaintDirty();
+    }
 }
 
 bool RadioButton::hasActiveAnimations() const noexcept {
@@ -307,6 +375,7 @@ void RadioButton::paint(renderer::PaintContext& ctx) {
         return;
     }
 
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
     float targetCenterY = rect.origin.y + rect.size.height * 0.5f;
     float circleY = targetCenterY - circleDiameter_ * 0.5f;
     core::Rect circleRect{core::Point{rect.origin.x, circleY},
@@ -322,10 +391,11 @@ void RadioButton::paint(renderer::PaintContext& ctx) {
         bg = bg.lerp(colorPalette().surfaceOverlay, 0.25f);
     }
 
-    ctx.drawBox(circleRect, bg, border, 1.0f, radii);
+    float borderWidth = std::max(1.0f, std::round(theme::Metrics::BorderWidthHairline * scale));
+    ctx.drawBox(circleRect, bg, border, borderWidth, radii);
 
     if (hasKeyboardFocus() && isEnabled()) {
-        theme::paintFocusRing(ctx, circleRect, radius);
+        paintFocusRing(ctx, circleRect, radius);
     }
 
     if (t > 0.001f) {

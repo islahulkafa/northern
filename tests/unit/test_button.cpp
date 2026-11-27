@@ -3,6 +3,7 @@
 #include "widgets/controls/button.hpp"
 #include "widgets/controls/icons.hpp"
 #include <gtest/gtest.h>
+#include <variant>
 
 namespace northern::widgets {
 
@@ -162,6 +163,132 @@ TEST_F(ButtonModernizationTest, KeyboardAndDisabledHandling) {
     b.onKeyDown(spaceEv);
     EXPECT_EQ(clicks, 1);
     EXPECT_EQ(b.state(), ButtonState::Disabled);
+}
+
+TEST_F(ButtonModernizationTest, SpringPressScale) {
+    auto bPtr = std::make_unique<Button>("Press", nullptr, ButtonVariant::Primary);
+    auto* b = bPtr.get();
+    b->layoutNode().setLayoutRect(core::Rect{{0.0f, 0.0f}, {120.0f, 32.0f}});
+    uiContext_->setRootWidget(std::move(bPtr));
+
+    WidgetMouseEvent pressEv(core::Point{20.0f, 16.0f}, platform::MouseButton::Left,
+                             platform::KeyModifier::None);
+    b->onMouseDown(pressEv);
+    EXPECT_TRUE(b->hasActiveAnimations());
+    for (int i = 0; i < 60; ++i) {
+        b->updateAnimations(1.0f / 60.0f);
+    }
+    EXPECT_FALSE(b->hasActiveAnimations());
+
+    WidgetMouseEvent releaseEv(core::Point{20.0f, 16.0f}, platform::MouseButton::Left,
+                               platform::KeyModifier::None);
+    b->onMouseUp(releaseEv);
+    EXPECT_TRUE(b->hasActiveAnimations());
+    for (int i = 0; i < 60; ++i) {
+        b->updateAnimations(1.0f / 60.0f);
+    }
+    EXPECT_FALSE(b->hasActiveAnimations());
+}
+
+TEST_F(ButtonModernizationTest, HoverColorAnimationMarksPaintDirty) {
+    auto bPtr = std::make_unique<Button>("Hover", nullptr, ButtonVariant::Primary);
+    auto* b = bPtr.get();
+    uiContext_->setRootWidget(std::move(bPtr));
+    uiContext_->handleResize(core::Size{120.0f, 32.0f});
+
+    b->onMouseEnter();
+    EXPECT_TRUE(b->hasActiveAnimations());
+    b->clearPaintDirty();
+    b->updateAnimations(0.03f);
+    EXPECT_TRUE(b->isPaintDirty());
+}
+
+TEST_F(ButtonModernizationTest, ContextDpiAdoptionAndThemeChangeRefresh) {
+    uiContext_->setDpiScale(1.5f);
+    auto bPtr = std::make_unique<Button>("DPI");
+    auto* b = bPtr.get();
+    uiContext_->setRootWidget(std::move(bPtr));
+    EXPECT_FLOAT_EQ(b->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(b->style().height.value, theme::Metrics::ControlHeightStandard * 1.5f);
+
+    // Explicit setDpiScale is preserved on context attachment
+    WidgetContext customCtx;
+    customCtx.setDpiScale(1.5f);
+    auto customPtr = std::make_unique<Button>("CustomDPI");
+    auto* customBtn = customPtr.get();
+    customBtn->setDpiScale(2.0f);
+    customCtx.setRootWidget(std::move(customPtr));
+    EXPECT_FLOAT_EQ(customBtn->dpiScale(), 2.0f);
+
+    // Theme change updates painted background color immediately even when not hovered
+    uiContext_->setTheme(theme::Theme::light());
+    uiContext_->handleResize(core::Size{120.0f, 48.0f});
+    renderer::PaintContext paintCtx;
+    b->paint(paintCtx);
+    bool foundBox = false;
+    core::Color paintedBg{};
+    for (const auto& cmd : paintCtx.commands()) {
+        if (std::holds_alternative<renderer::DrawBoxCommand>(cmd)) {
+            paintedBg = std::get<renderer::DrawBoxCommand>(cmd).fillColor;
+            foundBox = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(foundBox);
+    EXPECT_EQ(paintedBg, uiContext_->theme().colors().surfaceRaised);
+}
+
+TEST_F(ButtonModernizationTest, MouseGrabAndResetOnDisableLoadingFocusLost) {
+    auto bPtr = std::make_unique<Button>("Action");
+    auto* b = bPtr.get();
+    uiContext_->setRootWidget(std::move(bPtr));
+    uiContext_->handleResize(core::Size{120.0f, 32.0f});
+
+    int clicks = 0;
+    b->onClicked.connect([&clicks]() { ++clicks; });
+
+    // Press acquires mouse grab; release outside does not click and releases grab
+    WidgetMouseEvent pressIn(core::Point{40.0f, 16.0f}, platform::MouseButton::Left,
+                             platform::KeyModifier::None);
+    b->onMouseDown(pressIn);
+    EXPECT_EQ(uiContext_->mouseGrabWidget(), b);
+    EXPECT_EQ(b->state(), ButtonState::Pressed);
+
+    WidgetMouseEvent releaseOut(core::Point{200.0f, 16.0f}, platform::MouseButton::Left,
+                                platform::KeyModifier::None);
+    b->onMouseUp(releaseOut);
+    EXPECT_EQ(uiContext_->mouseGrabWidget(), nullptr);
+    EXPECT_EQ(clicks, 0);
+    EXPECT_EQ(b->state(), ButtonState::Idle);
+
+    // Disabling mid-press releases grab, resets cursor to Arrow, and enters Disabled state
+    b->onMouseDown(pressIn);
+    EXPECT_EQ(uiContext_->mouseGrabWidget(), b);
+    b->setEnabled(false);
+    EXPECT_EQ(uiContext_->mouseGrabWidget(), nullptr);
+    EXPECT_EQ(b->cursorShape(), platform::CursorShape::Arrow);
+    EXPECT_EQ(b->state(), ButtonState::Disabled);
+
+    b->setEnabled(true);
+    EXPECT_EQ(b->cursorShape(), platform::CursorShape::PointingHand);
+
+    // Loading mid-press releases grab, resets press state, and sets Arrow cursor
+    b->onMouseDown(pressIn);
+    EXPECT_EQ(uiContext_->mouseGrabWidget(), b);
+    b->setLoading(true);
+    EXPECT_EQ(uiContext_->mouseGrabWidget(), nullptr);
+    EXPECT_EQ(b->cursorShape(), platform::CursorShape::Arrow);
+    EXPECT_EQ(b->state(), ButtonState::Idle);
+
+    b->setLoading(false);
+    EXPECT_EQ(b->cursorShape(), platform::CursorShape::PointingHand);
+
+    // Focus lost mid-press releases grab and resets press state
+    b->onMouseDown(pressIn);
+    EXPECT_EQ(uiContext_->mouseGrabWidget(), b);
+    b->onFocusLost();
+    EXPECT_EQ(uiContext_->mouseGrabWidget(), nullptr);
+    EXPECT_EQ(b->state(), ButtonState::Idle);
 }
 
 } // namespace northern::widgets

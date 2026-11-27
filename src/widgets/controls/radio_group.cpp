@@ -11,16 +11,42 @@ RadioGroup::RadioGroup(RadioGroupOrientation orientation) : orientation_(orienta
 
 void RadioGroup::setOrientation(RadioGroupOrientation orientation) noexcept {
     orientation_ = orientation;
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
     if (orientation_ == RadioGroupOrientation::Horizontal) {
         style().flexDirection = layout::FlexDirection::Row;
-        style().columnGap = 16.0f;
+        style().columnGap = 16.0f * scale;
         style().rowGap = 0.0f;
     } else {
         style().flexDirection = layout::FlexDirection::Column;
-        style().rowGap = 8.0f;
+        style().rowGap = 8.0f * scale;
         style().columnGap = 0.0f;
     }
     markLayoutDirty();
+}
+
+void RadioGroup::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void RadioGroup::applyDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        setOrientation(orientation_);
+        for (RadioButton* btn : buttons_) {
+            if (btn && !btn->hasCustomDpiScale()) {
+                btn->applyDpiScale(dpiScale_);
+            }
+        }
+        markPaintDirty();
+    }
+}
+
+void RadioGroup::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
 }
 
 RadioButton* RadioGroup::addRadioButton(std::unique_ptr<RadioButton> button) {
@@ -28,6 +54,9 @@ RadioButton* RadioGroup::addRadioButton(std::unique_ptr<RadioButton> button) {
         return nullptr;
     }
     RadioButton* raw = button.get();
+    if (!raw->hasCustomDpiScale() && dpiScale_ != 1.0f) {
+        raw->applyDpiScale(dpiScale_);
+    }
     buttons_.push_back(raw);
     int newIndex = static_cast<int>(buttons_.size()) - 1;
 
@@ -143,7 +172,7 @@ bool RadioGroup::setSelectedValue(std::string_view value) {
 }
 
 void RadioGroup::onKeyDown(WidgetKeyEvent& ev) {
-    if (buttons_.empty()) {
+    if (!isEnabled() || !ev.isDown() || buttons_.empty()) {
         return;
     }
     int count = static_cast<int>(buttons_.size());

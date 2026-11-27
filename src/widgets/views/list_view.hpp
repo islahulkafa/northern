@@ -12,6 +12,8 @@
 
 namespace northern::widgets {
 
+enum class ListStyle : uint8_t { Plain, Inset, Sidebar };
+
 class ListView : public Widget {
 public:
     static constexpr float kDefaultRowHeight = 28.0f;
@@ -35,6 +37,15 @@ public:
 
     void setRowHeight(float height) noexcept;
     [[nodiscard]] float rowHeight() const noexcept { return rowHeight_; }
+
+    void setListStyle(ListStyle style) noexcept;
+    [[nodiscard]] ListStyle listStyle() const noexcept { return listStyle_; }
+
+    void setShowBorder(bool show) noexcept;
+    [[nodiscard]] bool showBorder() const noexcept { return showBorder_; }
+
+    void setAlternatingRowColors(bool alternate) noexcept;
+    [[nodiscard]] bool alternatingRowColors() const noexcept { return alternatingRowColors_; }
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
@@ -66,8 +77,15 @@ public:
     void onMouseWheel(WidgetMouseEvent& ev) override;
     void onMouseLeave() override;
     void onKeyDown(WidgetKeyEvent& ev) override;
+    void onFocusGained() override;
+    void onFocusLost() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
 private:
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
     [[nodiscard]] core::Rect verticalThumbRect() const noexcept;
     void clampScrollOffset() noexcept;
 
@@ -77,11 +95,16 @@ private:
     std::shared_ptr<text::Font> font_{nullptr};
     mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
     int anchorRow_{-1};
 
+    float baseRowHeight_{kDefaultRowHeight};
     float rowHeight_{kDefaultRowHeight};
     float scrollOffsetY_{0.0f};
     float scrollbarThickness_{6.0f};
+    ListStyle listStyle_{ListStyle::Inset};
+    bool showBorder_{true};
+    bool alternatingRowColors_{false};
 
     int hoveredRow_{-1};
     bool isHoveringThumb_{false};

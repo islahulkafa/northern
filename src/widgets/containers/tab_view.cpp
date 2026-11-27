@@ -38,6 +38,8 @@ TabBar::TabBar(std::shared_ptr<text::Font> font) : font_(std::move(font)) {
 void TabBar::setTabBarStyle(TabBarStyle style) noexcept {
     if (style_ != style) {
         style_ = style;
+        isTabsLayoutDirty_ = true;
+        markLayoutDirty();
         markPaintDirty();
     }
 }
@@ -64,6 +66,7 @@ void TabBar::setMaxTabWidth(float maxW) noexcept {
 }
 
 void TabBar::setTabHeight(float height) noexcept {
+    hasCustomTabHeight_ = true;
     float clamped = std::max(20.0f, height);
     if (tabHeight_ != clamped) {
         tabHeight_ = clamped;
@@ -128,15 +131,31 @@ void TabBar::removeTab(int index) {
     items_.erase(items_.begin() + index);
     isTabsLayoutDirty_ = true;
 
+    if (hoveredIndex_ == index || hoveredIndex_ >= static_cast<int>(items_.size())) {
+        hoveredIndex_ = -1;
+        hoveredCloseIndex_ = -1;
+    } else if (hoveredIndex_ > index) {
+        hoveredIndex_--;
+        if (hoveredCloseIndex_ > index) {
+            hoveredCloseIndex_--;
+        }
+    }
+    if (pressTabIndex_ == index) {
+        cancelActiveInteraction();
+    } else if (pressTabIndex_ > index) {
+        pressTabIndex_--;
+    }
+
     if (items_.empty()) {
         selectedIndex_ = -1;
         indicatorWAnim_.setCurrentValue(0.0f);
-    } else if (selectedIndex_ >= static_cast<int>(items_.size())) {
-        selectedIndex_ = static_cast<int>(items_.size()) - 1;
-        startIndicatorAnimation(selectedIndex_, false);
-        onTabSelected.emit(selectedIndex_);
-    } else if (selectedIndex_ == index) {
-        startIndicatorAnimation(selectedIndex_, false);
+    } else if (selectedIndex_ == index || selectedIndex_ >= static_cast<int>(items_.size())) {
+        selectedIndex_ = findNearestEnabledTab(index);
+        if (selectedIndex_ >= 0) {
+            startIndicatorAnimation(selectedIndex_, false);
+        } else {
+            indicatorWAnim_.setCurrentValue(0.0f);
+        }
         onTabSelected.emit(selectedIndex_);
     } else if (selectedIndex_ > index) {
         selectedIndex_--;
@@ -262,6 +281,24 @@ void TabBar::setTabEnabled(int index, bool enabled) {
     if (index >= 0 && index < static_cast<int>(items_.size())) {
         if (items_[index].enabled != enabled) {
             items_[index].enabled = enabled;
+            if (!enabled) {
+                items_[index].hoverAnim.setCurrentValue(0.0f);
+                if (hoveredIndex_ == index) {
+                    hoveredIndex_ = -1;
+                    hoveredCloseIndex_ = -1;
+                    setCursorShape(hoveredAddBtn_ ? platform::CursorShape::PointingHand
+                                                  : platform::CursorShape::Arrow);
+                }
+                if (selectedIndex_ == index) {
+                    selectedIndex_ = findNearestEnabledTab(index);
+                    if (selectedIndex_ >= 0) {
+                        startIndicatorAnimation(selectedIndex_, false);
+                    } else {
+                        indicatorWAnim_.setCurrentValue(0.0f);
+                    }
+                    onTabSelected.emit(selectedIndex_);
+                }
+            }
             markPaintDirty();
         }
     }
@@ -304,12 +341,22 @@ void TabBar::setFont(std::shared_ptr<text::Font> font) {
 }
 
 void TabBar::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void TabBar::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
+        if (!hasCustomTabHeight_) {
+            tabHeight_ = 32.0f * dpiScale_;
+            style().height = layout::Length::points(tabHeight_);
+        }
         resolvedDefaultFont_.reset();
         for (auto& item : items_) {
             item.cachedLayout.reset();
+            item.cachedTextWidth = 0.0f;
         }
         isTabsLayoutDirty_ = true;
         updateMeasure();
@@ -345,11 +392,11 @@ core::Rect TabBar::addButtonRect() const noexcept {
     if (w <= 0.0f) {
         w = screenRect().size.width;
     }
-    if (w < kAddButtonWidth) {
+    float addW = kAddButtonWidth * (dpiScale_ > 0.0f ? dpiScale_ : 1.0f);
+    if (w < addW) {
         return core::Rect{};
     }
-    return core::Rect{core::Point{w - kAddButtonWidth, 0.0f},
-                      core::Size{kAddButtonWidth, tabHeight_}};
+    return core::Rect{core::Point{w - addW, 0.0f}, core::Size{addW, tabHeight_}};
 }
 
 float TabBar::tabsViewportWidth() const noexcept {
@@ -358,7 +405,8 @@ float TabBar::tabsViewportWidth() const noexcept {
         w = screenRect().size.width;
     }
     if (showAddButton_) {
-        w = std::max(0.0f, w - kAddButtonWidth);
+        float addW = kAddButtonWidth * (dpiScale_ > 0.0f ? dpiScale_ : 1.0f);
+        w = std::max(0.0f, w - addW);
     }
     return w;
 }
@@ -415,31 +463,44 @@ void TabBar::ensureTabsLayout() const {
 
     auto f = effectiveFont();
     float curX = 0.0f;
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    bool isSegmented = (style_ == TabBarStyle::Segmented);
+    float segW = 0.0f;
+    if (isSegmented && !items_.empty()) {
+        float vp = tabsViewportWidth();
+        if (vp <= 0.0f) {
+            vp = 300.0f * scale;
+        }
+        segW = vp / static_cast<float>(items_.size());
+    }
+
     for (auto& item : items_) {
         if (!item.cachedLayout.has_value() && f && !item.title.empty()) {
             item.cachedLayout = text::TextLayout::create(item.title, f);
             item.cachedTextWidth = item.cachedLayout->size().width;
         } else if (!f || item.title.empty()) {
-            item.cachedTextWidth = static_cast<float>(item.title.size()) * 7.5f * dpiScale_;
+            item.cachedTextWidth = static_cast<float>(item.title.size()) * 7.5f * scale;
         }
 
         float contentW = item.cachedTextWidth;
         if (item.icon) {
-            contentW += kIconSize + kIconGap;
+            contentW += (kIconSize + kIconGap) * scale;
         }
-        bool hasTrailingSlot = item.closable || item.modified;
+        bool hasTrailingSlot = !isSegmented && (item.closable || item.modified);
         if (hasTrailingSlot) {
-            contentW += kCloseGap + kCloseBtnSize;
+            contentW += (kCloseGap + kCloseBtnSize) * scale;
         }
 
-        float tabW = std::clamp(tabPaddingX_ * 2.0f + contentW, minTabWidth_, maxTabWidth_);
+        float tabW = isSegmented ? segW
+                                 : std::clamp(tabPaddingX_ * 2.0f * scale + contentW,
+                                              minTabWidth_ * scale, maxTabWidth_ * scale);
         item.tabRect = core::Rect{core::Point{curX, 0.0f}, core::Size{tabW, tabHeight_}};
 
         if (hasTrailingSlot) {
-            float btnX = curX + tabW - tabPaddingX_ - kCloseBtnSize + 2.0f;
-            float btnY = (tabHeight_ - kCloseBtnSize) * 0.5f;
-            item.closeBtnRect =
-                core::Rect{core::Point{btnX, btnY}, core::Size{kCloseBtnSize, kCloseBtnSize}};
+            float closeSz = kCloseBtnSize * scale;
+            float btnX = curX + tabW - tabPaddingX_ * scale - closeSz + 2.0f * scale;
+            float btnY = (tabHeight_ - closeSz) * 0.5f;
+            item.closeBtnRect = core::Rect{core::Point{btnX, btnY}, core::Size{closeSz, closeSz}};
         } else {
             item.closeBtnRect = core::Rect{};
         }
@@ -449,6 +510,13 @@ void TabBar::ensureTabsLayout() const {
     totalTabsWidth_ = curX;
     lastLayoutWidth_ = w;
     isTabsLayoutDirty_ = false;
+
+    if (!indicatorXAnim_.isRunning() && !indicatorWAnim_.isRunning() && selectedIndex_ >= 0 &&
+        selectedIndex_ < static_cast<int>(items_.size())) {
+        const core::Rect& selRect = items_[selectedIndex_].tabRect;
+        indicatorXAnim_.setCurrentValue(selRect.origin.x);
+        indicatorWAnim_.setCurrentValue(selRect.size.width);
+    }
 }
 
 void TabBar::startIndicatorAnimation(int targetIndex, bool animated) {
@@ -532,12 +600,43 @@ int TabBar::findLastEnabledTab() const noexcept {
     return -1;
 }
 
+int TabBar::findNearestEnabledTab(int fromIndex) const noexcept {
+    int count = static_cast<int>(items_.size());
+    if (count == 0) {
+        return -1;
+    }
+    int start = std::clamp(fromIndex, 0, count - 1);
+    for (int i = start; i < count; ++i) {
+        if (items_[i].enabled) {
+            return i;
+        }
+    }
+    for (int i = start - 1; i >= 0; --i) {
+        if (items_[i].enabled) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void TabBar::cancelActiveInteraction() {
+    if (isDraggingTab_ && context_) {
+        context_->releaseMouseGrab();
+    }
+    pressTabIndex_ = -1;
+    isDraggingTab_ = false;
+}
+
 void TabBar::onMouseMove(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        return;
+    }
     ensureTabsLayout();
 
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
     if (pressTabIndex_ >= 0 && reorderable_) {
         float dist = std::abs(ev.position().x - dragStartX_);
-        if (!isDraggingTab_ && dist >= kDragStartThreshold) {
+        if (!isDraggingTab_ && dist >= kDragStartThreshold * scale) {
             isDraggingTab_ = true;
             if (context_) {
                 context_->setMouseGrabWidget(this);
@@ -573,17 +672,28 @@ void TabBar::onMouseMove(WidgetMouseEvent& ev) {
     }
 
     bool addHit = showAddButton_ && addButtonRect().contains(ev.position());
-    int idx = addHit ? -1 : tabIndexAt(ev.position());
-    int closeIdx = isCloseBtnHit(idx, ev.position()) ? idx : -1;
+    int rawIdx = addHit ? -1 : tabIndexAt(ev.position());
+    int idx = (rawIdx >= 0 && items_[rawIdx].enabled) ? rawIdx : -1;
+    int closeIdx = (idx >= 0 && isCloseBtnHit(idx, ev.position())) ? idx : -1;
 
     if (hoveredIndex_ != idx || hoveredCloseIndex_ != closeIdx || hoveredAddBtn_ != addHit) {
+        int prevHover = hoveredIndex_;
         hoveredIndex_ = idx;
         hoveredCloseIndex_ = closeIdx;
         hoveredAddBtn_ = addHit;
         setCursorShape((hoveredIndex_ >= 0 || hoveredAddBtn_) ? platform::CursorShape::PointingHand
                                                               : platform::CursorShape::Arrow);
-        hoverAnim_.start(hoverAnim_.currentValue(), (hoveredIndex_ >= 0) ? 1.0f : 0.0f,
-                         kHoverAnimDuration, core::animation::EasingCurve::OutCubic);
+        if (prevHover >= 0 && prevHover < static_cast<int>(items_.size()) &&
+            prevHover != hoveredIndex_) {
+            items_[prevHover].hoverAnim.start(items_[prevHover].hoverAnim.currentValue(), 0.0f,
+                                              kHoverAnimDuration,
+                                              core::animation::EasingCurve::OutCubic);
+        }
+        if (hoveredIndex_ >= 0 && hoveredIndex_ != prevHover) {
+            items_[hoveredIndex_].hoverAnim.start(items_[hoveredIndex_].hoverAnim.currentValue(),
+                                                  1.0f, kHoverAnimDuration,
+                                                  core::animation::EasingCurve::OutCubic);
+        }
         if (context_) {
             context_->registerAnimatedWidget(this);
         }
@@ -592,9 +702,12 @@ void TabBar::onMouseMove(WidgetMouseEvent& ev) {
 }
 
 void TabBar::onMouseDown(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        return;
+    }
     ensureTabsLayout();
 
-    if (ev.button() == platform::MouseButton::Left) {
+    if (ev.isPrimaryButton()) {
         if (showAddButton_ && addButtonRect().contains(ev.position())) {
             onTabAddRequested.emit();
             ev.accept();
@@ -603,18 +716,18 @@ void TabBar::onMouseDown(WidgetMouseEvent& ev) {
 
         int idx = tabIndexAt(ev.position());
         if (idx >= 0) {
-            if (isCloseBtnHit(idx, ev.position())) {
+            if (items_[idx].enabled && isCloseBtnHit(idx, ev.position())) {
                 onTabCloseRequested.emit(idx);
                 ev.accept();
                 return;
             }
             if (items_[idx].enabled) {
                 setSelectedIndex(idx);
-            }
-            if (reorderable_) {
-                pressTabIndex_ = idx;
-                dragStartX_ = ev.position().x;
-                dragCurrentX_ = ev.position().x + scrollOffset_;
+                if (reorderable_) {
+                    pressTabIndex_ = idx;
+                    dragStartX_ = ev.position().x;
+                    dragCurrentX_ = ev.position().x + scrollOffset_;
+                }
             }
             if (isFocusable()) {
                 setFocus(FocusReason::Pointer);
@@ -624,7 +737,7 @@ void TabBar::onMouseDown(WidgetMouseEvent& ev) {
         }
     } else if (ev.button() == platform::MouseButton::Middle) {
         int idx = tabIndexAt(ev.position());
-        if (idx >= 0 && items_[idx].closable) {
+        if (idx >= 0 && items_[idx].enabled && items_[idx].closable) {
             onTabCloseRequested.emit(idx);
             ev.accept();
         }
@@ -632,60 +745,60 @@ void TabBar::onMouseDown(WidgetMouseEvent& ev) {
 }
 
 void TabBar::onMouseUp(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left) {
-        if (isDraggingTab_ && context_) {
-            context_->releaseMouseGrab();
-        }
-        pressTabIndex_ = -1;
-        isDraggingTab_ = false;
+    if (ev.isPrimaryButton()) {
+        cancelActiveInteraction();
         ev.accept();
     }
 }
 
 void TabBar::onMouseWheel(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        return;
+    }
     float maxOff = maxScrollOffset();
     if (maxOff <= 0.0f) {
         return;
     }
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
     float delta = (std::abs(ev.wheelDelta().x) > 0.001f) ? ev.wheelDelta().x : ev.wheelDelta().y;
     if (std::abs(delta) > 0.001f) {
-        setTabScrollOffset(scrollOffset_ - delta * kScrollWheelStep);
+        setTabScrollOffset(scrollOffset_ - delta * kScrollWheelStep * scale);
         ev.accept();
     }
 }
 
 void TabBar::onMouseLeave() {
     if (hoveredIndex_ != -1 || hoveredCloseIndex_ != -1 || hoveredAddBtn_) {
+        if (hoveredIndex_ >= 0 && hoveredIndex_ < static_cast<int>(items_.size())) {
+            items_[hoveredIndex_].hoverAnim.start(items_[hoveredIndex_].hoverAnim.currentValue(),
+                                                  0.0f, kHoverAnimDuration,
+                                                  core::animation::EasingCurve::OutCubic);
+            if (context_) {
+                context_->registerAnimatedWidget(this);
+            }
+        }
         hoveredIndex_ = -1;
         hoveredCloseIndex_ = -1;
         hoveredAddBtn_ = false;
         setCursorShape(platform::CursorShape::Arrow);
-        hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, kHoverAnimDuration,
-                         core::animation::EasingCurve::OutCubic);
-        if (context_) {
-            context_->registerAnimatedWidget(this);
-        }
         markPaintDirty();
     }
 }
 
 void TabBar::onKeyDown(WidgetKeyEvent& ev) {
-    if (!ev.isDown() || items_.empty()) {
+    if (!isEnabled() || !ev.isDown() || items_.empty()) {
         return;
     }
 
-    bool ctrl = platform::hasModifier(ev.modifiers(), platform::KeyModifier::Control);
-    bool shift = platform::hasModifier(ev.modifiers(), platform::KeyModifier::Shift);
-
-    if (ctrl && ev.key() == platform::Key::W) {
+    if (ev.hasControl() && ev.key() == platform::Key::W) {
         if (selectedIndex_ >= 0 && items_[selectedIndex_].closable) {
             onTabCloseRequested.emit(selectedIndex_);
             ev.accept();
         }
         return;
     }
-    if (ctrl && ev.key() == platform::Key::Tab) {
-        int next = findNextEnabledTab(selectedIndex_, shift ? -1 : 1);
+    if (ev.hasControl() && ev.key() == platform::Key::Tab) {
+        int next = findNextEnabledTab(selectedIndex_, ev.hasShift() ? -1 : 1);
         if (next >= 0) {
             setSelectedIndex(next);
             ev.accept();
@@ -742,6 +855,38 @@ void TabBar::onFocusGained() {
 }
 
 void TabBar::onFocusLost() {
+    cancelActiveInteraction();
+    markPaintDirty();
+}
+
+void TabBar::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void TabBar::onThemeChanged() {
+    for (auto& item : items_) {
+        item.cachedLayout.reset();
+        item.cachedTextWidth = 0.0f;
+    }
+    isTabsLayoutDirty_ = true;
+    updateMeasure();
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+void TabBar::onEnabledChanged() {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+        hoveredIndex_ = -1;
+        hoveredCloseIndex_ = -1;
+        hoveredAddBtn_ = false;
+        setCursorShape(platform::CursorShape::Arrow);
+        for (auto& item : items_) {
+            item.hoverAnim.setCurrentValue(0.0f);
+        }
+    }
     markPaintDirty();
 }
 
@@ -755,9 +900,11 @@ void TabBar::updateAnimations(float deltaSeconds) {
         indicatorWAnim_.update(deltaSeconds);
         changed = true;
     }
-    if (hoverAnim_.isRunning()) {
-        hoverAnim_.update(deltaSeconds);
-        changed = true;
+    for (auto& item : items_) {
+        if (item.hoverAnim.isRunning()) {
+            item.hoverAnim.update(deltaSeconds);
+            changed = true;
+        }
     }
     if (changed) {
         markPaintDirty();
@@ -765,7 +912,15 @@ void TabBar::updateAnimations(float deltaSeconds) {
 }
 
 bool TabBar::hasActiveAnimations() const noexcept {
-    return indicatorXAnim_.isRunning() || indicatorWAnim_.isRunning() || hoverAnim_.isRunning();
+    if (indicatorXAnim_.isRunning() || indicatorWAnim_.isRunning()) {
+        return true;
+    }
+    for (const auto& item : items_) {
+        if (item.hoverAnim.isRunning()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void TabBar::paint(renderer::PaintContext& ctx) {
@@ -776,12 +931,23 @@ void TabBar::paint(renderer::PaintContext& ctx) {
 
     ensureTabsLayout();
     const auto& pal = colorPalette();
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    bool barEnabled = isEnabled();
 
-    // Background and bottom hairline border
-    ctx.drawRect(rect, pal.surfaceDefault);
-    float bottomLineY = rect.origin.y + rect.size.height - 1.0f;
-    ctx.drawLine(core::Point{rect.origin.x, bottomLineY},
-                 core::Point{rect.origin.x + rect.size.width, bottomLineY}, pal.borderSubtle, 1.0f);
+    if (style_ == TabBarStyle::Segmented) {
+        float trackRadius = theme::Metrics::CornerRadiusCard * scale;
+        ctx.drawRoundedRect(rect, pal.surfaceBase, trackRadius);
+        ctx.drawBorder(rect, pal.borderSubtle, theme::Metrics::BorderWidthHairline * scale,
+                       trackRadius);
+    } else {
+        // Background and bottom hairline border
+        ctx.drawRect(rect, pal.surfaceDefault);
+        float borderThick = theme::Metrics::BorderWidthHairline * scale;
+        float bottomLineY = rect.origin.y + rect.size.height - borderThick;
+        ctx.drawLine(core::Point{rect.origin.x, bottomLineY},
+                     core::Point{rect.origin.x + rect.size.width, bottomLineY}, pal.borderSubtle,
+                     borderThick);
+    }
 
     float vpWidth = tabsViewportWidth();
     core::Rect clipRect{rect.origin, core::Size{vpWidth, rect.size.height}};
@@ -794,12 +960,36 @@ void TabBar::paint(renderer::PaintContext& ctx) {
         indW = items_[selectedIndex_].tabRect.size.width;
     }
 
-    // Pill active background behind tabs
-    if (style_ == TabBarStyle::Pill && selectedIndex_ >= 0 && indW > 0.0f) {
+    if (style_ == TabBarStyle::Segmented && items_.size() > 1) {
+        for (size_t i = 0; i + 1 < items_.size(); ++i) {
+            bool adjActive =
+                (static_cast<int>(i) == selectedIndex_ ||
+                 static_cast<int>(i + 1) == selectedIndex_ ||
+                 static_cast<int>(i) == hoveredIndex_ || static_cast<int>(i + 1) == hoveredIndex_);
+            if (!adjActive) {
+                float divX = rect.origin.x - scrollOffset_ + items_[i].tabRect.origin.x +
+                             items_[i].tabRect.size.width;
+                ctx.drawLine(core::Point{divX, rect.origin.y + 8.0f * scale},
+                             core::Point{divX, rect.origin.y + rect.size.height - 8.0f * scale},
+                             pal.borderSubtle, theme::Metrics::BorderWidthHairline * scale);
+            }
+        }
+    }
+
+    if ((style_ == TabBarStyle::Pill || style_ == TabBarStyle::Segmented) && selectedIndex_ >= 0 &&
+        indW > 0.0f) {
+        float insetX = 3.0f * scale;
+        float insetY = (style_ == TabBarStyle::Segmented) ? (3.0f * scale) : (4.0f * scale);
+        float thumbRadius = theme::Metrics::CornerRadiusControl * scale;
         core::Rect pillRect{
-            core::Point{rect.origin.x - scrollOffset_ + indX + 3.0f, rect.origin.y + 4.0f},
-            core::Size{std::max(0.0f, indW - 6.0f), std::max(0.0f, rect.size.height - 8.0f)}};
-        ctx.drawRoundedRect(pillRect, pal.surfaceRaised, theme::Metrics::CornerRadiusControl);
+            core::Point{rect.origin.x - scrollOffset_ + indX + insetX, rect.origin.y + insetY},
+            core::Size{std::max(0.0f, indW - insetX * 2.0f),
+                       std::max(0.0f, rect.size.height - insetY * 2.0f)}};
+        ctx.drawRoundedRect(pillRect, pal.surfaceRaised, thumbRadius);
+        if (style_ == TabBarStyle::Segmented) {
+            ctx.drawBorder(pillRect, pal.borderDefault, theme::Metrics::BorderWidthHairline * scale,
+                           thumbRadius);
+        }
     }
 
     for (size_t i = 0; i < items_.size(); ++i) {
@@ -815,6 +1005,7 @@ void TabBar::paint(renderer::PaintContext& ctx) {
 
         bool isSelected = (static_cast<int>(i) == selectedIndex_);
         bool isHovered = (static_cast<int>(i) == hoveredIndex_);
+        float ht = (barEnabled && itm.enabled) ? itm.hoverAnim.currentValue() : 0.0f;
 
         if (style_ == TabBarStyle::EditorCard) {
             if (isSelected) {
@@ -822,41 +1013,56 @@ void TabBar::paint(renderer::PaintContext& ctx) {
                 ctx.drawLine(tabScreenRect.origin,
                              core::Point{tabScreenRect.origin.x + tabScreenRect.size.width,
                                          tabScreenRect.origin.y},
-                             pal.accentDefault, 2.0f);
-            } else if (isHovered) {
-                float ht = hoverAnim_.currentValue();
-                ctx.drawRect(tabScreenRect, pal.surfaceRaised.withAlpha(0.45f * ht));
+                             barEnabled ? pal.accentDefault : pal.textDisabled, 2.0f * scale);
+            } else if (ht > 0.001f) {
+                ctx.drawRect(tabScreenRect, pal.surfaceRaised.withAlpha(0.55f * ht));
             }
             // Vertical right hairline divider
             float divX = tabScreenRect.origin.x + tabScreenRect.size.width;
-            ctx.drawLine(
-                core::Point{divX, tabScreenRect.origin.y + 6.0f},
-                core::Point{divX, tabScreenRect.origin.y + tabScreenRect.size.height - 6.0f},
-                pal.borderSubtle, 1.0f);
-        } else if (style_ == TabBarStyle::Underline && !isSelected && isHovered) {
-            float ht = hoverAnim_.currentValue();
-            ctx.drawRect(tabScreenRect, pal.surfaceRaised.withAlpha(0.35f * ht));
-        } else if (style_ == TabBarStyle::Pill && !isSelected && isHovered) {
-            float ht = hoverAnim_.currentValue();
+            ctx.drawLine(core::Point{divX, tabScreenRect.origin.y + 6.0f * scale},
+                         core::Point{divX, tabScreenRect.origin.y + tabScreenRect.size.height -
+                                               6.0f * scale},
+                         pal.borderSubtle, theme::Metrics::BorderWidthHairline * scale);
+        } else if (style_ == TabBarStyle::Underline && !isSelected && ht > 0.001f) {
+            ctx.drawRect(tabScreenRect, pal.surfaceRaised.withAlpha(0.55f * ht));
+        } else if (style_ == TabBarStyle::Pill && !isSelected && ht > 0.001f) {
             core::Rect hoverPill{
-                core::Point{tabScreenRect.origin.x + 3.0f, tabScreenRect.origin.y + 4.0f},
-                core::Size{std::max(0.0f, tabScreenRect.size.width - 6.0f),
-                           std::max(0.0f, tabScreenRect.size.height - 8.0f)}};
-            ctx.drawRoundedRect(hoverPill, pal.surfaceRaised.withAlpha(0.4f * ht),
-                                theme::Metrics::CornerRadiusControl);
+                core::Point{tabScreenRect.origin.x + 3.0f * scale,
+                            tabScreenRect.origin.y + 4.0f * scale},
+                core::Size{std::max(0.0f, tabScreenRect.size.width - 6.0f * scale),
+                           std::max(0.0f, tabScreenRect.size.height - 8.0f * scale)}};
+            ctx.drawRoundedRect(hoverPill, pal.surfaceRaised.withAlpha(0.55f * ht),
+                                theme::Metrics::CornerRadiusControl * scale);
+        } else if (style_ == TabBarStyle::Segmented && !isSelected && ht > 0.001f) {
+            core::Rect hoverPill{
+                core::Point{tabScreenRect.origin.x + 3.0f * scale,
+                            tabScreenRect.origin.y + 3.0f * scale},
+                core::Size{std::max(0.0f, tabScreenRect.size.width - 6.0f * scale),
+                           std::max(0.0f, tabScreenRect.size.height - 6.0f * scale)}};
+            ctx.drawRoundedRect(hoverPill, pal.surfaceRaised.withAlpha(0.55f * ht),
+                                theme::Metrics::CornerRadiusControl * scale);
         }
 
-        float contentStartX = tabScreenRect.origin.x + tabPaddingX_;
-        core::Color fgCol =
-            !itm.enabled ? pal.textDisabled : (isSelected ? pal.textPrimary : pal.textSecondary);
+        float contentStartX = tabScreenRect.origin.x + tabPaddingX_ * scale;
+        if (style_ == TabBarStyle::Segmented) {
+            float totalContentW = itm.cachedTextWidth;
+            if (itm.icon) {
+                totalContentW += (kIconSize + kIconGap) * scale;
+            }
+            contentStartX = tabScreenRect.origin.x +
+                            std::max(0.0f, (tabScreenRect.size.width - totalContentW) * 0.5f);
+        }
+        core::Color fgCol = (!barEnabled || !itm.enabled)
+                                ? pal.textDisabled
+                                : (isSelected ? pal.textPrimary : pal.textSecondary);
 
         // Leading SVG icon
         if (itm.icon) {
-            float iconY = tabScreenRect.origin.y + (tabHeight_ - kIconSize) * 0.5f;
-            core::Rect iconRect{core::Point{contentStartX, iconY},
-                                core::Size{kIconSize, kIconSize}};
+            float iconSz = kIconSize * scale;
+            float iconY = tabScreenRect.origin.y + (tabHeight_ - iconSz) * 0.5f;
+            core::Rect iconRect{core::Point{contentStartX, iconY}, core::Size{iconSz, iconSz}};
             ctx.drawSvg(*itm.icon, iconRect, fgCol);
-            contentStartX += kIconSize + kIconGap;
+            contentStartX += iconSz + kIconGap * scale;
         }
 
         // Memoized Title text
@@ -874,42 +1080,53 @@ void TabBar::paint(renderer::PaintContext& ctx) {
                             rect.origin.y + itm.closeBtnRect.origin.y},
                 itm.closeBtnRect.size};
 
-            bool isCloseHovered = (static_cast<int>(i) == hoveredCloseIndex_);
+            bool isCloseHovered =
+                barEnabled && itm.enabled && (static_cast<int>(i) == hoveredCloseIndex_);
 
             if (itm.modified && (!itm.closable || (!isCloseHovered && !isHovered))) {
-                float dotX = closeScreenRect.origin.x +
-                             (closeScreenRect.size.width - kModifiedDotSize) * 0.5f;
-                float dotY = closeScreenRect.origin.y +
-                             (closeScreenRect.size.height - kModifiedDotSize) * 0.5f;
-                ctx.drawRoundedRect(core::Rect{core::Point{dotX, dotY},
-                                               core::Size{kModifiedDotSize, kModifiedDotSize}},
-                                    pal.accentDefault, kModifiedDotSize * 0.5f);
+                float dotSz = kModifiedDotSize * scale;
+                float dotX = closeScreenRect.origin.x + (closeScreenRect.size.width - dotSz) * 0.5f;
+                float dotY =
+                    closeScreenRect.origin.y + (closeScreenRect.size.height - dotSz) * 0.5f;
+                ctx.drawRoundedRect(core::Rect{core::Point{dotX, dotY}, core::Size{dotSz, dotSz}},
+                                    (barEnabled && itm.enabled) ? pal.accentDefault
+                                                                : pal.textDisabled,
+                                    dotSz * 0.5f);
             } else if (itm.closable) {
                 if (isCloseHovered) {
-                    ctx.drawRoundedRect(closeScreenRect, pal.surfaceOverlay, 3.0f);
+                    ctx.drawRoundedRect(closeScreenRect, pal.surfaceOverlay, 3.0f * scale);
                 }
-                core::Color xCol = isCloseHovered ? pal.textPrimary : pal.textTertiary;
+                core::Color xCol = (!barEnabled || !itm.enabled)
+                                       ? pal.textDisabled
+                                       : (isCloseHovered ? pal.textPrimary : pal.textTertiary);
                 if (auto doc = getSvgDocument(IconId::Close)) {
-                    core::Rect xRect{core::Point{closeScreenRect.origin.x + 2.0f,
-                                                 closeScreenRect.origin.y + 2.0f},
-                                     core::Size{closeScreenRect.size.width - 4.0f,
-                                                closeScreenRect.size.height - 4.0f}};
+                    float inset = 2.0f * scale;
+                    core::Rect xRect{
+                        core::Point{closeScreenRect.origin.x + inset,
+                                    closeScreenRect.origin.y + inset},
+                        core::Size{std::max(0.0f, closeScreenRect.size.width - inset * 2.0f),
+                                   std::max(0.0f, closeScreenRect.size.height - inset * 2.0f)}};
                     ctx.drawSvg(*doc, xRect, xCol);
                 }
             }
         }
 
-        if (isSelected && hasKeyboardFocus()) {
-            theme::paintFocusRing(ctx, tabScreenRect, 0.0f);
+        if (barEnabled && isSelected && hasKeyboardFocus()) {
+            float focusRadius = (style_ == TabBarStyle::Pill || style_ == TabBarStyle::Segmented)
+                                    ? theme::Metrics::CornerRadiusControl * scale
+                                    : 0.0f;
+            paintFocusRing(ctx, tabScreenRect, focusRadius);
         }
     }
 
     // Sliding Underline indicator
     if (style_ == TabBarStyle::Underline && selectedIndex_ >= 0 && indW > 0.0f) {
-        float indicatorY = rect.origin.y + rect.size.height - 2.0f;
+        float indThickness = 2.0f * scale;
+        float indicatorY = rect.origin.y + rect.size.height - indThickness;
         float screenIndX = rect.origin.x - scrollOffset_ + indX;
         ctx.drawLine(core::Point{screenIndX, indicatorY},
-                     core::Point{screenIndX + indW, indicatorY}, pal.accentDefault, 2.0f);
+                     core::Point{screenIndX + indW, indicatorY},
+                     barEnabled ? pal.accentDefault : pal.textDisabled, indThickness);
     }
 
     ctx.popClip();
@@ -921,20 +1138,24 @@ void TabBar::paint(renderer::PaintContext& ctx) {
             core::Rect addScreen{
                 core::Point{rect.origin.x + addLocal.origin.x, rect.origin.y + addLocal.origin.y},
                 addLocal.size};
-            if (hoveredAddBtn_) {
+            bool addHovered = barEnabled && hoveredAddBtn_;
+            if (addHovered) {
                 ctx.drawRect(addScreen, pal.surfaceRaised);
             }
             ctx.drawLine(
                 addScreen.origin,
                 core::Point{addScreen.origin.x, addScreen.origin.y + addScreen.size.height},
-                pal.borderSubtle, 1.0f);
+                pal.borderSubtle, theme::Metrics::BorderWidthHairline * scale);
             if (auto plusDoc = getSvgDocument(IconId::Plus)) {
-                float pSize = 14.0f;
+                float pSize = 14.0f * scale;
                 core::Rect pRect{
                     core::Point{addScreen.origin.x + (addScreen.size.width - pSize) * 0.5f,
                                 addScreen.origin.y + (addScreen.size.height - pSize) * 0.5f},
                     core::Size{pSize, pSize}};
-                ctx.drawSvg(*plusDoc, pRect, hoveredAddBtn_ ? pal.textPrimary : pal.textSecondary);
+                core::Color plusCol = !barEnabled
+                                          ? pal.textDisabled
+                                          : (addHovered ? pal.textPrimary : pal.textSecondary);
+                ctx.drawSvg(*plusDoc, pRect, plusCol);
             }
         }
     }
@@ -1008,8 +1229,25 @@ int TabView::addTab(std::string title, std::shared_ptr<renderer::SvgDocument> ic
 }
 
 void TabView::insertTab(int index, std::string title, std::unique_ptr<Widget> page, bool closable) {
+    insertTabImpl(index, std::move(title), std::shared_ptr<renderer::SvgDocument>{},
+                  std::move(page), closable);
+}
+
+void TabView::insertTab(int index, std::string title, IconId iconId, std::unique_ptr<Widget> page,
+                        bool closable) {
+    insertTabImpl(index, std::move(title), getSvgDocument(iconId), std::move(page), closable);
+}
+
+void TabView::insertTab(int index, std::string title, std::shared_ptr<renderer::SvgDocument> icon,
+                        std::unique_ptr<Widget> page, bool closable) {
+    insertTabImpl(index, std::move(title), std::move(icon), std::move(page), closable);
+}
+
+void TabView::insertTabImpl(int index, std::string title,
+                            std::shared_ptr<renderer::SvgDocument> icon,
+                            std::unique_ptr<Widget> page, bool closable) {
     int clamped = std::clamp(index, 0, static_cast<int>(pages_.size()));
-    tabBar_->insertTab(clamped, std::move(title), closable);
+    tabBar_->insertTab(clamped, std::move(title), std::move(icon), closable);
     if (page) {
         page->style().width = layout::Length::percent(100.0f);
         page->style().height = layout::Length::percent(100.0f);
@@ -1078,7 +1316,18 @@ void TabView::setAddButtonVisible(bool visible) noexcept {
     tabBar_->setAddButtonVisible(visible);
 }
 
+void TabView::setFont(std::shared_ptr<text::Font> font) {
+    if (tabBar_) {
+        tabBar_->setFont(std::move(font));
+    }
+}
+
 void TabView::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void TabView::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
@@ -1087,6 +1336,16 @@ void TabView::setDpiScale(float scale) {
             tabBar_->setTabHeight(34.0f * clamped);
         }
     }
+}
+
+void TabView::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void TabView::onThemeChanged() {
+    markPaintDirty();
 }
 
 void TabView::updatePageVisibility() {

@@ -14,11 +14,13 @@ namespace northern::widgets {
 
 class Tooltip : public Widget {
 public:
-    Tooltip() = default;
+    Tooltip();
     explicit Tooltip(std::string text, std::string shortcut = {},
                      std::shared_ptr<text::Font> font = nullptr, std::string description = {});
 
     void setContent(std::string text, std::string shortcut = {}, std::string description = {});
+    void setText(std::string text);
+    void setShortcut(std::string shortcut);
     void setDescription(std::string description);
     [[nodiscard]] const std::string& text() const noexcept { return text_; }
     [[nodiscard]] const std::string& shortcut() const noexcept { return shortcut_; }
@@ -58,11 +60,16 @@ public:
 
     [[nodiscard]] core::Size preferredSize() const;
 
+    void onContextAttached() override;
+    void onThemeChanged() override;
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    void applyDpiScale(float scale);
     void invalidateLayoutCache() noexcept;
     void ensureLayouts() const;
+    void drawShortcutBadge(renderer::PaintContext& ctx, float badgeX, float badgeY, float scale,
+                           float borderW, float outerRadius) const;
 
     std::string text_{};
     std::string shortcut_{};
@@ -73,6 +80,7 @@ private:
     mutable std::shared_ptr<text::Font> resolvedShortcutFont_{nullptr};
 
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
     float maxWidth_{280.0f};
     float alpha_{1.0f};
 

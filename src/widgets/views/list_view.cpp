@@ -51,9 +51,41 @@ void ListView::setDelegate(std::unique_ptr<ItemDelegate> delegate) {
 
 void ListView::setRowHeight(float height) noexcept {
     float h = std::max(12.0f, height);
+    baseRowHeight_ = h / dpiScale_;
     if (rowHeight_ != h) {
         rowHeight_ = h;
         clampScrollOffset();
+        markPaintDirty();
+    }
+}
+
+void ListView::setListStyle(ListStyle style) noexcept {
+    if (listStyle_ != style) {
+        listStyle_ = style;
+        if (style == ListStyle::Plain) {
+            showBorder_ = true;
+            alternatingRowColors_ = true;
+        } else if (style == ListStyle::Inset) {
+            showBorder_ = true;
+            alternatingRowColors_ = false;
+        } else {
+            showBorder_ = false;
+            alternatingRowColors_ = false;
+        }
+        markPaintDirty();
+    }
+}
+
+void ListView::setShowBorder(bool show) noexcept {
+    if (showBorder_ != show) {
+        showBorder_ = show;
+        markPaintDirty();
+    }
+}
+
+void ListView::setAlternatingRowColors(bool alternate) noexcept {
+    if (alternatingRowColors_ != alternate) {
+        alternatingRowColors_ = alternate;
         markPaintDirty();
     }
 }
@@ -78,15 +110,47 @@ std::shared_ptr<text::Font> ListView::effectiveFont() const {
 }
 
 void ListView::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void ListView::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
         resolvedDefaultFont_.reset();
-        rowHeight_ = kDefaultRowHeight * dpiScale_;
+        rowHeight_ = std::max(12.0f, baseRowHeight_ * dpiScale_);
         scrollbarThickness_ = 6.0f * dpiScale_;
         clampScrollOffset();
         markPaintDirty();
     }
+}
+
+void ListView::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void ListView::onThemeChanged() {
+    resolvedDefaultFont_.reset();
+    markPaintDirty();
+}
+
+void ListView::onEnabledChanged() {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+    }
+    markPaintDirty();
+}
+
+void ListView::onFocusGained() {
+    markPaintDirty();
+}
+
+void ListView::onFocusLost() {
+    cancelActiveInteraction();
+    markPaintDirty();
 }
 
 void ListView::scrollTo(int row) {
@@ -155,9 +219,9 @@ core::Rect ListView::verticalThumbRect() const noexcept {
         return {};
     }
 
-    float thumbH = std::max(20.0f, viewH * (viewH / totalH));
+    float thumbH = std::max(20.0f * dpiScale_, viewH * (viewH / totalH));
     float thumbY = (scrollOffsetY_ / maxScroll) * (viewH - thumbH);
-    float thumbX = layoutRect().size.width - scrollbarThickness_ - 2.0f;
+    float thumbX = layoutRect().size.width - scrollbarThickness_ - 2.0f * dpiScale_;
 
     return core::Rect{core::Point{thumbX, thumbY}, {scrollbarThickness_, thumbH}};
 }
@@ -174,7 +238,9 @@ void ListView::paint(renderer::PaintContext& ctx) {
 
     const auto& pal = colorPalette();
     ctx.pushClip(sRect);
-    ctx.drawRect(sRect, pal.surfaceCanvas);
+    if (listStyle_ != ListStyle::Sidebar) {
+        ctx.drawRect(sRect, pal.surfaceCanvas);
+    }
 
     if (model_ && rowHeight_ > 0.0f) {
         int count = model_->rowCount();
@@ -194,14 +260,27 @@ void ListView::paint(renderer::PaintContext& ctx) {
                 opt.bounds = rBounds;
                 opt.isSelected = selectionModel_.isSelected(idx);
                 opt.isHovered = (r == hoveredRow_);
-                opt.isAlternate = (r % 2 == 1);
+                opt.isAlternate = alternatingRowColors_ && (r % 2 == 1);
                 opt.hasFocus = (hasKeyboardFocus() && selectionModel_.currentIndex() == idx);
                 opt.text = model_->data(idx, ItemDataRole::Display);
                 opt.font = f;
                 opt.dpiScale = dpiScale_;
+                opt.palette = &pal;
                 opt.textColor = opt.isSelected
                                     ? pal.textPrimary
                                     : (opt.isHovered ? pal.textPrimary : pal.textSecondary);
+                if (listStyle_ != ListStyle::Plain) {
+                    opt.rowInsetX = 6.0f * dpiScale_;
+                    opt.rowInsetY = 2.0f * dpiScale_;
+                    opt.cornerRadius = theme::Metrics::CornerRadiusControl * dpiScale_;
+                    opt.paddingLeft = 14.0f * dpiScale_;
+                    opt.paddingRight = 14.0f * dpiScale_;
+                }
+                if (listStyle_ == ListStyle::Inset && r + 1 < count) {
+                    bool nextHighlighted = selectionModel_.isSelected(model_->index(r + 1, 0)) ||
+                                           (r + 1 == hoveredRow_);
+                    opt.drawSeparator = !nextHighlighted;
+                }
 
                 // Optional roles from model
                 std::string checkVal = model_->data(idx, ItemDataRole::CheckState);
@@ -227,20 +306,44 @@ void ListView::paint(renderer::PaintContext& ctx) {
         core::Rect screenThumb{
             core::Point{sRect.origin.x + localThumb.origin.x, sRect.origin.y + localThumb.origin.y},
             localThumb.size};
-        core::Color thumbCol =
-            isDraggingThumb_
-                ? pal.textSecondary
-                : (isHoveringThumb_ ? pal.textTertiary : core::Color{1.0f, 1.0f, 1.0f, 0.20f});
+        core::Color restThumbCol = pal.mode == theme::ThemeMode::Dark
+                                       ? core::Color{1.0f, 1.0f, 1.0f, 0.20f}
+                                       : core::Color{0.0f, 0.0f, 0.0f, 0.20f};
+        core::Color thumbCol = isDraggingThumb_
+                                   ? pal.textSecondary
+                                   : (isHoveringThumb_ ? pal.textTertiary : restThumbCol);
         float r[4] = {scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f,
                       scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f};
         ctx.drawRoundedRect(screenThumb, thumbCol, r);
     }
 
-    ctx.drawBorder(sRect, pal.borderSubtle, 1.0f);
+    if (showBorder_) {
+        ctx.drawBorder(sRect, pal.borderSubtle, std::max(1.0f, std::round(1.0f * dpiScale_)));
+    }
     ctx.popClip();
+
+    if (hasKeyboardFocus() && isEnabled()) {
+        Widget::paintFocusRing(ctx, sRect, 0.0f);
+    }
+}
+
+void ListView::cancelActiveInteraction() {
+    if (context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    bool wasActive = isDraggingThumb_ || isHoveringThumb_ || hoveredRow_ >= 0;
+    isDraggingThumb_ = false;
+    isHoveringThumb_ = false;
+    hoveredRow_ = -1;
+    if (wasActive) {
+        markPaintDirty();
+    }
 }
 
 void ListView::onMouseMove(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        return;
+    }
     if (isDraggingThumb_) {
         float maxScroll = maxScrollOffset();
         float viewH = layoutRect().size.height;
@@ -274,7 +377,10 @@ void ListView::onMouseMove(WidgetMouseEvent& ev) {
 }
 
 void ListView::onMouseDown(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left) {
+    if (!isEnabled()) {
+        return;
+    }
+    if (ev.isPrimaryButton()) {
         core::Rect thumb = verticalThumbRect();
         if (maxScrollOffset() > 0.0f) {
             float trackX = layoutRect().size.width - scrollbarThickness_ - 6.0f;
@@ -329,7 +435,11 @@ void ListView::onMouseDown(WidgetMouseEvent& ev) {
 }
 
 void ListView::onMouseUp(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left && isDraggingThumb_) {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+        return;
+    }
+    if (ev.isPrimaryButton() && isDraggingThumb_) {
         isDraggingThumb_ = false;
         if (context_) {
             context_->releaseMouseGrab();
@@ -340,6 +450,9 @@ void ListView::onMouseUp(WidgetMouseEvent& ev) {
 }
 
 void ListView::onMouseWheel(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        return;
+    }
     if (maxScrollOffset() > 0.0f) {
         scrollBy(-ev.wheelDelta().y * 24.0f);
         ev.accept();
@@ -355,7 +468,7 @@ void ListView::onMouseLeave() {
 }
 
 void ListView::onKeyDown(WidgetKeyEvent& ev) {
-    if (!model_ || model_->rowCount() == 0) {
+    if (!isEnabled() || !ev.isDown() || !model_ || model_->rowCount() == 0) {
         return;
     }
 

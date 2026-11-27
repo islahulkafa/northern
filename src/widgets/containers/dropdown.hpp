@@ -117,6 +117,9 @@ public:
     void navigateHighlight(int delta);
     void confirmHighlight();
 
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
     void onMouseEnter() override;
     void onMouseLeave() override;
     void onMouseDown(WidgetMouseEvent& ev) override;
@@ -142,6 +145,7 @@ public:
     [[nodiscard]] Widget* activePopup() const noexcept { return activePopup_; }
 
 private:
+    void applyDpiMetrics(float scale);
     void invalidateTextLayouts();
     void updateDimensions() noexcept;
     [[nodiscard]] int findNextSelectable(int start, int delta) const noexcept;
@@ -156,6 +160,7 @@ private:
 
     DropdownSize size_{DropdownSize::Standard};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
     size_t maxVisibleItems_{6};
 
     bool isOpen_{false};

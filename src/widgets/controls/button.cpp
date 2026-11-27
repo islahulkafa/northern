@@ -97,6 +97,11 @@ void Button::setSize(ButtonSize size) noexcept {
 }
 
 void Button::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void Button::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
@@ -106,6 +111,8 @@ void Button::setDpiScale(float scale) {
         applyVariantStyle();
         markLayoutDirty();
         markPaintDirty();
+    } else {
+        updateTargetColors(false);
     }
 }
 
@@ -113,12 +120,16 @@ void Button::setLoading(bool loading) noexcept {
     if (isLoading_ != loading) {
         isLoading_ = loading;
         if (isLoading_) {
+            cancelActiveInteraction();
+            setCursorShape(platform::CursorShape::Arrow);
             spinnerAnim_.start(0.0f, 1.0f, 0.8f, core::animation::EasingCurve::Linear);
             if (context_) {
                 context_->registerAnimatedWidget(this);
             }
         } else {
             spinnerAnim_.stop();
+            setCursorShape(isEnabled() ? platform::CursorShape::PointingHand
+                                       : platform::CursorShape::Arrow);
         }
         markLayoutDirty();
         markPaintDirty();
@@ -142,26 +153,26 @@ void Button::applySizeMetrics() noexcept {
     float h = theme::Metrics::ControlHeightStandard * scale;
     float padH = 12.0f * scale;
     float defIcon = 16.0f * scale;
-    float radius = theme::Metrics::CornerRadiusControl * scale;
+    float radius = theme::Metrics::CornerRadiusCard * scale;
 
     switch (size_) {
     case ButtonSize::Compact:
         h = theme::Metrics::ControlHeightCompact * scale;
         padH = 8.0f * scale;
         defIcon = 14.0f * scale;
-        radius = 4.0f * scale;
+        radius = theme::Metrics::CornerRadiusControl * scale;
         break;
     case ButtonSize::Standard:
         h = theme::Metrics::ControlHeightStandard * scale;
         padH = 12.0f * scale;
         defIcon = 16.0f * scale;
-        radius = theme::Metrics::CornerRadiusControl * scale;
+        radius = theme::Metrics::CornerRadiusCard * scale;
         break;
     case ButtonSize::Comfortable:
         h = theme::Metrics::ControlHeightComfortable * scale;
         padH = 16.0f * scale;
         defIcon = 18.0f * scale;
-        radius = theme::Metrics::CornerRadiusControl * scale;
+        radius = 9.0f * scale;
         break;
     }
 
@@ -515,9 +526,31 @@ void Button::updateTargetColors(bool animated) {
     markPaintDirty();
 }
 
+void Button::cancelActiveInteraction() {
+    if (isPressed_ && context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    isPressed_ = false;
+    isHovered_ = false;
+    pressScaleAnim_.stop();
+    pressScaleAnim_.setCurrentValue(1.0f);
+    updateTargetColors(false);
+}
+
 void Button::updateAnimations(float deltaSeconds) {
-    bgAnim_.update(deltaSeconds);
-    borderAnim_.update(deltaSeconds);
+    bool changed = false;
+    if (bgAnim_.isRunning()) {
+        bgAnim_.update(deltaSeconds);
+        changed = true;
+    }
+    if (borderAnim_.isRunning()) {
+        borderAnim_.update(deltaSeconds);
+        changed = true;
+    }
+    if (pressScaleAnim_.isRunning()) {
+        pressScaleAnim_.update(deltaSeconds);
+        changed = true;
+    }
     if (isLoading_) {
         spinnerAnim_.update(deltaSeconds);
         if (!spinnerAnim_.isRunning()) {
@@ -526,12 +559,15 @@ void Button::updateAnimations(float deltaSeconds) {
         if (context_) {
             context_->registerAnimatedWidget(this);
         }
+        changed = true;
+    }
+    if (changed) {
         markPaintDirty();
     }
 }
 
 bool Button::hasActiveAnimations() const noexcept {
-    return bgAnim_.isRunning() || borderAnim_.isRunning() ||
+    return bgAnim_.isRunning() || borderAnim_.isRunning() || pressScaleAnim_.isRunning() ||
            (isLoading_ && spinnerAnim_.isRunning());
 }
 
@@ -548,6 +584,17 @@ void Button::onMouseLeave() {
         return;
     }
     isHovered_ = false;
+    if (isPressed_) {
+        isPressed_ = false;
+        if (context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
+        pressScaleAnim_.startSpring(pressScaleAnim_.currentValue(), 1.0f,
+                                    core::animation::SpringConfig::Snappy());
+        if (context_) {
+            context_->registerAnimatedWidget(this);
+        }
+    }
     updateTargetColors(true);
 }
 
@@ -571,9 +618,20 @@ void Button::onMouseDown(WidgetMouseEvent& ev) {
     if (!isEnabled() || isLoading_) {
         return;
     }
-    if (ev.button() == platform::MouseButton::Left) {
+    if (ev.isPrimaryButton()) {
         isPressed_ = true;
         isHovered_ = true;
+        if (context_) {
+            context_->setMouseGrabWidget(this);
+        }
+        if (isFocusable()) {
+            setFocus(FocusReason::Pointer);
+        }
+        pressScaleAnim_.startSpring(pressScaleAnim_.currentValue(), 0.97f,
+                                    core::animation::SpringConfig::Snappy());
+        if (context_) {
+            context_->registerAnimatedWidget(this);
+        }
         ev.accept();
         updateTargetColors(true);
     }
@@ -583,11 +641,20 @@ void Button::onMouseUp(WidgetMouseEvent& ev) {
     if (!isEnabled() || isLoading_) {
         return;
     }
-    if (ev.button() == platform::MouseButton::Left && isPressed_) {
+    if (ev.isPrimaryButton() && isPressed_) {
         core::Rect rect = layoutRect();
         bool inside = ev.position().x >= 0.0f && ev.position().x <= rect.size.width &&
                       ev.position().y >= 0.0f && ev.position().y <= rect.size.height;
+        if (context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
         isPressed_ = false;
+        isHovered_ = inside;
+        pressScaleAnim_.startSpring(pressScaleAnim_.currentValue(), 1.0f,
+                                    core::animation::SpringConfig::Snappy());
+        if (context_) {
+            context_->registerAnimatedWidget(this);
+        }
         ev.accept();
         updateTargetColors(true);
         if (inside) {
@@ -597,7 +664,7 @@ void Button::onMouseUp(WidgetMouseEvent& ev) {
 }
 
 void Button::onKeyDown(WidgetKeyEvent& ev) {
-    if (!isEnabled() || isLoading_) {
+    if (!isEnabled() || isLoading_ || !ev.isDown()) {
         return;
     }
     if (ev.key() == platform::Key::Space || ev.key() == platform::Key::Enter) {
@@ -606,10 +673,56 @@ void Button::onKeyDown(WidgetKeyEvent& ev) {
     }
 }
 
+void Button::onFocusGained() {
+    markPaintDirty();
+}
+
+void Button::onFocusLost() {
+    cancelActiveInteraction();
+    markPaintDirty();
+}
+
+void Button::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    } else {
+        updateTargetColors(false);
+    }
+}
+
+void Button::onThemeChanged() {
+    isTextLayoutDirty_ = true;
+    updateTargetColors(false);
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+void Button::onEnabledChanged() {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+        setCursorShape(platform::CursorShape::Arrow);
+    } else {
+        setCursorShape(isLoading_ ? platform::CursorShape::Arrow
+                                  : platform::CursorShape::PointingHand);
+        updateTargetColors(false);
+    }
+    markPaintDirty();
+}
+
 void Button::paint(renderer::PaintContext& ctx) {
     core::Rect rect = screenRect();
     if (rect.size.width <= 0.0f || rect.size.height <= 0.0f) {
         return;
+    }
+
+    float scale = pressScaleAnim_.currentValue();
+    if (std::abs(scale - 1.0f) > 0.0005f) {
+        float dw = rect.size.width * (1.0f - scale);
+        float dh = rect.size.height * (1.0f - scale);
+        rect.origin.x += dw * 0.5f;
+        rect.origin.y += dh * 0.5f;
+        rect.size.width -= dw;
+        rect.size.height -= dh;
     }
 
     ButtonState st = state();
@@ -640,7 +753,7 @@ void Button::paint(renderer::PaintContext& ctx) {
     ctx.drawBox(rect, bg, border, borderWidth_, cornerRadii_);
 
     if (hasKeyboardFocus() && isEnabled()) {
-        theme::paintFocusRing(ctx, rect, cornerRadii_[0]);
+        paintFocusRing(ctx, rect, cornerRadii_[0]);
     }
 
     auto f = effectiveFont();

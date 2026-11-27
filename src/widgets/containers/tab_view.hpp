@@ -18,7 +18,7 @@ namespace northern::widgets {
 
 class Container;
 
-enum class TabBarStyle : uint8_t { Underline, Pill, EditorCard };
+enum class TabBarStyle : uint8_t { Underline, Pill, EditorCard, Segmented };
 
 struct TabItem {
     std::string title{};
@@ -30,6 +30,7 @@ struct TabItem {
     core::Rect closeBtnRect{};
     mutable std::optional<text::TextLayout> cachedLayout{};
     mutable float cachedTextWidth{0.0f};
+    core::animation::PropertyAnimation<float> hoverAnim{0.0f};
 };
 
 class TabBar : public Widget {
@@ -128,6 +129,9 @@ public:
     void onKeyDown(WidgetKeyEvent& ev) override;
     void onFocusGained() override;
     void onFocusLost() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
     void updateAnimations(float deltaSeconds) override;
     [[nodiscard]] bool hasActiveAnimations() const noexcept override;
@@ -135,6 +139,8 @@ public:
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
     void updateMeasure();
     void ensureTabsLayout() const;
     void startIndicatorAnimation(int targetIndex, bool animated);
@@ -142,6 +148,7 @@ private:
     [[nodiscard]] int tabIndexAt(const core::Point& localPos) const noexcept;
     [[nodiscard]] bool isCloseBtnHit(int tabIndex, const core::Point& localPos) const noexcept;
     [[nodiscard]] int findNextEnabledTab(int startIndex, int delta) const noexcept;
+    [[nodiscard]] int findNearestEnabledTab(int fromIndex) const noexcept;
     [[nodiscard]] int findFirstEnabledTab() const noexcept;
     [[nodiscard]] int findLastEnabledTab() const noexcept;
 
@@ -159,6 +166,8 @@ private:
     std::shared_ptr<text::Font> font_{nullptr};
     mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
+    bool hasCustomTabHeight_{false};
     float tabHeight_{32.0f};
     float tabPaddingX_{12.0f};
     float minTabWidth_{64.0f};
@@ -175,9 +184,8 @@ private:
     float dragCurrentX_{0.0f};
 
     // Animations
-    core::animation::PropertyAnimation<float> indicatorXAnim_{0.0f};
-    core::animation::PropertyAnimation<float> indicatorWAnim_{0.0f};
-    core::animation::PropertyAnimation<float> hoverAnim_{0.0f};
+    mutable core::animation::PropertyAnimation<float> indicatorXAnim_{0.0f};
+    mutable core::animation::PropertyAnimation<float> indicatorWAnim_{0.0f};
 };
 
 class TabView : public Widget {
@@ -193,6 +201,10 @@ public:
 
     void insertTab(int index, std::string title, std::unique_ptr<Widget> page,
                    bool closable = false);
+    void insertTab(int index, std::string title, IconId iconId, std::unique_ptr<Widget> page,
+                   bool closable = false);
+    void insertTab(int index, std::string title, std::shared_ptr<renderer::SvgDocument> icon,
+                   std::unique_ptr<Widget> page, bool closable = false);
     void removeTab(int index);
     void moveTab(int fromIndex, int toIndex);
 
@@ -206,11 +218,15 @@ public:
     void setTabBarStyle(TabBarStyle style) noexcept;
     void setReorderable(bool reorderable) noexcept;
     void setAddButtonVisible(bool visible) noexcept;
+    void setFont(std::shared_ptr<text::Font> font);
     void setDpiScale(float scale);
     [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
 
     [[nodiscard]] TabBar* tabBar() noexcept { return tabBar_; }
     [[nodiscard]] const TabBar* tabBar() const noexcept { return tabBar_; }
+
+    void onContextAttached() override;
+    void onThemeChanged() override;
 
     core::Signal<int> onTabChanged;
     core::Signal<int> onTabClosed;
@@ -218,12 +234,16 @@ public:
     core::Signal<> onTabAddRequested;
 
 private:
+    void applyDpiScale(float scale);
+    void insertTabImpl(int index, std::string title, std::shared_ptr<renderer::SvgDocument> icon,
+                       std::unique_ptr<Widget> page, bool closable);
     void updatePageVisibility();
 
     TabBar* tabBar_{nullptr};
     Container* deck_{nullptr};
     std::vector<Widget*> pages_{};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
 };
 
 } // namespace northern::widgets

@@ -1,8 +1,10 @@
+#include "widgets/base/theme.hpp"
+#include "widgets/base/widget_context.hpp"
 #include "widgets/containers/accordion.hpp"
 #include "widgets/containers/container.hpp"
 #include "widgets/controls/label.hpp"
-#include "widgets/base/widget_context.hpp"
 #include <gtest/gtest.h>
+#include <variant>
 
 using namespace northern;
 using namespace northern::widgets;
@@ -68,38 +70,46 @@ TEST(CollapsibleSectionTest, MouseAndKeyboardToggle) {
 
 TEST(CollapsibleSectionTest, AnimatedExpansion) {
     CollapsibleSection sec("Animated", false);
-    sec.setContent(std::make_unique<Label>("Item"));
+    auto* row = sec.addRow("Item");
 
     sec.setExpanded(true, true);
     EXPECT_TRUE(sec.isExpanded());
     EXPECT_TRUE(sec.hasActiveAnimations());
     EXPECT_TRUE(sec.body()->isVisible());
+    EXPECT_TRUE(sec.body()->clipsChildren());
+    EXPECT_FLOAT_EQ(row->style().flexShrink, 0.0f);
+
+    // Mid-animation: child row retains full 36px height without squishing
+    sec.updateAnimations(0.12f);
+    sec.layoutNode().computeLayout(320.0f, 300.0f);
+    EXPECT_TRUE(sec.hasActiveAnimations());
+    EXPECT_FLOAT_EQ(row->layoutRect().size.height, 36.0f);
 
     // Advance animation past 0.25s duration
-    sec.updateAnimations(0.3f);
+    sec.updateAnimations(0.2f);
     EXPECT_FALSE(sec.hasActiveAnimations());
 }
 
 TEST(CollapsibleSectionTest, SizeMetricsAndHeaderSizes) {
     CollapsibleSection secStd("Standard Section", true, nullptr, SectionHeaderSize::Standard);
     EXPECT_EQ(secStd.headerSize(), SectionHeaderSize::Standard);
-    EXPECT_FLOAT_EQ(secStd.headerHeight(), 32.0f);
+    EXPECT_FLOAT_EQ(secStd.headerHeight(), 38.0f);
 
     secStd.setHeaderSize(SectionHeaderSize::Compact);
     EXPECT_EQ(secStd.headerSize(), SectionHeaderSize::Compact);
-    EXPECT_FLOAT_EQ(secStd.headerHeight(), 28.0f);
+    EXPECT_FLOAT_EQ(secStd.headerHeight(), 30.0f);
 
     CollapsibleSection secCompact("Compact Section", false, nullptr, SectionHeaderSize::Compact);
     EXPECT_EQ(secCompact.headerSize(), SectionHeaderSize::Compact);
-    EXPECT_FLOAT_EQ(secCompact.headerHeight(), 28.0f);
+    EXPECT_FLOAT_EQ(secCompact.headerHeight(), 30.0f);
 }
 
 TEST(CollapsibleSectionTest, IndicatorPlacementAndRotation) {
-    CollapsibleSection sec("Leading Section", false);
-    EXPECT_EQ(sec.indicatorPlacement(), IndicatorPlacement::Leading);
-
-    sec.setIndicatorPlacement(IndicatorPlacement::Trailing);
+    CollapsibleSection sec("Trailing Section", false);
     EXPECT_EQ(sec.indicatorPlacement(), IndicatorPlacement::Trailing);
+
+    sec.setIndicatorPlacement(IndicatorPlacement::Leading);
+    EXPECT_EQ(sec.indicatorPlacement(), IndicatorPlacement::Leading);
 
     renderer::PaintContext pctx;
     sec.layoutNode().computeLayout(300.0f, 100.0f);
@@ -124,12 +134,35 @@ TEST(CollapsibleSectionTest, HeaderAccessoryManagement) {
 
 TEST(CollapsibleSectionTest, ContentPadding) {
     CollapsibleSection sec("Padded Section", true);
-    EXPECT_FLOAT_EQ(sec.contentPadding().left.value, 8.0f);
-    EXPECT_FLOAT_EQ(sec.contentPadding().top.value, 4.0f);
+    EXPECT_FLOAT_EQ(sec.contentPadding().left.value, 20.0f);
+    EXPECT_FLOAT_EQ(sec.contentPadding().top.value, 2.0f);
 
     sec.setContentPadding(layout::RectLength::all(layout::Length::points(12.0f)));
     EXPECT_FLOAT_EQ(sec.contentPadding().left.value, 12.0f);
     EXPECT_FLOAT_EQ(sec.body()->style().padding.left.value, 12.0f);
+}
+
+TEST(CollapsibleSectionTest, DisclosureGroupRowsDividersAndDpi) {
+    DisclosureGroup group("Display", true);
+    group.setDpiScale(1.5f);
+    group.setShowRowDividers(true);
+    group.setCardStyled(true);
+
+    EXPECT_FLOAT_EQ(group.dpiScale(), 1.5f);
+    EXPECT_TRUE(group.showRowDividers());
+    EXPECT_TRUE(group.isCardStyled());
+    EXPECT_NE(group.effectiveFont(), nullptr);
+
+    auto* row1 = group.addRow("Foo");
+    auto* row2 = group.addRow("Bar");
+    EXPECT_NE(row1, nullptr);
+    EXPECT_NE(row2, nullptr);
+    EXPECT_EQ(group.body()->childCount(), 2u);
+
+    renderer::PaintContext pctx;
+    group.layoutNode().computeLayout(360.0f, 300.0f);
+    group.paint(pctx);
+    EXPECT_FALSE(pctx.commands().empty());
 }
 
 TEST(AccordionTest, AddAndRemoveSections) {
@@ -260,4 +293,167 @@ TEST(AccordionTest, HeaderSizePropagation) {
     auto s2 = std::make_unique<CollapsibleSection>("S2", false);
     CollapsibleSection* raw2 = acc.addSection(std::move(s2));
     EXPECT_EQ(raw2->headerSize(), SectionHeaderSize::Compact);
+}
+
+TEST(AccordionTest, StylesAndDpiPropagation) {
+    Accordion acc;
+    EXPECT_EQ(acc.accordionStyle(), AccordionStyle::Grouped);
+
+    auto* s1 = acc.addSection("Header", nullptr, true);
+    auto* s2 = acc.addSection("Second", nullptr, false);
+    acc.setDpiScale(1.25f);
+
+    EXPECT_FLOAT_EQ(acc.dpiScale(), 1.25f);
+    EXPECT_FLOAT_EQ(s1->dpiScale(), 1.25f);
+    EXPECT_FLOAT_EQ(s2->dpiScale(), 1.25f);
+
+    acc.setAccordionStyle(AccordionStyle::Separated);
+    EXPECT_EQ(acc.accordionStyle(), AccordionStyle::Separated);
+
+    acc.setAccordionStyle(AccordionStyle::Flush);
+    EXPECT_EQ(acc.accordionStyle(), AccordionStyle::Flush);
+}
+
+TEST(CollapsibleSectionTest, DisabledIgnoresInteractionAndSuppressesHoverPill) {
+    WidgetContext ctx;
+    auto sec = std::make_unique<CollapsibleSection>("Disabled Section", false);
+    auto* secPtr = sec.get();
+    ctx.setRootWidget(std::move(sec));
+
+    renderer::PaintContext initPaint;
+    ctx.render(initPaint, {320.0f, 120.0f});
+
+    platform::MouseEvent moveEv{};
+    moveEv.type = platform::MouseEventType::Move;
+    moveEv.physicalPosition = {24.0f, 16.0f};
+    moveEv.position = moveEv.physicalPosition;
+    ctx.handleMouseMove(moveEv);
+    EXPECT_TRUE(secPtr->isHovered());
+
+    platform::MouseEvent downEv{};
+    downEv.type = platform::MouseEventType::ButtonDown;
+    downEv.button = platform::MouseButton::Left;
+    downEv.physicalPosition = {24.0f, 16.0f};
+    downEv.position = downEv.physicalPosition;
+    ctx.handleMouseDown(downEv);
+
+    secPtr->setEnabled(false);
+    EXPECT_FALSE(secPtr->isHovered());
+
+    platform::MouseEvent upEv{};
+    upEv.type = platform::MouseEventType::ButtonUp;
+    upEv.button = platform::MouseButton::Left;
+    upEv.physicalPosition = {24.0f, 16.0f};
+    upEv.position = upEv.physicalPosition;
+    ctx.handleMouseUp(upEv);
+    EXPECT_FALSE(secPtr->isExpanded());
+
+    WidgetKeyEvent spaceEv{platform::Key::Space, true, platform::KeyModifier::None};
+    secPtr->onKeyDown(spaceEv);
+    EXPECT_FALSE(spaceEv.isAccepted());
+    EXPECT_FALSE(secPtr->isExpanded());
+
+    // Hover moves while disabled must not mark hovered or draw a hover pill
+    ctx.handleMouseMove(moveEv);
+    renderer::PaintContext disabledPaint;
+    secPtr->paint(disabledPaint);
+    int boxCount = 0;
+    for (const auto& cmd : disabledPaint.commands()) {
+        if (std::holds_alternative<renderer::DrawBoxCommand>(cmd)) {
+            ++boxCount;
+        }
+    }
+    EXPECT_EQ(boxCount, 0);
+}
+
+TEST(CollapsibleSectionTest, ContextAttachmentSyncsDpiAndAccessoryLayoutWithoutPaint) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+
+    auto sec = std::make_unique<CollapsibleSection>("Network", false);
+    auto* secPtr = sec.get();
+    auto badge = std::make_unique<Label>("4");
+    auto* badgePtr = secPtr->setHeaderAccessory(std::move(badge));
+
+    // Positioned immediately when attached/set without requiring paint() first
+    float initialRight = badgePtr->style().position.right.value;
+    EXPECT_GT(initialRight, 0.0f);
+
+    ctx.setRootWidget(std::move(sec));
+    EXPECT_FLOAT_EQ(secPtr->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(secPtr->headerHeight(), 38.0f * 1.5f);
+    EXPECT_GT(badgePtr->style().position.right.value, initialRight);
+
+    renderer::PaintContext pctx;
+    ctx.render(pctx, {320.0f, 160.0f});
+    core::Rect badgeRect = badgePtr->screenRect();
+    EXPECT_GE(badgeRect.origin.y, 0.0f);
+    EXPECT_LE(badgeRect.origin.y + badgeRect.size.height, secPtr->headerHeight());
+}
+
+TEST(AccordionTest, FlushDividersAndVisibleTrailingSectionGuard) {
+    auto acc =
+        std::make_unique<Accordion>(false, SectionHeaderSize::Standard, AccordionStyle::Flush);
+    auto* s1 = acc->addSection("First", nullptr, false);
+    auto* s2 = acc->addSection("Second", nullptr, false);
+    auto* s3 = acc->addSection("Third", nullptr, false);
+    (void)s1;
+    (void)s2;
+
+    acc->layoutNode().computeLayout(320.0f, 200.0f);
+    renderer::PaintContext flushAllPaint;
+    acc->paint(flushAllPaint);
+
+    int flushLineCount = 0;
+    for (const auto& cmd : flushAllPaint.commands()) {
+        if (std::holds_alternative<renderer::DrawLineCommand>(cmd)) {
+            ++flushLineCount;
+        }
+    }
+    EXPECT_EQ(flushLineCount, 2);
+
+    // Hiding the trailing section leaves only one divider between S1 and S2
+    s3->setVisible(false);
+    acc->layoutNode().computeLayout(320.0f, 200.0f);
+    renderer::PaintContext flushHiddenPaint;
+    acc->paint(flushHiddenPaint);
+
+    int hiddenLineCount = 0;
+    for (const auto& cmd : flushHiddenPaint.commands()) {
+        if (std::holds_alternative<renderer::DrawLineCommand>(cmd)) {
+            ++hiddenLineCount;
+        }
+    }
+    EXPECT_EQ(hiddenLineCount, 1);
+
+    // Same trailing-hidden guard holds in Grouped mode
+    acc->setAccordionStyle(AccordionStyle::Grouped);
+    acc->layoutNode().computeLayout(320.0f, 200.0f);
+    renderer::PaintContext groupedHiddenPaint;
+    acc->paint(groupedHiddenPaint);
+
+    int groupedLines = 0;
+    for (const auto& cmd : groupedHiddenPaint.commands()) {
+        if (std::holds_alternative<renderer::DrawLineCommand>(cmd)) {
+            ++groupedLines;
+        }
+    }
+    EXPECT_EQ(groupedLines, 1);
+}
+
+TEST(AccordionTest, HeaderAccessoryLabelCentersVerticallyInHeader) {
+    WidgetContext ctx;
+    auto secUnique = std::make_unique<CollapsibleSection>("Graphics & Rendering", true);
+    CollapsibleSection* sec = secUnique.get();
+    auto badge = std::make_unique<Label>("v1.3", theme::TypographyStyle::Caption,
+                                         theme::TextRole::Secondary);
+    Label* badgePtr = badge.get();
+    sec->setHeaderAccessory(std::move(badge));
+
+    ctx.setRootWidget(std::move(secUnique));
+    ctx.handleResize(core::Size{400.0f, 160.0f});
+
+    EXPECT_EQ(badgePtr->verticalAlignment(), VerticalAlignment::Center);
+    EXPECT_FLOAT_EQ(badgePtr->layoutRect().origin.y, 0.0f);
+    EXPECT_FLOAT_EQ(badgePtr->layoutRect().size.height, sec->headerHeight());
 }

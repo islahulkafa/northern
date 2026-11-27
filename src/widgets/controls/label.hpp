@@ -65,9 +65,14 @@ public:
 
     [[nodiscard]] bool isTruncated() const noexcept;
 
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
+
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    void applyDpiScale(float scale);
     void invalidateLayoutCache() noexcept;
     void ensureUnwrappedSize(const std::shared_ptr<text::Font>& f) const;
     void ensureLayout(float maxWidth) const;
@@ -80,6 +85,7 @@ private:
     theme::TextRole role_{theme::TextRole::Primary};
     std::optional<core::Color> overrideColor_{std::nullopt};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
 
     text::TextAlignment alignment_{text::TextAlignment::Left};
     VerticalAlignment verticalAlignment_{VerticalAlignment::Center};

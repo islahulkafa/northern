@@ -57,9 +57,6 @@ public:
     void setDpiScale(float scale);
     [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
 
-    void setShowLogo(bool show) noexcept;
-    [[nodiscard]] bool showLogo() const noexcept { return showLogo_; }
-
     void setMinimizeVisible(bool visible) noexcept;
     [[nodiscard]] bool isMinimizeVisible() const noexcept { return showMinimize_; }
 
@@ -102,6 +99,9 @@ public:
     void onMouseMove(WidgetMouseEvent& ev) override;
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onMouseUp(WidgetMouseEvent& ev) override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
     core::Signal<> onMinimizeClicked;
     core::Signal<> onMaximizeClicked;
@@ -109,6 +109,9 @@ public:
 
 private:
     enum class CaptionButton { None, Minimize, Maximize, Close };
+
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
 
     [[nodiscard]] CaptionButton hitTestCaptionButton(core::Point localPos) const;
     [[nodiscard]] core::Rect captionButtonRect(CaptionButton btn) const;
@@ -127,12 +130,11 @@ private:
 
     TitleBarSize size_{TitleBarSize::Standard};
     float dpiScale_{1.0f};
-    bool showLogo_{true};
+    bool hasCustomDpiScale_{false};
     bool showMinimize_{true};
     bool showMaximize_{true};
     bool showClose_{true};
 
-    std::unique_ptr<Icon> appLogo_;
     std::unique_ptr<Icon> minIcon_;
     std::unique_ptr<Icon> maxIcon_;
     std::unique_ptr<Icon> restoreIcon_;

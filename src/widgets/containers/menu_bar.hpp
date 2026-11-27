@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/animation/property_animation.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget.hpp"
 #include "widgets/containers/context_menu.hpp"
@@ -39,12 +40,18 @@ public:
 
     void registerAccelerators(WidgetContext& ctx);
 
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
     void onMouseEnter() override;
     void onMouseMove(WidgetMouseEvent& ev) override;
     void onMouseLeave() override;
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onKeyDown(WidgetKeyEvent& ev) override;
     void onFocusLost() override;
+
+    void updateAnimations(float deltaSeconds) override;
+    [[nodiscard]] bool hasActiveAnimations() const noexcept override;
 
     void paint(renderer::PaintContext& ctx) override;
 
@@ -54,16 +61,21 @@ private:
         std::unique_ptr<ContextMenu> menu;
         mutable std::optional<text::TextLayout> layout;
         mutable core::Rect itemRect{};
+        core::animation::PropertyAnimation<float> hoverAnim{0.0f};
     };
 
+    void applyDpiMetrics(float scale);
     void updateDimensions() noexcept;
     void updateItemRects() const;
+    void updateHoverTargets();
     [[nodiscard]] int itemIndexAtPoint(const core::Point& pos) const;
 
     std::vector<MenuEntry> menus_{};
     std::shared_ptr<text::Font> font_{nullptr};
     mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
+    mutable bool isItemsLayoutDirty_{true};
     int highlightedIndex_{-1};
     int openMenuIndex_{-1};
 };

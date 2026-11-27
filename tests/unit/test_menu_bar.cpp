@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <variant>
 
 #include "renderer/paint_context.hpp"
 #include "widgets/base/widget_context.hpp"
@@ -267,4 +268,136 @@ TEST(MenuBarTest, RenderingSmokeTest) {
     renderer::PaintContext paintCtx;
     ctx.render(paintCtx, core::Size{800.0f, 600.0f});
     EXPECT_GT(paintCtx.commands().size(), 0u);
+
+    // Closing menu fades pill cleanly and settles via advanceAnimations()
+    barPtr->closeMenu();
+    WidgetMouseEvent hoverFile{core::Point{20.0f, 10.0f}, platform::MouseButton::None,
+                               platform::KeyModifier::None};
+    barPtr->onMouseMove(hoverFile);
+    EXPECT_TRUE(barPtr->hasActiveAnimations());
+    ctx.advanceAnimations(0.20f);
+    EXPECT_FALSE(barPtr->hasActiveAnimations());
+}
+
+TEST(MenuBarTest, DisabledIgnoresInteractionAndClosesActiveMenu) {
+    WidgetContext ctx;
+    auto bar = std::make_unique<MenuBar>();
+    MenuBar* barPtr = bar.get();
+    auto* fileMenu = barPtr->addMenu("File");
+    fileMenu->addItem("New", nullptr);
+    ctx.setRootWidget(std::move(bar));
+    ctx.handleResize(core::Size{800.0f, 600.0f});
+
+    barPtr->openMenu(0);
+    EXPECT_EQ(barPtr->openMenuIndex(), 0);
+    EXPECT_TRUE(ctx.hasOverlays());
+
+    barPtr->setEnabled(false);
+    EXPECT_EQ(barPtr->openMenuIndex(), -1);
+    EXPECT_EQ(barPtr->highlightedIndex(), -1);
+    EXPECT_FALSE(ctx.hasOverlays());
+
+    barPtr->openMenu(0);
+    EXPECT_EQ(barPtr->openMenuIndex(), -1);
+
+    WidgetMouseEvent clickFile{core::Point{15.0f, 10.0f}, platform::MouseButton::Left,
+                               platform::KeyModifier::None};
+    barPtr->onMouseDown(clickFile);
+    EXPECT_FALSE(clickFile.isAccepted());
+    EXPECT_EQ(barPtr->openMenuIndex(), -1);
+
+    WidgetKeyEvent downEv{platform::Key::Down, true, platform::KeyModifier::None};
+    barPtr->onKeyDown(downEv);
+    EXPECT_FALSE(downEv.isAccepted());
+    EXPECT_EQ(barPtr->openMenuIndex(), -1);
+}
+
+TEST(MenuBarTest, ContextAttachmentSyncsDpiAndThemeMarksDirty) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+
+    auto bar = std::make_unique<MenuBar>();
+    MenuBar* barPtr = bar.get();
+    auto* fileMenu = barPtr->addMenu("File");
+    ctx.setRootWidget(std::move(bar));
+
+    EXPECT_FLOAT_EQ(barPtr->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(barPtr->preferredHeight(), 28.0f * 1.5f);
+    EXPECT_FLOAT_EQ(fileMenu->dpiScale(), 1.5f);
+
+    renderer::PaintContext pctx;
+    ctx.render(pctx, core::Size{800.0f, 600.0f});
+    EXPECT_FALSE(barPtr->isPaintDirty());
+
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_TRUE(barPtr->isPaintDirty());
+}
+
+TEST(MenuBarTest, HoverOpenPillAlphasFocusRingAndMenuFont) {
+    WidgetContext ctx;
+    auto bar = std::make_unique<MenuBar>();
+    MenuBar* barPtr = bar.get();
+    auto* fileMenu = barPtr->addMenu("File");
+    fileMenu->addItem("Save", nullptr);
+    barPtr->addMenu("Edit");
+    ctx.setRootWidget(std::move(bar));
+    ctx.handleResize(core::Size{800.0f, 600.0f});
+
+    // Hovered entry pill settles at ~0.55 alpha matching Accordion/ContextMenu/Dropdown
+    WidgetMouseEvent hoverFile{core::Point{15.0f, 10.0f}, platform::MouseButton::None,
+                               platform::KeyModifier::None};
+    barPtr->onMouseMove(hoverFile);
+    ctx.advanceAnimations(0.20f);
+
+    renderer::PaintContext hoverPaint;
+    barPtr->paint(hoverPaint);
+    const auto& pal = barPtr->colorPalette();
+    float hoverAlpha = 0.0f;
+    for (size_t i = 1; i < hoverPaint.commands().size(); ++i) {
+        if (std::holds_alternative<renderer::DrawBoxCommand>(hoverPaint.commands()[i])) {
+            const auto& box = std::get<renderer::DrawBoxCommand>(hoverPaint.commands()[i]);
+            if (box.borderWidth == 0.0f && box.fillColor.a > 0.0f) {
+                hoverAlpha = box.fillColor.a;
+                break;
+            }
+        }
+    }
+    EXPECT_NEAR(hoverAlpha, pal.surfaceRaised.a * 0.55f, 0.02f);
+
+    // Keyboard focus paints Cobalt focus ring when highlighted with no open menu
+    barPtr->setFocus(FocusReason::Keyboard);
+    renderer::PaintContext focusPaint;
+    barPtr->paint(focusPaint);
+    bool foundFocusRing = false;
+    for (const auto& cmd : focusPaint.commands()) {
+        if (std::holds_alternative<renderer::DrawBoxCommand>(cmd)) {
+            const auto& box = std::get<renderer::DrawBoxCommand>(cmd);
+            if (box.borderWidth > 0.0f && box.borderColor == pal.accentFocusRing) {
+                foundFocusRing = true;
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(foundFocusRing);
+
+    // Opening menu raises pill alpha to ~0.85 and keeps ContextMenu 11pt default font
+    barPtr->openMenu(0);
+    ctx.advanceAnimations(0.20f);
+    EXPECT_EQ(fileMenu->font(), nullptr);
+    ASSERT_NE(fileMenu->effectiveFont(), nullptr);
+    EXPECT_FLOAT_EQ(fileMenu->effectiveFont()->pointSize(), 11.0f);
+
+    renderer::PaintContext openPaint;
+    barPtr->paint(openPaint);
+    float openAlpha = 0.0f;
+    for (size_t i = 1; i < openPaint.commands().size(); ++i) {
+        if (std::holds_alternative<renderer::DrawBoxCommand>(openPaint.commands()[i])) {
+            const auto& box = std::get<renderer::DrawBoxCommand>(openPaint.commands()[i]);
+            if (box.borderWidth == 0.0f && box.fillColor.a > 0.0f) {
+                openAlpha = box.fillColor.a;
+                break;
+            }
+        }
+    }
+    EXPECT_NEAR(openAlpha, pal.surfaceRaised.a * 0.85f, 0.02f);
 }

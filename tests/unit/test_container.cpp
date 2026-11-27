@@ -1,9 +1,10 @@
-#include "widgets/containers/container.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
+#include "widgets/containers/container.hpp"
 #include "widgets/controls/label.hpp"
 
 #include <gtest/gtest.h>
+#include <variant>
 
 using namespace northern;
 using namespace northern::widgets;
@@ -159,16 +160,14 @@ TEST(ContainerTest, InteractiveCardStates) {
     EXPECT_TRUE(cPtr->hasActiveAnimations());
     cPtr->updateAnimations(0.15f);
 
-    WidgetMouseEvent pressEv{core::Point{50.0f, 50.0f},
-                             platform::MouseButton::Left,
+    WidgetMouseEvent pressEv{core::Point{50.0f, 50.0f}, platform::MouseButton::Left,
                              platform::KeyModifier::None};
     cPtr->onMouseDown(pressEv);
     EXPECT_TRUE(cPtr->hasActiveAnimations());
     cPtr->updateAnimations(0.15f);
 
-    WidgetMouseEvent releaseEv{core::Point{50.0f, 50.0f},
-                              platform::MouseButton::Left,
-                              platform::KeyModifier::None};
+    WidgetMouseEvent releaseEv{core::Point{50.0f, 50.0f}, platform::MouseButton::Left,
+                               platform::KeyModifier::None};
     cPtr->onMouseUp(releaseEv);
     EXPECT_EQ(clickCount, 1);
 
@@ -236,4 +235,100 @@ TEST(ContainerTest, ChildTextHoverAndCursorShape) {
     ctx.handleMouseUp(upEv);
 
     EXPECT_EQ(clickCount, 1);
+}
+
+TEST(ContainerTest, StrongBorderRoleAndContextDpiHairlineScaling) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+
+    auto c = std::make_unique<Container>();
+    auto* cPtr = c.get();
+    cPtr->setBorderRole(BorderRole::Strong);
+    ctx.setRootWidget(std::move(c));
+
+    EXPECT_EQ(cPtr->effectiveBorderColor(), theme::ColorTokens::BorderStrong);
+    EXPECT_FLOAT_EQ(cPtr->effectiveBorderWidth(), theme::Metrics::BorderWidthHairline * 1.5f);
+
+    // Explicit border width overrides role-scaled hairline
+    cPtr->setBorderWidth(2.5f);
+    EXPECT_FLOAT_EQ(cPtr->effectiveBorderWidth(), 2.5f);
+}
+
+TEST(ContainerTest, InteractiveMouseGrabDisableAndThemeSync) {
+    WidgetContext ctx;
+    auto c = std::make_unique<Container>();
+    auto* cPtr = c.get();
+    cPtr->setSurface(SurfaceRole::Default);
+    cPtr->setBorderRole(BorderRole::Subtle);
+    cPtr->setInteractive(true);
+    cPtr->style().width = layout::Length::points(120.0f);
+    cPtr->style().height = layout::Length::points(80.0f);
+    ctx.setRootWidget(std::move(c));
+
+    renderer::PaintContext initPaint;
+    ctx.render(initPaint, {200.0f, 200.0f});
+
+    int clickCount = 0;
+    cPtr->onClicked.connect([&clickCount]() { ++clickCount; });
+
+    // Press inside, drag & release outside -> mouse grab captures release, no click
+    platform::MouseEvent downEv{};
+    downEv.type = platform::MouseEventType::ButtonDown;
+    downEv.button = platform::MouseButton::Left;
+    downEv.physicalPosition = {40.0f, 40.0f};
+    downEv.position = downEv.physicalPosition;
+    ctx.handleMouseDown(downEv);
+    EXPECT_EQ(ctx.mouseGrabWidget(), cPtr);
+    EXPECT_TRUE(cPtr->hasFocus());
+
+    platform::MouseEvent upOutsideEv{};
+    upOutsideEv.type = platform::MouseEventType::ButtonUp;
+    upOutsideEv.button = platform::MouseButton::Left;
+    upOutsideEv.physicalPosition = {180.0f, 180.0f};
+    upOutsideEv.position = upOutsideEv.physicalPosition;
+    ctx.handleMouseUp(upOutsideEv);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_EQ(clickCount, 0);
+
+    // Hover & press then disable -> interaction clears cleanly
+    platform::MouseEvent moveEv{};
+    moveEv.type = platform::MouseEventType::Move;
+    moveEv.physicalPosition = {40.0f, 40.0f};
+    moveEv.position = moveEv.physicalPosition;
+    ctx.handleMouseMove(moveEv);
+    ctx.handleMouseDown(downEv);
+    EXPECT_TRUE(cPtr->isHovered());
+
+    cPtr->setEnabled(false);
+    EXPECT_FALSE(cPtr->isHovered());
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    cPtr->updateAnimations(0.2f);
+    EXPECT_FALSE(cPtr->hasActiveAnimations());
+
+    // Re-enable and switch theme -> painted fill updates immediately to light surfaceDefault
+    cPtr->setEnabled(true);
+    ctx.setTheme(theme::Theme::light());
+    renderer::PaintContext lightPaint;
+    cPtr->paint(lightPaint);
+    ASSERT_FALSE(lightPaint.commands().empty());
+    ASSERT_TRUE(std::holds_alternative<renderer::DrawBoxCommand>(lightPaint.commands().front()));
+    const auto& box = std::get<renderer::DrawBoxCommand>(lightPaint.commands().front());
+    EXPECT_EQ(box.fillColor, theme::ColorPalette::light().surfaceDefault);
+}
+
+TEST(ContainerTest, BorderOnlyContainerPreservesNonUniformCornerRadii) {
+    Container c;
+    c.setBorderRole(BorderRole::Default);
+    c.setCornerRadii(2.0f, 4.0f, 6.0f, 8.0f);
+    c.layoutNode().computeLayout(100.0f, 60.0f);
+
+    renderer::PaintContext pctx;
+    c.paint(pctx);
+    ASSERT_EQ(pctx.commands().size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<renderer::DrawBoxCommand>(pctx.commands()[0]));
+    const auto& box = std::get<renderer::DrawBoxCommand>(pctx.commands()[0]);
+    EXPECT_FLOAT_EQ(box.cornerRadii[0], 2.0f);
+    EXPECT_FLOAT_EQ(box.cornerRadii[1], 4.0f);
+    EXPECT_FLOAT_EQ(box.cornerRadii[2], 6.0f);
+    EXPECT_FLOAT_EQ(box.cornerRadii[3], 8.0f);
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/animation/property_animation.hpp"
 #include "core/math/color.hpp"
 #include "core/signal/signal.hpp"
 #include "text/font.hpp"
@@ -13,7 +14,13 @@
 #include <string>
 #include <vector>
 
+namespace northern::renderer {
+class SvgDocument;
+}
+
 namespace northern::widgets {
+
+enum class IconId;
 
 enum class TextInputSize : uint8_t {
     Compact,
@@ -53,6 +60,15 @@ public:
 
     void setMaxLength(size_t maxChars);
     [[nodiscard]] size_t maxLength() const noexcept { return maxLength_; }
+
+    void setLeadingIcon(std::shared_ptr<renderer::SvgDocument> icon);
+    void setLeadingIcon(IconId iconId);
+    [[nodiscard]] std::shared_ptr<renderer::SvgDocument> leadingIcon() const noexcept {
+        return leadingIcon_;
+    }
+
+    void setClearButtonEnabled(bool enabled) noexcept;
+    [[nodiscard]] bool isClearButtonEnabled() const noexcept { return clearButtonEnabled_; }
 
     [[nodiscard]] size_t cursorIndex() const noexcept { return cursorIndex_; }
     [[nodiscard]] size_t selectionAnchor() const noexcept { return selectionAnchor_; }
@@ -103,6 +119,11 @@ private:
     void insertText(std::string_view str);
     size_t hitTestCharacter(float localX) const;
     void ensureCursorVisible();
+    void updateBorderAnimation(bool animated, bool focused);
+    [[nodiscard]] float effectiveTextLeftInset(float availWidth) const noexcept;
+    [[nodiscard]] float effectiveTextRightInset(float availWidth) const noexcept;
+    [[nodiscard]] core::Rect clearButtonLocalRect() const noexcept;
+    [[nodiscard]] bool shouldShowClearButton() const noexcept;
 
     std::string text_{};
     std::string placeholder_{};
@@ -114,6 +135,9 @@ private:
     bool readOnly_{false};
     bool passwordMode_{false};
     size_t maxLength_{0}; // 0 = unlimited UTF-8 codepoints
+    std::shared_ptr<renderer::SvgDocument> leadingIcon_{nullptr};
+    bool clearButtonEnabled_{false};
+    bool isHoveringClear_{false};
 
     size_t cursorIndex_{0};
     size_t selectionAnchor_{0};
@@ -123,6 +147,8 @@ private:
 
     float cursorBlinkTimer_{0.0f};
     bool cursorVisible_{true};
+    core::animation::PropertyAnimation<float> hoverAnim_{0.0f};
+    core::animation::PropertyAnimation<float> focusAnim_{0.0f};
 
     std::optional<core::Color> overrideBgColor_{std::nullopt};
     std::optional<core::Color> overrideIdleBorderColor_{std::nullopt};

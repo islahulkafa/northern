@@ -1,5 +1,6 @@
 #include "widgets/controls/switch.hpp"
 #include "renderer/paint_context.hpp"
+#include "text/font_manager.hpp"
 #include "widgets/base/widget_context.hpp"
 
 #include <algorithm>
@@ -44,7 +45,9 @@ std::shared_ptr<text::Font> Switch::effectiveFont() const {
         return font_;
     }
     if (!resolvedDefaultFont_) {
-        resolvedDefaultFont_ = theme::resolveFont(theme::TypographyStyle::Body, dpiScale_);
+        float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+        resolvedDefaultFont_ =
+            text::FontManager::instance().defaultFont(10.5f * scale).valueOr(nullptr);
     }
     return resolvedDefaultFont_;
 }
@@ -65,7 +68,7 @@ void Switch::setChecked(bool checked) {
         isChecked_ = checked;
         float target = isChecked_ ? 1.0f : 0.0f;
         if (context_) {
-            thumbAnim_.start(thumbAnim_.currentValue(), target, 0.18f,
+            thumbAnim_.start(thumbAnim_.currentValue(), target, 0.16f,
                              core::animation::EasingCurve::OutCubic);
             context_->registerAnimatedWidget(this);
         } else {
@@ -77,16 +80,22 @@ void Switch::setChecked(bool checked) {
 }
 
 void Switch::updateAnimations(float deltaSeconds) {
+    bool changed = false;
     if (thumbAnim_.isRunning()) {
         thumbAnim_.update(deltaSeconds);
+        changed = true;
     }
     if (hoverAnim_.isRunning()) {
         hoverAnim_.update(deltaSeconds);
+        changed = true;
     }
     if (pressAnim_.isRunning()) {
         pressAnim_.update(deltaSeconds);
+        changed = true;
     }
-    markPaintDirty();
+    if (changed) {
+        markPaintDirty();
+    }
 }
 
 bool Switch::hasActiveAnimations() const noexcept {
@@ -121,32 +130,45 @@ void Switch::setRole(SwitchRole role) noexcept {
 }
 
 void Switch::setSize(SwitchSize size) noexcept {
-    float baseW = 36.0f;
-    float baseH = 20.0f;
+    size_ = size;
+    hasCustomTrackSize_ = false;
     switch (size) {
     case SwitchSize::Compact:
-        baseW = 28.0f;
-        baseH = 16.0f;
+        baseTrackWidth_ = 28.0f;
+        baseTrackHeight_ = 16.0f;
         break;
     case SwitchSize::Large:
-        baseW = 44.0f;
-        baseH = 24.0f;
+        baseTrackWidth_ = 44.0f;
+        baseTrackHeight_ = 24.0f;
         break;
     case SwitchSize::Standard:
     default:
+        baseTrackWidth_ = 36.0f;
+        baseTrackHeight_ = 20.0f;
         break;
     }
-    setTrackSize(baseW * dpiScale_, baseH * dpiScale_);
+    trackWidth_ = baseTrackWidth_ * dpiScale_;
+    trackHeight_ = baseTrackHeight_ * dpiScale_;
+    thumbDiameter_ = std::max(4.0f, trackHeight_ - 4.0f * dpiScale_);
+    markLayoutDirty();
 }
 
 void Switch::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void Switch::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
-        float ratio = clamped / dpiScale_;
+        if (hasCustomTrackSize_) {
+            baseTrackWidth_ = trackWidth_ / dpiScale_;
+            baseTrackHeight_ = trackHeight_ / dpiScale_;
+        }
         dpiScale_ = clamped;
-        trackWidth_ *= ratio;
-        trackHeight_ *= ratio;
-        thumbDiameter_ *= ratio;
+        trackWidth_ = std::max(12.0f, baseTrackWidth_ * dpiScale_);
+        trackHeight_ = std::max(8.0f, baseTrackHeight_ * dpiScale_);
+        thumbDiameter_ = std::max(4.0f, trackHeight_ - 4.0f * dpiScale_);
         resolvedDefaultFont_.reset();
         if (!font_) {
             cachedTextLayout_.reset();
@@ -163,8 +185,11 @@ void Switch::setLabelPlacement(SwitchLabelPlacement placement) noexcept {
 }
 
 void Switch::setTrackSize(float width, float height) noexcept {
+    hasCustomTrackSize_ = true;
     trackWidth_ = std::max(12.0f, width);
     trackHeight_ = std::max(8.0f, height);
+    baseTrackWidth_ = trackWidth_ / dpiScale_;
+    baseTrackHeight_ = trackHeight_ / dpiScale_;
     thumbDiameter_ = std::max(4.0f, trackHeight_ - 4.0f * dpiScale_);
     markLayoutDirty();
 }
@@ -215,16 +240,23 @@ void Switch::clearColorOverrides() noexcept {
 core::Color Switch::effectiveTrackColor() const noexcept {
     const auto& pal = colorPalette();
     if (!isEnabled()) {
-        return isChecked_ ? pal.borderDefault : pal.surfaceBase;
+        return (isChecked_ ? pal.borderDefault : pal.surfaceBase).withAlpha(0.50f);
     }
 
-    core::Color unchecked = overrideUncheckedTrackColor_.value_or(
-        pal.mode == theme::ThemeMode::Dark ? pal.surfaceRaised : pal.surfaceDefault);
+    core::Color uncheckedBase = overrideUncheckedTrackColor_.value_or(
+        pal.mode == theme::ThemeMode::Dark ? pal.surfaceOverlay : pal.borderDefault);
+    core::Color uncheckedHover = overrideUncheckedTrackColor_.value_or(
+        pal.mode == theme::ThemeMode::Dark ? pal.surfaceRaised : pal.borderStrong);
+    float hoverT = hoverAnim_.currentValue();
+    core::Color unchecked =
+        hoverT > 0.0001f ? uncheckedBase.lerp(uncheckedHover, hoverT * 0.45f) : uncheckedBase;
+
     core::Color roleColor = pal.accentDefault;
     switch (role_) {
     case SwitchRole::Accent:
-        roleColor =
-            (isHovered_ && !overrideCheckedTrackColor_) ? pal.accentHover : pal.accentDefault;
+        roleColor = (hoverT > 0.0001f && !overrideCheckedTrackColor_)
+                        ? pal.accentDefault.lerp(pal.accentHover, hoverT)
+                        : pal.accentDefault;
         break;
     case SwitchRole::Success:
         roleColor = pal.success;
@@ -257,9 +289,8 @@ core::Color Switch::effectiveBorderColor() const noexcept {
         return *overrideBorderColor_;
     }
     float t = thumbAnim_.currentValue();
-    core::Color base = pal.borderDefault.lerp(pal.borderStrong, hoverAnim_.currentValue());
-    core::Color active = effectiveTrackColor();
-    return base.lerp(active, t);
+    core::Color base = pal.borderSubtle.lerp(pal.borderDefault, hoverAnim_.currentValue());
+    return base.lerp(core::Color::transparent(), t);
 }
 
 core::Color Switch::effectiveThumbColor() const noexcept {
@@ -267,7 +298,7 @@ core::Color Switch::effectiveThumbColor() const noexcept {
     if (!isEnabled()) {
         return pal.textDisabled;
     }
-    core::Color unchecked = overrideUncheckedThumbColor_.value_or(pal.textSecondary);
+    core::Color unchecked = overrideUncheckedThumbColor_.value_or(core::Color::white());
     core::Color checked = overrideCheckedThumbColor_.value_or(core::Color::white());
     float t = thumbAnim_.currentValue();
     if (t <= 0.0001f) {
@@ -288,6 +319,20 @@ core::Color Switch::effectiveTextColor() const noexcept {
     return isEnabled() ? pal.textPrimary : pal.textDisabled;
 }
 
+void Switch::cancelActiveInteraction() {
+    if (context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    bool wasActive = isPressed_ || isHovered_;
+    isPressed_ = false;
+    isHovered_ = false;
+    hoverAnim_.setCurrentValue(0.0f);
+    pressAnim_.setCurrentValue(0.0f);
+    if (wasActive) {
+        markPaintDirty();
+    }
+}
+
 void Switch::onMouseEnter() {
     if (!isEnabled()) {
         return;
@@ -303,11 +348,8 @@ void Switch::onMouseEnter() {
 
 void Switch::onMouseLeave() {
     isHovered_ = false;
-    isPressed_ = false;
     if (isEnabled()) {
         hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, 0.12f,
-                         core::animation::EasingCurve::OutCubic);
-        pressAnim_.start(pressAnim_.currentValue(), 0.0f, 0.08f,
                          core::animation::EasingCurve::OutCubic);
         if (context_) {
             context_->registerAnimatedWidget(this);
@@ -320,9 +362,12 @@ void Switch::onMouseDown(WidgetMouseEvent& ev) {
     if (!isEnabled()) {
         return;
     }
-    if (ev.button() == platform::MouseButton::Left) {
+    if (ev.isPrimaryButton()) {
         isPressed_ = true;
         setFocus(FocusReason::Pointer);
+        if (context_) {
+            context_->setMouseGrabWidget(this);
+        }
         pressAnim_.start(pressAnim_.currentValue(), 1.0f, 0.08f,
                          core::animation::EasingCurve::OutCubic);
         if (context_) {
@@ -335,18 +380,23 @@ void Switch::onMouseDown(WidgetMouseEvent& ev) {
 
 void Switch::onMouseUp(WidgetMouseEvent& ev) {
     if (!isEnabled()) {
-        isPressed_ = false;
+        cancelActiveInteraction();
         return;
     }
-    if (ev.button() == platform::MouseButton::Left && isPressed_) {
+    if (ev.isPrimaryButton() && isPressed_) {
         isPressed_ = false;
+        if (context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
         pressAnim_.start(pressAnim_.currentValue(), 0.0f, 0.08f,
                          core::animation::EasingCurve::OutCubic);
         if (context_) {
             context_->registerAnimatedWidget(this);
         }
+        bool inside = layoutRect().size.width <= 0.0f || hitTest(ev.position());
+        isHovered_ = inside;
         ev.accept();
-        if (layoutRect().size.width <= 0.0f || hitTest(ev.position())) {
+        if (inside) {
             toggle();
         } else {
             markPaintDirty();
@@ -355,13 +405,47 @@ void Switch::onMouseUp(WidgetMouseEvent& ev) {
 }
 
 void Switch::onKeyDown(WidgetKeyEvent& ev) {
-    if (!isEnabled()) {
+    if (!isEnabled() || !ev.isDown()) {
         return;
     }
     if (ev.key() == platform::Key::Space || ev.key() == platform::Key::Enter) {
         ev.accept();
         toggle();
     }
+}
+
+void Switch::onFocusGained() {
+    markPaintDirty();
+}
+
+void Switch::onFocusLost() {
+    cancelActiveInteraction();
+    markPaintDirty();
+}
+
+void Switch::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void Switch::onThemeChanged() {
+    resolvedDefaultFont_.reset();
+    if (!font_) {
+        cachedTextLayout_.reset();
+    }
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+void Switch::onEnabledChanged() {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+        setCursorShape(platform::CursorShape::Arrow);
+    } else {
+        setCursorShape(platform::CursorShape::PointingHand);
+    }
+    markPaintDirty();
 }
 
 void Switch::paint(renderer::PaintContext& ctx) {
@@ -389,10 +473,10 @@ void Switch::paint(renderer::PaintContext& ctx) {
     float radii[4] = {trackRadius, trackRadius, trackRadius, trackRadius};
     float progress = thumbAnim_.currentValue();
 
-    ctx.drawBox(trackRect, effectiveTrackColor(), effectiveBorderColor(), 1.0f, radii);
+    ctx.drawBox(trackRect, effectiveTrackColor(), effectiveBorderColor(), 1.0f * dpiScale_, radii);
 
     if (hasKeyboardFocus() && isEnabled()) {
-        theme::paintFocusRing(ctx, trackRect, trackRadius);
+        Widget::paintFocusRing(ctx, trackRect, trackRadius);
     }
 
     float pad = (trackHeight_ - thumbDiameter_) * 0.5f;
@@ -402,8 +486,16 @@ void Switch::paint(renderer::PaintContext& ctx) {
     float thumbX = trackRect.origin.x + pad + (travel - stretch) * progress;
     float thumbY = trackRect.origin.y + pad;
 
+    const auto& pal = colorPalette();
     core::Rect thumbRect{core::Point{thumbX, thumbY}, core::Size{thumbW, thumbDiameter_}};
-    ctx.drawRoundedRect(thumbRect, effectiveThumbColor(), thumbDiameter_ * 0.5f);
+    float thumbRadius = thumbDiameter_ * 0.5f;
+    if (pal.mode == theme::ThemeMode::Light && isEnabled()) {
+        float thumbRadii[4] = {thumbRadius, thumbRadius, thumbRadius, thumbRadius};
+        ctx.drawBox(thumbRect, effectiveThumbColor(), pal.borderSubtle, 1.0f * dpiScale_,
+                    thumbRadii);
+    } else {
+        ctx.drawRoundedRect(thumbRect, effectiveThumbColor(), thumbRadius);
+    }
 
     if (hasText) {
         auto f = effectiveFont();

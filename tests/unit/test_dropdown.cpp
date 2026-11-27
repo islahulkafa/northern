@@ -1,6 +1,8 @@
+#include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
 #include "widgets/containers/dropdown.hpp"
 #include <gtest/gtest.h>
+#include <variant>
 
 using namespace northern;
 using namespace northern::widgets;
@@ -441,4 +443,113 @@ TEST(DropdownTest, PopupDimensionsAndSeparators) {
     renderer::PaintContext paintCtx;
     ctx.render(paintCtx, core::Size{400.0f, 300.0f});
     EXPECT_GT(paintCtx.commands().size(), 0);
+}
+
+TEST(DropdownTest, DisabledIgnoresInteractionAndClosesOpenPopup) {
+    WidgetContext ctx;
+    auto dd = std::make_unique<Dropdown>(std::vector<std::string>{"One", "Two"});
+    Dropdown* ddPtr = dd.get();
+    ctx.setRootWidget(std::move(dd));
+    ctx.handleResize(core::Size{400.0f, 300.0f});
+
+    ddPtr->onMouseEnter();
+    ctx.advanceAnimations(0.2f);
+    EXPECT_FLOAT_EQ(ddPtr->hoverAnimationProgress(), 1.0f);
+
+    ddPtr->open();
+    EXPECT_TRUE(ddPtr->isOpen());
+    EXPECT_TRUE(ctx.hasOverlays());
+
+    ddPtr->setEnabled(false);
+    EXPECT_FALSE(ddPtr->isOpen());
+    EXPECT_FALSE(ctx.hasOverlays());
+
+    // Disabled dropdown must ignore open, mouse, and keyboard interaction
+    ddPtr->open();
+    EXPECT_FALSE(ddPtr->isOpen());
+
+    WidgetMouseEvent downEv{core::Point{20.0f, 16.0f}, platform::MouseButton::Left,
+                            platform::KeyModifier::None};
+    ddPtr->onMouseDown(downEv);
+    EXPECT_FALSE(downEv.isAccepted());
+    EXPECT_FALSE(ddPtr->isOpen());
+
+    WidgetKeyEvent spaceEv{platform::Key::Space, true, platform::KeyModifier::None};
+    ddPtr->onKeyDown(spaceEv);
+    EXPECT_FALSE(spaceEv.isAccepted());
+    EXPECT_FALSE(ddPtr->isOpen());
+}
+
+TEST(DropdownTest, ContextAttachmentSyncsDpiAndThemeMarksDirty) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+
+    auto dd = std::make_unique<Dropdown>(std::vector<std::string>{"A", "B"}, 0);
+    Dropdown* ddPtr = dd.get();
+    ctx.setRootWidget(std::move(dd));
+
+    EXPECT_FLOAT_EQ(ddPtr->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(ddPtr->preferredHeight(), theme::Metrics::ControlHeightStandard * 1.5f);
+
+    renderer::PaintContext pctx;
+    ctx.render(pctx, core::Size{400.0f, 300.0f});
+    EXPECT_FALSE(ddPtr->isPaintDirty());
+
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_TRUE(ddPtr->isPaintDirty());
+}
+
+TEST(DropdownTest, PopupConcentricRadiiHoverPressAndMismatchCancel) {
+    WidgetContext ctx;
+    auto dd = std::make_unique<Dropdown>(std::vector<std::string>{"Alpha", "Beta", "Gamma"}, 0);
+    Dropdown* ddPtr = dd.get();
+    ctx.setRootWidget(std::move(dd));
+    ctx.handleResize(core::Size{400.0f, 300.0f});
+
+    ddPtr->open();
+    Widget* popup = ddPtr->activePopup();
+    ASSERT_NE(popup, nullptr);
+
+    renderer::PaintContext initPaint;
+    ctx.render(initPaint, core::Size{400.0f, 300.0f});
+    ctx.advanceAnimations(0.25f);
+
+    // Move mouse over row 1 ("Beta", y ~ 4 + 28 + 14 = 46) -> fades hover pill in
+    WidgetMouseEvent moveRow1{core::Point{20.0f, 46.0f}, platform::MouseButton::None,
+                              platform::KeyModifier::None};
+    popup->onMouseMove(moveRow1);
+    EXPECT_TRUE(popup->hasActiveAnimations());
+    ctx.advanceAnimations(0.15f);
+    EXPECT_FALSE(popup->hasActiveAnimations());
+
+    renderer::PaintContext hoverPaint;
+    popup->paint(hoverPaint);
+
+    // Outer popup card has 10px CornerRadiusOverlay; row 1 pill has 6px concentric radius & 0.55
+    // alpha
+    ASSERT_FALSE(hoverPaint.commands().empty());
+    ASSERT_TRUE(std::holds_alternative<renderer::DrawBoxCommand>(hoverPaint.commands()[0]));
+    const auto& cardBox = std::get<renderer::DrawBoxCommand>(hoverPaint.commands()[0]);
+    EXPECT_FLOAT_EQ(cardBox.cornerRadii[0], theme::Metrics::CornerRadiusOverlay);
+
+    bool foundHoverPill = false;
+    for (size_t i = 1; i < hoverPaint.commands().size(); ++i) {
+        if (std::holds_alternative<renderer::DrawBoxCommand>(hoverPaint.commands()[i])) {
+            const auto& box = std::get<renderer::DrawBoxCommand>(hoverPaint.commands()[i]);
+            if (box.borderWidth == 0.0f && std::abs(box.fillColor.a - 0.55f) < 0.03f) {
+                EXPECT_FLOAT_EQ(box.cornerRadii[0], 6.0f);
+                foundHoverPill = true;
+            }
+        }
+    }
+    EXPECT_TRUE(foundHoverPill);
+
+    // Press row 1 ("Beta"), release on row 2 ("Gamma") -> mismatch cancels selection
+    WidgetMouseEvent pressRow1{core::Point{20.0f, 46.0f}, platform::MouseButton::Left,
+                               platform::KeyModifier::None};
+    popup->onMouseDown(pressRow1);
+    WidgetMouseEvent releaseRow2{core::Point{20.0f, 74.0f}, platform::MouseButton::Left,
+                                 platform::KeyModifier::None};
+    popup->onMouseUp(releaseRow2);
+    EXPECT_EQ(ddPtr->selectedIndex(), 0);
 }

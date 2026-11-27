@@ -105,6 +105,11 @@ public:
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onMouseUp(WidgetMouseEvent& ev) override;
     void onKeyDown(WidgetKeyEvent& ev) override;
+    void onFocusGained() override;
+    void onFocusLost() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
     void updateAnimations(float deltaSeconds) override;
     [[nodiscard]] bool hasActiveAnimations() const noexcept override;
@@ -112,6 +117,8 @@ public:
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
     void applySizeMetrics() noexcept;
     void applyVariantStyle() noexcept;
     void updateTargetColors(bool animated = true);
@@ -121,6 +128,7 @@ private:
     ButtonVariant variant_{ButtonVariant::Secondary};
     ButtonSize size_{ButtonSize::Standard};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
     bool isLoading_{false};
 
     std::shared_ptr<renderer::SvgDocument> icon_{nullptr};
@@ -135,6 +143,7 @@ private:
     core::animation::PropertyAnimation<core::Color> bgAnim_{};
     core::animation::PropertyAnimation<core::Color> borderAnim_{};
     core::animation::PropertyAnimation<float> spinnerAnim_{};
+    core::animation::PropertyAnimation<float> pressScaleAnim_{1.0f};
 
     bool customBg_{false};
     bool customBorder_{false};

@@ -72,6 +72,7 @@ public:
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
+    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
 
     void setInactiveTrackColor(const core::Color& color) noexcept;
     void setActiveTrackColor(const core::Color& color) noexcept;
@@ -91,6 +92,11 @@ public:
     void onMouseLeave() override;
     void onMouseWheel(WidgetMouseEvent& ev) override;
     void onKeyDown(WidgetKeyEvent& ev) override;
+    void onFocusGained() override;
+    void onFocusLost() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
     void updateAnimations(float deltaSeconds) override;
     [[nodiscard]] bool hasActiveAnimations() const noexcept override;
@@ -98,7 +104,8 @@ public:
     void paint(renderer::PaintContext& ctx) override;
 
 private:
-    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
     [[nodiscard]] std::string formatValueString(float val) const;
     void updateReservedLabelWidth() const;
     void ensureValueLayout() const;
@@ -112,9 +119,15 @@ private:
     float step_{0.0f};
 
     SliderRole role_{SliderRole::Accent};
+    float baseTrackHeight_{4.0f};
+    float baseThumbRadius_{7.0f};
+    float baseControlHeight_{24.0f};
     float trackHeight_{4.0f};
     float thumbRadius_{7.0f};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
+    bool hasCustomTrackHeight_{false};
+    bool hasCustomThumbRadius_{false};
 
     bool showValue_{false};
     int valuePrecision_{-1};

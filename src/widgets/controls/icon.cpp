@@ -8,7 +8,8 @@
 namespace northern::widgets {
 
 Icon::Icon(IconId iconId, float size, std::optional<core::Color> color)
-    : iconId_(iconId), doc_(getSvgDocument(iconId)), overrideColor_(color), iconSize_(size) {
+    : iconId_(iconId), doc_(getSvgDocument(iconId)), overrideColor_(color), baseIconSize_(size),
+      iconSize_(size) {
     style().width = layout::Length::points(size);
     style().height = layout::Length::points(size);
 }
@@ -19,7 +20,7 @@ Icon::Icon(IconId iconId, IconSize size, IconRole role)
 }
 
 Icon::Icon(std::shared_ptr<renderer::SvgDocument> doc, float size, std::optional<core::Color> color)
-    : doc_(std::move(doc)), overrideColor_(color), iconSize_(size) {
+    : doc_(std::move(doc)), overrideColor_(color), baseIconSize_(size), iconSize_(size) {
     style().width = layout::Length::points(size);
     style().height = layout::Length::points(size);
 }
@@ -30,7 +31,7 @@ Icon::Icon(std::shared_ptr<renderer::SvgDocument> doc, IconSize size, IconRole r
 }
 
 Icon::Icon(std::string_view svgContent, float size, std::optional<core::Color> color)
-    : overrideColor_(color), iconSize_(size) {
+    : overrideColor_(color), baseIconSize_(size), iconSize_(size) {
     auto res = renderer::SvgDocument::fromString(svgContent);
     if (res.isOk()) {
         doc_ = res.value();
@@ -106,25 +107,53 @@ core::Color Icon::effectiveColor() const noexcept {
 }
 
 void Icon::setIconSize(float size) {
+    hasCustomSize_ = true;
     if (iconSize_ != size) {
         iconSize_ = size;
         style().width = layout::Length::points(size);
         style().height = layout::Length::points(size);
         markLayoutDirty();
+        markPaintDirty();
     }
+}
+
+void Icon::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void Icon::applyDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        if (!hasCustomSize_) {
+            iconSize_ = baseIconSize_ * dpiScale_;
+            style().width = layout::Length::points(iconSize_);
+            style().height = layout::Length::points(iconSize_);
+            markLayoutDirty();
+        }
+        markPaintDirty();
+    }
+}
+
+void Icon::cancelActiveInteraction() {
+    if (isPressed_ && context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    isPressed_ = false;
+    isHovered_ = false;
+    hoverAnim_.stop();
+    hoverAnim_.setCurrentValue(0.0f);
 }
 
 void Icon::setInteractive(bool interactive) noexcept {
     if (isInteractive_ != interactive) {
         isInteractive_ = interactive;
         setFocusable(interactive);
-        setCursorShape(interactive ? platform::CursorShape::PointingHand
-                                   : platform::CursorShape::Arrow);
+        setCursorShape((interactive && isEnabled()) ? platform::CursorShape::PointingHand
+                                                    : platform::CursorShape::Arrow);
         if (!interactive) {
-            isHovered_ = false;
-            isPressed_ = false;
-            hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, 0.12f,
-                             core::animation::EasingCurve::OutCubic);
+            cancelActiveInteraction();
         }
         markPaintDirty();
     }
@@ -148,7 +177,6 @@ void Icon::onMouseLeave() {
         return;
     }
     isHovered_ = false;
-    isPressed_ = false;
     if (isEnabled()) {
         hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, 0.12f,
                          core::animation::EasingCurve::OutCubic);
@@ -163,8 +191,11 @@ void Icon::onMouseDown(WidgetMouseEvent& ev) {
     if (!isInteractive_ || !isEnabled()) {
         return;
     }
-    if (ev.button() == platform::MouseButton::Left) {
+    if (ev.isPrimaryButton()) {
         isPressed_ = true;
+        if (context_) {
+            context_->setMouseGrabWidget(this);
+        }
         setFocus(FocusReason::Pointer);
         ev.accept();
         markPaintDirty();
@@ -175,16 +206,26 @@ void Icon::onMouseUp(WidgetMouseEvent& ev) {
     if (!isInteractive_ || !isEnabled()) {
         return;
     }
-    if (ev.button() == platform::MouseButton::Left && isPressed_) {
+    if (ev.isPrimaryButton() && isPressed_) {
+        if (context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
+        core::Rect rect = layoutRect();
+        bool inside = (rect.size.width <= 0.0f || rect.size.height <= 0.0f) ||
+                      (ev.position().x >= 0.0f && ev.position().x <= rect.size.width &&
+                       ev.position().y >= 0.0f && ev.position().y <= rect.size.height);
         isPressed_ = false;
+        isHovered_ = inside;
         ev.accept();
         markPaintDirty();
-        onClicked.emit();
+        if (inside) {
+            onClicked.emit();
+        }
     }
 }
 
 void Icon::onKeyDown(WidgetKeyEvent& ev) {
-    if (!isInteractive_ || !isEnabled()) {
+    if (!isInteractive_ || !isEnabled() || !ev.isDown()) {
         return;
     }
     if (ev.key() == platform::Key::Space || ev.key() == platform::Key::Enter) {
@@ -193,9 +234,41 @@ void Icon::onKeyDown(WidgetKeyEvent& ev) {
     }
 }
 
-void Icon::updateAnimations(float deltaSeconds) {
-    hoverAnim_.update(deltaSeconds);
+void Icon::onFocusGained() {
     markPaintDirty();
+}
+
+void Icon::onFocusLost() {
+    cancelActiveInteraction();
+    markPaintDirty();
+}
+
+void Icon::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void Icon::onThemeChanged() {
+    markPaintDirty();
+}
+
+void Icon::onEnabledChanged() {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+        setCursorShape(platform::CursorShape::Arrow);
+    } else {
+        setCursorShape(isInteractive_ ? platform::CursorShape::PointingHand
+                                      : platform::CursorShape::Arrow);
+    }
+    markPaintDirty();
+}
+
+void Icon::updateAnimations(float deltaSeconds) {
+    if (hoverAnim_.isRunning()) {
+        hoverAnim_.update(deltaSeconds);
+        markPaintDirty();
+    }
 }
 
 bool Icon::hasActiveAnimations() const noexcept {
@@ -212,16 +285,18 @@ void Icon::paint(renderer::PaintContext& ctx) {
         return;
     }
 
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
     float hoverVal = hoverAnim_.currentValue();
+    float cornerRadius = theme::Metrics::CornerRadiusControl * scale;
 
-    if (isInteractive_ && hoverVal > 0.001f && isEnabled()) {
+    if (isInteractive_ && isEnabled() && (hoverVal > 0.001f || isPressed_)) {
         const auto& pal = colorPalette();
-        core::Color backdrop = pal.borderSubtle.withAlpha(pal.borderSubtle.a * hoverVal * 1.5f);
-        ctx.drawRoundedRect(sRect, backdrop, 4.0f);
+        float alpha = isPressed_ ? 0.85f : (0.55f * hoverVal);
+        ctx.drawRoundedRect(sRect, pal.surfaceRaised.withAlpha(alpha), cornerRadius);
     }
 
-    if (isInteractive_ && hasKeyboardFocus()) {
-        theme::paintFocusRing(ctx, sRect, 4.0f);
+    if (isInteractive_ && isEnabled() && hasKeyboardFocus()) {
+        paintFocusRing(ctx, sRect, cornerRadius);
     }
 
     float s = std::min(iconSize_, std::min(sRect.size.width, sRect.size.height));

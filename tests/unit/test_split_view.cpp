@@ -1,7 +1,9 @@
+#include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
 #include "widgets/containers/container.hpp"
 #include "widgets/containers/split_view.hpp"
 #include <gtest/gtest.h>
+#include <variant>
 
 using namespace northern;
 using namespace northern::widgets;
@@ -9,9 +11,11 @@ using namespace northern::widgets;
 TEST(SplitViewTest, DefaultsAndSetters) {
     SplitView sv;
     EXPECT_EQ(sv.orientation(), SplitOrientation::Horizontal);
+    EXPECT_EQ(sv.splitStyle(), SplitStyle::Hairline);
     EXPECT_FLOAT_EQ(sv.splitRatio(), 0.5f);
     EXPECT_FLOAT_EQ(sv.minPaneSize(), 40.0f);
-    EXPECT_FLOAT_EQ(sv.sashThickness(), 6.0f);
+    EXPECT_FLOAT_EQ(sv.sashThickness(), 1.0f);
+    EXPECT_FLOAT_EQ(sv.grabMargin(), 4.0f);
 
     float reportedRatio = 0.0f;
     int emitCount = 0;
@@ -64,8 +68,8 @@ TEST(SplitViewTest, SashHoverAndCursorShape) {
     sv.layoutNode().setLayoutRect(core::Rect{core::Point{0.0f, 0.0f}, core::Size{200.0f, 100.0f}});
 
     core::Rect sash = sv.sashLocalRect();
-    EXPECT_NEAR(sash.origin.x, 97.0f, 4.0f); // ~ (200 - 6) * 0.5 = 97
-    EXPECT_FLOAT_EQ(sash.size.width, 6.0f);
+    EXPECT_NEAR(sash.origin.x, 99.5f, 4.0f); // ~ (200 - 1) * 0.5 = 99.5
+    EXPECT_FLOAT_EQ(sash.size.width, 1.0f);
 
     // Hover outside sash
     WidgetMouseEvent moveOut{core::Point{10.0f, 50.0f}, platform::MouseButton::None,
@@ -255,12 +259,12 @@ TEST(SplitViewTest, AnimatedCollapseTransitions) {
     EXPECT_TRUE(sv->hasActiveAnimations());
 
     // Advance halfway
-    sv->updateAnimations(0.075f);
+    sv->updateAnimations(0.10f);
     EXPECT_TRUE(sv->hasActiveAnimations());
     EXPECT_TRUE(p1Ptr->isVisible());
 
-    // Advance to completion (> 0.15s)
-    sv->updateAnimations(0.10f);
+    // Advance to completion (> 0.22s)
+    sv->updateAnimations(0.15f);
     EXPECT_FALSE(sv->hasActiveAnimations());
     EXPECT_FALSE(p1Ptr->isVisible());
 
@@ -270,7 +274,7 @@ TEST(SplitViewTest, AnimatedCollapseTransitions) {
     EXPECT_TRUE(sv->hasActiveAnimations());
     EXPECT_TRUE(p1Ptr->isVisible());
 
-    sv->updateAnimations(0.20f);
+    sv->updateAnimations(0.25f);
     EXPECT_FALSE(sv->hasActiveAnimations());
     EXPECT_FLOAT_EQ(sv->splitRatio(), 0.4f);
 }
@@ -329,7 +333,7 @@ TEST(SplitViewTest, SignalsAndGripGeometry) {
     });
 
     ctx.setRootWidget(std::move(svUnique));
-    ctx.handleResize(core::Size{406.0f, 200.0f}); // avail = 400.0f with 6px sash
+    ctx.handleResize(core::Size{401.0f, 200.0f}); // avail = 400.0f with 1px Hairline sash
 
     sv->setSplitRatio(0.25f);
     EXPECT_EQ(resizeCount, 1);
@@ -343,4 +347,126 @@ TEST(SplitViewTest, SignalsAndGripGeometry) {
     renderer::PaintContext paintCtx;
     sv->paint(paintCtx);
     EXPECT_FALSE(paintCtx.commands().empty());
+}
+
+TEST(SplitViewTest, SplitStyleAndDpiScaling) {
+    SplitView sv;
+    sv.setPanes(std::make_unique<Container>(), std::make_unique<Container>());
+    EXPECT_EQ(sv.splitStyle(), SplitStyle::Hairline);
+    EXPECT_FLOAT_EQ(sv.sashThickness(), 1.0f);
+    EXPECT_FLOAT_EQ(sv.grabMargin(), 4.0f);
+
+    sv.setDpiScale(1.5f);
+    EXPECT_FLOAT_EQ(sv.dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(sv.sashThickness(), 1.5f);
+    EXPECT_FLOAT_EQ(sv.grabMargin(), 6.0f);
+
+    sv.setSplitStyle(SplitStyle::Classic);
+    EXPECT_EQ(sv.splitStyle(), SplitStyle::Classic);
+    EXPECT_FLOAT_EQ(sv.sashThickness(), 9.0f);
+    EXPECT_FLOAT_EQ(sv.grabMargin(), 3.0f);
+
+    sv.layoutNode().setLayoutRect(core::Rect{{0.0f, 0.0f}, {300.0f, 200.0f}});
+    renderer::PaintContext paintCtx;
+    sv.paint(paintCtx);
+    EXPECT_FALSE(paintCtx.commands().empty());
+}
+
+TEST(SplitViewTest, DisabledReleasesGrabClearsHoverAndHidesFocusRing) {
+    WidgetContext ctx;
+    auto svUnique = std::make_unique<SplitView>(SplitOrientation::Horizontal, 0.5f);
+    SplitView* sv = svUnique.get();
+    sv->setPanes(std::make_unique<Container>(), std::make_unique<Container>());
+    ctx.setRootWidget(std::move(svUnique));
+    ctx.handleResize(core::Size{401.0f, 200.0f});
+
+    core::Rect sash = sv->sashLocalRect();
+    platform::MouseEvent moveEv{};
+    moveEv.type = platform::MouseEventType::Move;
+    moveEv.physicalPosition = {sash.origin.x + 1.0f, 50.0f};
+    moveEv.position = moveEv.physicalPosition;
+    ctx.handleMouseMove(moveEv);
+    EXPECT_EQ(sv->cursorShape(), platform::CursorShape::ResizeEW);
+
+    platform::MouseEvent downEv{};
+    downEv.type = platform::MouseEventType::ButtonDown;
+    downEv.button = platform::MouseButton::Left;
+    downEv.physicalPosition = moveEv.physicalPosition;
+    downEv.position = moveEv.physicalPosition;
+    ctx.handleMouseDown(downEv);
+    EXPECT_EQ(ctx.mouseGrabWidget(), sv);
+
+    sv->setFocus(FocusReason::Keyboard);
+    sv->setEnabled(false);
+
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_EQ(sv->cursorShape(), platform::CursorShape::Arrow);
+
+    float ratioBefore = sv->splitRatio();
+    WidgetKeyEvent rightEv{platform::Key::Right, true, platform::KeyModifier::None};
+    sv->onKeyDown(rightEv);
+    EXPECT_FALSE(rightEv.isAccepted());
+    EXPECT_FLOAT_EQ(sv->splitRatio(), ratioBefore);
+
+    // Disabled SplitView emits only the single muted hairline (no grip or focus ring)
+    renderer::PaintContext paintCtx;
+    sv->paint(paintCtx);
+    EXPECT_EQ(paintCtx.commands().size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<renderer::DrawLineCommand>(paintCtx.commands()[0]));
+}
+
+TEST(SplitViewTest, ContextAttachmentAdoptsDpiPreservesCustomSashAndScalesKeyStep) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+
+    auto svUnique = std::make_unique<SplitView>(SplitOrientation::Horizontal);
+    SplitView* sv = svUnique.get();
+    sv->setSizeMode(SplitSizeMode::FixedFirst);
+    sv->setFirstPaneSize(200.0f);
+    sv->setPanes(std::make_unique<Container>(), std::make_unique<Container>());
+    ctx.setRootWidget(std::move(svUnique));
+    ctx.handleResize(core::Size{800.0f, 400.0f});
+
+    EXPECT_FLOAT_EQ(sv->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(sv->sashThickness(), 1.5f);
+    EXPECT_FLOAT_EQ(sv->grabMargin(), 6.0f);
+
+    // Keyboard nudge step scales by 1.5x (8 * 1.5 = 12px)
+    WidgetKeyEvent rightEv{platform::Key::Right, true, platform::KeyModifier::None};
+    sv->onKeyDown(rightEv);
+    EXPECT_TRUE(rightEv.isAccepted());
+    EXPECT_FLOAT_EQ(sv->firstPaneSize(), 212.0f);
+
+    // Explicit sashThickness/grabMargin overrides survive later DPI changes
+    sv->setSashThickness(3.0f);
+    sv->setGrabMargin(7.0f);
+    sv->setDpiScale(2.0f);
+    EXPECT_FLOAT_EQ(sv->sashThickness(), 3.0f);
+    EXPECT_FLOAT_EQ(sv->grabMargin(), 7.0f);
+}
+
+TEST(SplitViewTest, SameMillisecondDoubleClickTogglesCollapseAndThemeMarksDirty) {
+    WidgetContext ctx;
+    auto svUnique = std::make_unique<SplitView>(SplitOrientation::Horizontal, 0.5f);
+    SplitView* sv = svUnique.get();
+    sv->setPanes(std::make_unique<Container>(), std::make_unique<Container>());
+    ctx.setRootWidget(std::move(svUnique));
+    ctx.handleResize(core::Size{401.0f, 200.0f});
+
+    core::Rect sash = sv->sashLocalRect();
+    WidgetMouseEvent click1{core::Point{sash.origin.x, 50.0f}, platform::MouseButton::Left,
+                            platform::KeyModifier::None};
+    WidgetMouseEvent click2{core::Point{sash.origin.x, 50.0f}, platform::MouseButton::Left,
+                            platform::KeyModifier::None};
+    sv->onMouseDown(click1);
+    sv->onMouseUp(click1);
+    sv->onMouseDown(click2);
+    EXPECT_TRUE(sv->isFirstPaneCollapsed());
+
+    renderer::PaintContext pctx;
+    ctx.render(pctx, {401.0f, 200.0f});
+    EXPECT_FALSE(sv->isPaintDirty());
+
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_TRUE(sv->isPaintDirty());
 }

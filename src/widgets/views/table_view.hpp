@@ -46,6 +46,14 @@ public:
     void setShowGridLines(bool show) noexcept { showGridLines_ = show; }
     [[nodiscard]] bool showGridLines() const noexcept { return showGridLines_; }
 
+    void setShowBorder(bool show) noexcept {
+        if (showBorder_ != show) {
+            showBorder_ = show;
+            markPaintDirty();
+        }
+    }
+    [[nodiscard]] bool showBorder() const noexcept { return showBorder_; }
+
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
     [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
@@ -82,8 +90,15 @@ public:
     void onMouseWheel(WidgetMouseEvent& ev) override;
     void onMouseLeave() override;
     void onKeyDown(WidgetKeyEvent& ev) override;
+    void onFocusGained() override;
+    void onFocusLost() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
 private:
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
     [[nodiscard]] core::Rect verticalThumbRect() const noexcept;
     [[nodiscard]] core::Rect horizontalThumbRect() const noexcept;
     void clampScrollOffsets() noexcept;
@@ -97,6 +112,7 @@ private:
     std::shared_ptr<text::Font> font_{nullptr};
     mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
     int anchorRow_{-1};
     int anchorCol_{-1};
 
@@ -104,12 +120,14 @@ private:
     SortOrder sortOrder_{SortOrder::None};
     std::vector<int> rowMapping_{};
 
+    float baseRowHeight_{kDefaultRowHeight};
     float rowHeight_{kDefaultRowHeight};
     float scrollOffsetX_{0.0f};
     float scrollOffsetY_{0.0f};
     float scrollbarThickness_{6.0f};
-    bool alternatingRowColors_{true};
+    bool alternatingRowColors_{false};
     bool showGridLines_{true};
+    bool showBorder_{true};
 
     int hoveredRow_{-1};
     int hoveredColumn_{-1};

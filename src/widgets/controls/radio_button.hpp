@@ -58,6 +58,7 @@ public:
     void setSize(RadioSize size) noexcept;
     void setDpiScale(float scale);
     [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
+    [[nodiscard]] bool hasCustomDpiScale() const noexcept { return hasCustomDpiScale_; }
 
     void setCircleSize(float diameter) noexcept;
     [[nodiscard]] float circleSize() const noexcept { return circleDiameter_; }
@@ -80,6 +81,11 @@ public:
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onMouseUp(WidgetMouseEvent& ev) override;
     void onKeyDown(WidgetKeyEvent& ev) override;
+    void onFocusGained() override;
+    void onFocusLost() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
     void updateAnimations(float deltaSeconds) override;
     [[nodiscard]] bool hasActiveAnimations() const noexcept override;
@@ -87,6 +93,9 @@ public:
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    friend class RadioGroup;
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
     void ensureTextLayout() const;
 
     std::string text_{};
@@ -94,6 +103,7 @@ private:
     std::shared_ptr<text::Font> font_{nullptr};
     mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
 
     bool isChecked_{false};
     bool isHovered_{false};

@@ -100,6 +100,9 @@ public:
     [[nodiscard]] bool hasFocus() const noexcept;
     [[nodiscard]] bool hasKeyboardFocus() const noexcept;
     void setFocus(FocusReason reason = FocusReason::Programmatic);
+    [[nodiscard]] bool isHovered() const noexcept;
+    [[nodiscard]] bool isAttached() const noexcept { return context_ != nullptr; }
+    [[nodiscard]] float contextDpiScale() const noexcept;
 
     // Cursor & Tooltip
     void setCursorShape(platform::CursorShape shape) noexcept;
@@ -145,8 +148,13 @@ public:
     virtual void onKeyUp(WidgetKeyEvent& ev);
     virtual void onFocusGained();
     virtual void onFocusLost();
+    virtual void onContextAttached();
+    virtual void onThemeChanged();
+    virtual void onEnabledChanged();
 
 protected:
+    void paintFocusRing(renderer::PaintContext& ctx, const core::Rect& rect,
+                        float cornerRadius) const;
     virtual void attachChildInternal(std::unique_ptr<Widget> child);
 
     layout::LayoutNode layoutNode_{};

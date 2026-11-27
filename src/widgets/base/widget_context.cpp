@@ -492,6 +492,11 @@ void WidgetContext::handleResize(const core::Size& logicalSize) {
         rootWidget_->clearLayoutDirty();
         rootWidget_->markPaintDirty();
     }
+    for (auto& entry : overlayStack_) {
+        if (entry.widget) {
+            entry.widget->markLayoutDirty();
+        }
+    }
 }
 
 void WidgetContext::handleFileDrop(const platform::FileDropEvent& ev) {
@@ -521,12 +526,13 @@ void WidgetContext::setFocusedWidget(Widget* widget, FocusReason reason) {
         }
         return;
     }
-    if (focusedWidget_) {
-        focusedWidget_->onFocusLost();
-        focusedWidget_->markPaintDirty();
-    }
+    Widget* oldFocused = focusedWidget_;
     focusedWidget_ = widget;
     focusReason_ = reason;
+    if (oldFocused) {
+        oldFocused->onFocusLost();
+        oldFocused->markPaintDirty();
+    }
     if (focusedWidget_) {
         focusedWidget_->onFocusGained();
         focusedWidget_->markPaintDirty();
@@ -537,16 +543,34 @@ void WidgetContext::clearFocus() {
     setFocusedWidget(nullptr, FocusReason::Programmatic);
 }
 
+void WidgetContext::setDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    dpiScale_ = clamped;
+    setTooltipDpiScale(clamped);
+}
+
 void WidgetContext::setTheme(theme::Theme theme) {
     theme_ = std::move(theme);
     isPaintDirty_ = true;
-    if (rootWidget_) {
-        rootWidget_->markPaintDirty();
+
+    auto notifyThemeRecursive = [](auto& self, Widget* w) -> void {
+        if (!w) {
+            return;
+        }
+        w->onThemeChanged();
+        w->markPaintDirty();
+        for (const auto& child : w->children()) {
+            self(self, child.get());
+        }
+    };
+
+    notifyThemeRecursive(notifyThemeRecursive, rootWidget_.get());
+    if (activeTooltip_) {
+        activeTooltip_->onThemeChanged();
+        tooltipDirty_ = true;
     }
     for (const auto& entry : overlayStack_) {
-        if (entry.widget) {
-            entry.widget->markPaintDirty();
-        }
+        notifyThemeRecursive(notifyThemeRecursive, entry.widget.get());
     }
     onThemeChanged.emit(theme_);
 }
@@ -759,22 +783,63 @@ void WidgetContext::flushDeletedWidgets() {
     refreshCursorShape();
 }
 
-void WidgetContext::unregisterWidget(Widget* widget) {
+void WidgetContext::clearInteractionForSubtree(Widget* subtree) {
+    if (!subtree) {
+        return;
+    }
+    auto matchesSubtree = [subtree](Widget* w) {
+        return w && (w == subtree || w->isDescendantOf(subtree));
+    };
+
     bool needCursorRefresh = false;
-    if (hoveredWidget_ && (hoveredWidget_ == widget || hoveredWidget_->isDescendantOf(widget))) {
+    if (matchesSubtree(hoveredWidget_)) {
+        Widget* prevHover = hoveredWidget_;
+        hoveredWidget_ = nullptr;
+        hoverDurationSeconds_ = 0.0f;
+        dismissTooltip();
+        if (prevHover) {
+            prevHover->onMouseLeave();
+        }
+        needCursorRefresh = true;
+    }
+    if (matchesSubtree(focusedWidget_)) {
+        clearFocus();
+    }
+    if (matchesSubtree(mouseGrabWidget_)) {
+        mouseGrabWidget_ = nullptr;
+        needCursorRefresh = true;
+    }
+    if (matchesSubtree(rightPressTarget_)) {
+        rightPressTarget_ = nullptr;
+    }
+    if (needCursorRefresh) {
+        refreshCursorShape();
+    }
+}
+
+void WidgetContext::unregisterWidget(Widget* widget) {
+    if (!widget) {
+        return;
+    }
+    auto matchesSubtree = [widget](Widget* w) {
+        return w && (w == widget || w->isDescendantOf(widget));
+    };
+
+    bool needCursorRefresh = false;
+    if (matchesSubtree(hoveredWidget_)) {
         hoveredWidget_ = nullptr;
         hoverDurationSeconds_ = 0.0f;
         dismissTooltip();
         needCursorRefresh = true;
     }
-    if (focusedWidget_ == widget) {
+    if (matchesSubtree(focusedWidget_)) {
         focusedWidget_ = nullptr;
     }
-    if (mouseGrabWidget_ == widget) {
+    if (matchesSubtree(mouseGrabWidget_)) {
         mouseGrabWidget_ = nullptr;
         needCursorRefresh = true;
     }
-    if (rightPressTarget_ == widget) {
+    if (matchesSubtree(rightPressTarget_)) {
         rightPressTarget_ = nullptr;
     }
     dismissOverlaysForOwner(widget);
@@ -785,8 +850,8 @@ void WidgetContext::unregisterWidget(Widget* widget) {
             ++it;
         }
     }
-    std::erase(pendingDeletions_, widget);
-    std::erase(animatedWidgets_, widget);
+    std::erase_if(pendingDeletions_, matchesSubtree);
+    std::erase_if(animatedWidgets_, matchesSubtree);
     if (needCursorRefresh) {
         refreshCursorShape();
     }
@@ -844,6 +909,13 @@ void WidgetContext::advanceAnimations(float deltaSeconds) {
         tooltipAlphaAnim_.update(deltaSeconds);
         activeTooltip_->setAlpha(tooltipAlphaAnim_.currentValue());
     }
+
+    for (auto& entry : overlayStack_) {
+        if (entry.desc.isModal && entry.scrimAnim.isRunning()) {
+            entry.scrimAnim.update(deltaSeconds);
+            isPaintDirty_ = true;
+        }
+    }
 }
 
 void WidgetContext::render(renderer::PaintContext& ctx, const core::Size& viewportSize) {
@@ -853,6 +925,11 @@ void WidgetContext::render(renderer::PaintContext& ctx, const core::Size& viewpo
         isPaintDirty_ = true;
         if (rootWidget_) {
             rootWidget_->markLayoutDirty();
+        }
+        for (auto& entry : overlayStack_) {
+            if (entry.widget) {
+                entry.widget->markLayoutDirty();
+            }
         }
     }
 
@@ -892,8 +969,9 @@ void WidgetContext::render(renderer::PaintContext& ctx, const core::Size& viewpo
         for (auto& entry : overlayStack_) {
             if (entry.widget && entry.widget->isVisible()) {
                 if (entry.desc.isModal) {
-                    retainedPaintContext_->drawRect(rootVisibleRect,
-                                                    core::Color{0.0f, 0.0f, 0.0f, 0.55f});
+                    retainedPaintContext_->drawRect(
+                        rootVisibleRect,
+                        core::Color{0.0f, 0.0f, 0.0f, entry.scrimAnim.currentValue()});
                 }
                 if (entry.widget->isLayoutDirty()) {
                     entry.widget->layoutNode().computeLayout(viewportSize.width,
@@ -984,9 +1062,13 @@ Widget* WidgetContext::showOverlay(std::unique_ptr<Widget> content, const Overla
     entry.owner = owner;
     entry.computedPosition = pos;
     entry.isOwned = true;
+    if (desc.isModal) {
+        entry.scrimAnim.start(0.0f, 0.55f, 0.14f, core::animation::EasingCurve::OutCubic);
+    }
 
     Widget* ptr = entry.widget.get();
     overlayStack_.push_back(std::move(entry));
+    isPaintDirty_ = true;
     return ptr;
 }
 
@@ -1011,9 +1093,13 @@ Widget* WidgetContext::showOverlay(Widget* content, const OverlayDesc& desc, Wid
     entry.owner = owner;
     entry.computedPosition = pos;
     entry.isOwned = false;
+    if (desc.isModal) {
+        entry.scrimAnim.start(0.0f, 0.55f, 0.14f, core::animation::EasingCurve::OutCubic);
+    }
 
     Widget* ptr = entry.widget.get();
     overlayStack_.push_back(std::move(entry));
+    isPaintDirty_ = true;
     return ptr;
 }
 

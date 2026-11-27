@@ -42,6 +42,7 @@ set(UNIT_TEST_SOURCES
     unit/test_svg.cpp
     unit/test_icon.cpp
     unit/test_title_bar.cpp
+    unit/test_dialog.cpp
     unit/test_file_dialog.cpp
     unit/test_transform2d.cpp
     unit/test_arena.cpp

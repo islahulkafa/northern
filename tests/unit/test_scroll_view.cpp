@@ -1,3 +1,4 @@
+#include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
 #include "widgets/containers/container.hpp"
 #include "widgets/containers/scroll_view.hpp"
@@ -321,4 +322,182 @@ TEST(ScrollViewTest, DynamicThemingAndOverlayRendering) {
     size_t cmdCountLight = paintCtx.commands().size();
     EXPECT_GT(cmdCountLight, 0);
     EXPECT_EQ(cmdCountDark, cmdCountLight);
+}
+
+TEST(ScrollViewTest, QuietOverlayInactivityFadeAndVisibilityModes) {
+    ScrollView scroll;
+    scroll.style().width = layout::Length::points(200.0f);
+    scroll.style().height = layout::Length::points(200.0f);
+
+    auto content = std::make_unique<Container>();
+    content->style().width = layout::Length::points(200.0f);
+    content->style().height = layout::Length::points(600.0f);
+    scroll.addChild(std::move(content));
+    scroll.layoutNode().computeLayout(200.0f, 200.0f);
+
+    EXPECT_EQ(scroll.scrollbarVisibility(), ScrollbarVisibility::Automatic);
+    EXPECT_FLOAT_EQ(scroll.scrollbarOpacity(), 1.0f);
+    EXPECT_TRUE(scroll.hasActiveAnimations());
+
+    // Advance past 800ms inactivity threshold + 180ms fade-out
+    scroll.updateAnimations(0.50f);
+    EXPECT_FLOAT_EQ(scroll.scrollbarOpacity(), 1.0f);
+    scroll.updateAnimations(0.35f);
+    scroll.updateAnimations(0.25f);
+    EXPECT_FLOAT_EQ(scroll.scrollbarOpacity(), 0.0f);
+    EXPECT_FALSE(scroll.hasActiveAnimations());
+
+    // Scrolling wakes scrollbar back up immediately over fade-in duration
+    scroll.scrollBy(core::Point{0.0f, 40.0f});
+    scroll.updateAnimations(0.15f);
+    EXPECT_FLOAT_EQ(scroll.scrollbarOpacity(), 1.0f);
+
+    // Visibility Never suppresses overlay rendering
+    scroll.setScrollbarVisibility(ScrollbarVisibility::Never);
+    EXPECT_FLOAT_EQ(scroll.scrollbarOpacity(), 0.0f);
+    renderer::PaintContext paintCtx;
+    scroll.paintOverlay(paintCtx);
+    EXPECT_TRUE(paintCtx.commands().empty());
+
+    // Visibility AlwaysVisible keeps scrollbars active
+    scroll.setScrollbarVisibility(ScrollbarVisibility::AlwaysVisible);
+    scroll.updateAnimations(2.0f);
+    EXPECT_FLOAT_EQ(scroll.scrollbarOpacity(), 1.0f);
+    scroll.paintOverlay(paintCtx);
+    EXPECT_FALSE(paintCtx.commands().empty());
+}
+
+TEST(ScrollViewTest, DpiScalingAndHoverExpansion) {
+    ScrollView scroll;
+    scroll.setDpiScale(1.5f);
+    EXPECT_FLOAT_EQ(scroll.dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(scroll.scrollbarThickness(), 9.0f);
+    EXPECT_FLOAT_EQ(scroll.scrollbarPadding(), 4.5f);
+    EXPECT_FLOAT_EQ(scroll.scrollbarHitThickness(), 21.0f);
+
+    scroll.style().width = layout::Length::points(300.0f);
+    scroll.style().height = layout::Length::points(200.0f);
+    auto content = std::make_unique<Container>();
+    content->style().width = layout::Length::points(300.0f);
+    content->style().height = layout::Length::points(800.0f);
+    scroll.addChild(std::move(content));
+    scroll.layoutNode().computeLayout(300.0f, 200.0f);
+
+    WidgetMouseEvent wheelEv{core::Point{50.0f, 50.0f}, platform::MouseButton::None,
+                             platform::KeyModifier::None, core::Point{0.0f, -1.0f}};
+    scroll.onMouseWheel(wheelEv);
+    EXPECT_FLOAT_EQ(scroll.scrollOffset().y, 48.0f);
+
+    // Hovering over vertical scrollbar hit zone triggers expand animation
+    WidgetMouseEvent hoverEv{core::Point{295.0f, 40.0f}, platform::MouseButton::None,
+                             platform::KeyModifier::None};
+    scroll.onMouseMove(hoverEv);
+    EXPECT_TRUE(scroll.hasActiveAnimations());
+    scroll.updateAnimations(0.20f);
+}
+
+TEST(ScrollViewTest, SurfaceRoleTracksThemeSwitches) {
+    WidgetContext ctx;
+    ctx.setTheme(theme::Theme::dark());
+
+    auto scroll = std::make_unique<ScrollView>();
+    ScrollView* scrollPtr = scroll.get();
+    scrollPtr->setSurface(SurfaceRole::Canvas);
+    ctx.setRootWidget(std::move(scroll));
+
+    EXPECT_EQ(scrollPtr->surface(), SurfaceRole::Canvas);
+    EXPECT_EQ(scrollPtr->effectiveBackgroundColor(), theme::ColorPalette::dark().surfaceCanvas);
+
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_EQ(scrollPtr->effectiveBackgroundColor(), theme::ColorPalette::light().surfaceCanvas);
+
+    scrollPtr->setBackgroundColor(core::Color::red());
+    EXPECT_EQ(scrollPtr->effectiveBackgroundColor(), core::Color::red());
+}
+
+TEST(ScrollViewTest, ContentShrinkClampsStaleScrollOffsetOnPaint) {
+    ScrollView scroll;
+    scroll.style().width = layout::Length::points(200.0f);
+    scroll.style().height = layout::Length::points(200.0f);
+
+    auto content = std::make_unique<Container>();
+    content->style().width = layout::Length::points(200.0f);
+    content->style().height = layout::Length::points(600.0f);
+    Container* contentPtr = content.get();
+    scroll.addChild(std::move(content));
+    scroll.layoutNode().computeLayout(200.0f, 200.0f);
+
+    scroll.scrollTo(core::Point{0.0f, 200.0f});
+    EXPECT_FLOAT_EQ(scroll.scrollOffset().y, 200.0f);
+
+    int clampedSignals = 0;
+    core::Point lastOffset{};
+    scroll.onScrolled.connect([&](const core::Point& off) {
+        ++clampedSignals;
+        lastOffset = off;
+    });
+
+    contentPtr->style().height = layout::Length::points(300.0f);
+    contentPtr->markLayoutDirty();
+    scroll.layoutNode().computeLayout(200.0f, 200.0f);
+
+    renderer::PaintContext pctx;
+    scroll.paint(pctx);
+    EXPECT_FLOAT_EQ(scroll.scrollOffset().y, 100.0f);
+    EXPECT_EQ(clampedSignals, 1);
+    EXPECT_FLOAT_EQ(lastOffset.y, 100.0f);
+}
+
+TEST(ScrollViewTest, DisabledScrollViewReleasesGrabAndIgnoresInput) {
+    WidgetContext ctx;
+    auto scroll = std::make_unique<ScrollView>();
+    ScrollView* scrollPtr = scroll.get();
+    scrollPtr->style().width = layout::Length::points(200.0f);
+    scrollPtr->style().height = layout::Length::points(200.0f);
+
+    auto content = std::make_unique<Container>();
+    content->style().width = layout::Length::points(200.0f);
+    content->style().height = layout::Length::points(600.0f);
+    scrollPtr->addChild(std::move(content));
+
+    ctx.setRootWidget(std::move(scroll));
+    ctx.handleResize(core::Size{200.0f, 200.0f});
+
+    // Grab vertical scrollbar
+    platform::MouseEvent downEv{};
+    downEv.type = platform::MouseEventType::ButtonDown;
+    downEv.button = platform::MouseButton::Left;
+    downEv.physicalPosition = {195.0f, 15.0f};
+    downEv.position = downEv.physicalPosition;
+    ctx.handleMouseDown(downEv);
+    EXPECT_EQ(ctx.mouseGrabWidget(), scrollPtr);
+
+    scrollPtr->setEnabled(false);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+
+    float offsetBefore = scrollPtr->scrollOffset().y;
+    WidgetMouseEvent wheelEv{core::Point{50.0f, 50.0f}, platform::MouseButton::None,
+                             platform::KeyModifier::None, core::Point{0.0f, -2.0f}};
+    scrollPtr->onMouseWheel(wheelEv);
+    EXPECT_FALSE(wheelEv.isAccepted());
+    EXPECT_FLOAT_EQ(scrollPtr->scrollOffset().y, offsetBefore);
+
+    WidgetKeyEvent downKey{platform::Key::Down, true, platform::KeyModifier::None};
+    scrollPtr->onKeyDown(downKey);
+    EXPECT_FALSE(downKey.isAccepted());
+    EXPECT_FLOAT_EQ(scrollPtr->scrollOffset().y, offsetBefore);
+}
+
+TEST(ScrollViewTest, ContextAttachmentAdoptsDpiScale) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+
+    auto scroll = std::make_unique<ScrollView>();
+    ScrollView* scrollPtr = scroll.get();
+    ctx.setRootWidget(std::move(scroll));
+
+    EXPECT_FLOAT_EQ(scrollPtr->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(scrollPtr->scrollbarThickness(), 9.0f);
+    EXPECT_FLOAT_EQ(scrollPtr->scrollbarPadding(), 4.5f);
+    EXPECT_FLOAT_EQ(scrollPtr->scrollbarHitThickness(), 21.0f);
 }

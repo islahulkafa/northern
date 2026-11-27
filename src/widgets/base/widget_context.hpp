@@ -85,6 +85,10 @@ public:
     [[nodiscard]] const theme::Theme& theme() const noexcept { return theme_; }
     core::Signal<const theme::Theme&> onThemeChanged;
 
+    // Context DPI Scale
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
+
     // Cursor Management
     [[nodiscard]] platform::CursorShape currentCursorShape() const noexcept {
         return currentCursorShape_;
@@ -117,6 +121,7 @@ public:
     void queueDeferredDelete(Widget* widget);
     void flushDeletedWidgets();
     void unregisterWidget(Widget* widget);
+    void clearInteractionForSubtree(Widget* subtree);
 
     // Animation Management
     void advanceAnimations(float deltaSeconds);
@@ -136,8 +141,16 @@ public:
         return isPaintDirty_ || tooltipDirty_ || hasActiveAnimations();
     }
     [[nodiscard]] bool hasActiveAnimations() const noexcept {
-        return !animatedWidgets_.empty() || animationManager_.hasActiveAnimations() ||
-               (tooltipVisible_ && tooltipAlphaAnim_.isRunning());
+        if (!animatedWidgets_.empty() || animationManager_.hasActiveAnimations() ||
+            (tooltipVisible_ && tooltipAlphaAnim_.isRunning())) {
+            return true;
+        }
+        for (const auto& entry : overlayStack_) {
+            if (entry.desc.isModal && entry.scrimAnim.isRunning()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Overlay Management
@@ -173,6 +186,7 @@ private:
     std::unique_ptr<Tooltip> activeTooltip_{nullptr};
     std::shared_ptr<text::Font> tooltipFont_{nullptr};
     core::animation::PropertyAnimation<float> tooltipAlphaAnim_{0.0f};
+    float dpiScale_{1.0f};
     float tooltipDpiScale_{1.0f};
     float hoverDurationSeconds_{0.0f};
     float tooltipDelaySeconds_{0.5f};

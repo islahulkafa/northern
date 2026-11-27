@@ -6,6 +6,7 @@
 #include "widgets/base/widget.hpp"
 #include "widgets/base/widget_context.hpp"
 #include "widgets/containers/container.hpp"
+#include "widgets/containers/context_menu.hpp"
 #include "widgets/containers/scroll_view.hpp"
 #include "widgets/controls/button.hpp"
 #include "widgets/controls/checkbox.hpp"
@@ -887,6 +888,236 @@ TEST(ButtonTest, DynamicTextResizeInContainer) {
 
     EXPECT_GT(w2, w1);
     EXPECT_FLOAT_EQ(sRect2.size.width, w2);
+}
+
+namespace {
+
+class LifecycleProbeWidget : public Widget {
+public:
+    bool hasFocusDuringGained = false;
+    bool hasFocusDuringLost = true;
+    int gainedCount = 0;
+    int lostCount = 0;
+    int attachedCount = 0;
+    int themeChangedCount = 0;
+    bool attachedStateWhenHooked = false;
+    bool animateReturnValue = false;
+
+    void onFocusGained() override {
+        ++gainedCount;
+        hasFocusDuringGained = hasFocus();
+    }
+
+    void onFocusLost() override {
+        ++lostCount;
+        hasFocusDuringLost = hasFocus();
+    }
+
+    void onContextAttached() override {
+        ++attachedCount;
+        attachedStateWhenHooked = isAttached();
+    }
+
+    void onThemeChanged() override { ++themeChangedCount; }
+
+    [[nodiscard]] bool hasActiveAnimations() const noexcept override { return animateReturnValue; }
+};
+
+} // namespace
+
+TEST(WidgetBaseTest, FocusTransitionOrderUpdatesHasFocusBeforeCallbacks) {
+    WidgetContext ctx;
+    auto root = std::make_unique<Container>();
+    root->style().width = layout::Length::points(400.0f);
+    root->style().height = layout::Length::points(300.0f);
+
+    auto first = std::make_unique<LifecycleProbeWidget>();
+    first->setFocusable(true);
+    first->style().width = layout::Length::points(100.0f);
+    first->style().height = layout::Length::points(40.0f);
+    auto* firstPtr = first.get();
+
+    auto second = std::make_unique<LifecycleProbeWidget>();
+    second->setFocusable(true);
+    second->style().width = layout::Length::points(100.0f);
+    second->style().height = layout::Length::points(40.0f);
+    auto* secondPtr = second.get();
+
+    root->addChild(std::move(first));
+    root->addChild(std::move(second));
+    ctx.setRootWidget(std::move(root));
+
+    ctx.setFocusedWidget(firstPtr, FocusReason::Pointer);
+    EXPECT_EQ(firstPtr->gainedCount, 1);
+    EXPECT_TRUE(firstPtr->hasFocusDuringGained);
+
+    ctx.setFocusedWidget(secondPtr, FocusReason::Keyboard);
+    EXPECT_EQ(firstPtr->lostCount, 1);
+    EXPECT_FALSE(firstPtr->hasFocusDuringLost);
+    EXPECT_EQ(secondPtr->gainedCount, 1);
+    EXPECT_TRUE(secondPtr->hasFocusDuringGained);
+}
+
+TEST(WidgetBaseTest, RemoveChildUnregistersDescendantState) {
+    WidgetContext ctx;
+    auto root = std::make_unique<Container>();
+    root->style().width = layout::Length::points(400.0f);
+    root->style().height = layout::Length::points(300.0f);
+
+    auto branch = std::make_unique<Container>();
+    branch->style().width = layout::Length::points(200.0f);
+    branch->style().height = layout::Length::points(100.0f);
+    auto* branchPtr = branch.get();
+
+    auto leaf = std::make_unique<LifecycleProbeWidget>();
+    leaf->setFocusable(true);
+    leaf->style().width = layout::Length::points(180.0f);
+    leaf->style().height = layout::Length::points(80.0f);
+    leaf->animateReturnValue = true;
+    auto* leafPtr = leaf.get();
+
+    branch->addChild(std::move(leaf));
+    root->addChild(std::move(branch));
+    auto* rootPtr = root.get();
+    ctx.setRootWidget(std::move(root));
+
+    renderer::PaintContext pctx;
+    ctx.render(pctx, {400.0f, 300.0f});
+
+    ctx.setFocusedWidget(leafPtr, FocusReason::Pointer);
+    ctx.registerAnimatedWidget(leafPtr);
+
+    platform::MouseEvent moveEv{};
+    moveEv.type = platform::MouseEventType::Move;
+    moveEv.physicalPosition = {20.0f, 20.0f};
+    moveEv.position = moveEv.physicalPosition;
+    ctx.handleMouseMove(moveEv);
+
+    EXPECT_TRUE(leafPtr->isHovered());
+    EXPECT_EQ(ctx.focusedWidget(), leafPtr);
+    EXPECT_TRUE(ctx.hasActiveAnimations());
+
+    auto detachedBranch = rootPtr->removeChild(branchPtr);
+    ASSERT_NE(detachedBranch, nullptr);
+    EXPECT_EQ(ctx.focusedWidget(), nullptr);
+    EXPECT_FALSE(leafPtr->isAttached());
+    EXPECT_FALSE(leafPtr->isHovered());
+    EXPECT_FALSE(ctx.hasActiveAnimations());
+}
+
+TEST(WidgetBaseTest, DisablingOrHidingClearsFocusAndHover) {
+    WidgetContext ctx;
+    auto root = std::make_unique<Container>();
+    root->style().width = layout::Length::points(400.0f);
+    root->style().height = layout::Length::points(300.0f);
+
+    auto target = std::make_unique<LifecycleProbeWidget>();
+    target->setFocusable(true);
+    target->style().width = layout::Length::points(120.0f);
+    target->style().height = layout::Length::points(40.0f);
+    auto* targetPtr = target.get();
+
+    root->addChild(std::move(target));
+    ctx.setRootWidget(std::move(root));
+
+    renderer::PaintContext pctx;
+    ctx.render(pctx, {400.0f, 300.0f});
+
+    platform::MouseEvent moveEv{};
+    moveEv.type = platform::MouseEventType::Move;
+    moveEv.physicalPosition = {20.0f, 20.0f};
+    moveEv.position = moveEv.physicalPosition;
+    ctx.handleMouseMove(moveEv);
+    ctx.setFocusedWidget(targetPtr, FocusReason::Pointer);
+
+    EXPECT_TRUE(targetPtr->isHovered());
+    EXPECT_TRUE(targetPtr->hasFocus());
+
+    targetPtr->setEnabled(false);
+    EXPECT_FALSE(targetPtr->isHovered());
+    EXPECT_FALSE(targetPtr->hasFocus());
+    EXPECT_EQ(ctx.focusedWidget(), nullptr);
+
+    targetPtr->setEnabled(true);
+    ctx.handleMouseMove(moveEv);
+    ctx.setFocusedWidget(targetPtr, FocusReason::Keyboard);
+    EXPECT_TRUE(targetPtr->isHovered());
+    EXPECT_TRUE(targetPtr->hasFocus());
+
+    targetPtr->setVisible(false);
+    EXPECT_FALSE(targetPtr->isHovered());
+    EXPECT_FALSE(targetPtr->hasFocus());
+    EXPECT_EQ(ctx.focusedWidget(), nullptr);
+}
+
+TEST(WidgetBaseTest, ContextAttachmentThemePropagationAndDpiScale) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    EXPECT_FLOAT_EQ(ctx.dpiScale(), 1.5f);
+
+    auto root = std::make_unique<Container>();
+    auto child = std::make_unique<LifecycleProbeWidget>();
+    auto* childPtr = child.get();
+    root->addChild(std::move(child));
+    ctx.setRootWidget(std::move(root));
+
+    EXPECT_EQ(childPtr->attachedCount, 1);
+    EXPECT_TRUE(childPtr->attachedStateWhenHooked);
+    EXPECT_TRUE(childPtr->isAttached());
+    EXPECT_FLOAT_EQ(childPtr->contextDpiScale(), 1.5f);
+
+    auto overlay = std::make_unique<LifecycleProbeWidget>();
+    auto* overlayPtr = overlay.get();
+    OverlayDesc desc{};
+    ctx.showOverlay(std::move(overlay), desc);
+    EXPECT_EQ(overlayPtr->attachedCount, 1);
+    EXPECT_TRUE(overlayPtr->isAttached());
+
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_EQ(childPtr->themeChangedCount, 1);
+    EXPECT_EQ(overlayPtr->themeChangedCount, 1);
+}
+
+TEST(WidgetBaseTest, MovePreservesMetadataAndHelpersWork) {
+    LifecycleProbeWidget original;
+    original.setCursorShape(platform::CursorShape::PointingHand);
+    original.setTooltip("Save changes");
+    bool menuCalled = false;
+    original.setContextMenuBuilder([&menuCalled]() {
+        menuCalled = true;
+        return nullptr;
+    });
+
+    auto moved = std::make_unique<LifecycleProbeWidget>(std::move(original));
+    EXPECT_EQ(moved->cursorShape(), platform::CursorShape::PointingHand);
+    EXPECT_EQ(moved->tooltipText(), "Save changes");
+
+    WidgetContext ctx;
+    auto* movedPtr = moved.get();
+    ctx.setRootWidget(std::move(moved));
+    WidgetMouseEvent contextEv{core::Point{5.0f, 5.0f}, platform::MouseButton::Right,
+                               platform::KeyModifier::None};
+    movedPtr->onContextMenu(contextEv);
+    EXPECT_TRUE(menuCalled);
+
+    EXPECT_FLOAT_EQ(theme::resolveConcentricRadius(12.0f, 4.0f), 8.0f);
+    EXPECT_FLOAT_EQ(theme::resolveConcentricRadius(6.0f, 4.0f), 4.0f);
+
+    WidgetMouseEvent mouseEv{core::Point{0.0f, 0.0f}, platform::MouseButton::Left,
+                             platform::KeyModifier::Control | platform::KeyModifier::Shift};
+    EXPECT_TRUE(mouseEv.isPrimaryButton());
+    EXPECT_FALSE(mouseEv.isSecondaryButton());
+    EXPECT_TRUE(mouseEv.hasControl());
+    EXPECT_TRUE(mouseEv.hasShift());
+    EXPECT_FALSE(mouseEv.hasAlt());
+    EXPECT_FALSE(mouseEv.hasSuper());
+
+    WidgetKeyEvent keyEv{platform::Key::A, true,
+                         platform::KeyModifier::Alt | platform::KeyModifier::Super};
+    EXPECT_FALSE(keyEv.hasControl());
+    EXPECT_FALSE(keyEv.hasShift());
+    EXPECT_TRUE(keyEv.hasAlt());
+    EXPECT_TRUE(keyEv.hasSuper());
 }
 
 } // namespace northern::widgets

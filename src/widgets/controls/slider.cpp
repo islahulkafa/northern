@@ -97,10 +97,12 @@ void Slider::ensureValueLayout() const {
 }
 
 float Slider::computeTrackWidth(float totalWidth) const noexcept {
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
     float effWidth = totalWidth;
     if (showValue_ && reservedLabelWidth_ > 0.0f &&
-        totalWidth > reservedLabelWidth_ + kReadoutGap * dpiScale_ + 2.0f * thumbRadius_ + 8.0f) {
-        effWidth -= (reservedLabelWidth_ + kReadoutGap * dpiScale_);
+        totalWidth >
+            reservedLabelWidth_ + kReadoutGap * scale + 2.0f * thumbRadius_ + 8.0f * scale) {
+        effWidth -= (reservedLabelWidth_ + kReadoutGap * scale);
     }
     return std::max(1.0f, effWidth - 2.0f * thumbRadius_);
 }
@@ -148,57 +150,72 @@ void Slider::setRole(SliderRole role) noexcept {
 }
 
 void Slider::setSize(SliderSize size) noexcept {
-    float baseTrack = 4.0f;
-    float baseThumb = 7.0f;
-    float baseHeight = 24.0f;
+    hasCustomTrackHeight_ = false;
+    hasCustomThumbRadius_ = false;
+    baseTrackHeight_ = 4.0f;
+    baseThumbRadius_ = 7.0f;
+    baseControlHeight_ = 24.0f;
     switch (size) {
     case SliderSize::Compact:
-        baseTrack = 3.0f;
-        baseThumb = 6.0f;
-        baseHeight = 20.0f;
+        baseTrackHeight_ = 3.0f;
+        baseThumbRadius_ = 6.0f;
+        baseControlHeight_ = 20.0f;
         break;
     case SliderSize::Thick:
-        baseTrack = 6.0f;
-        baseThumb = 9.0f;
-        baseHeight = 28.0f;
+        baseTrackHeight_ = 6.0f;
+        baseThumbRadius_ = 9.0f;
+        baseControlHeight_ = 28.0f;
         break;
     case SliderSize::Standard:
     default:
         break;
     }
-    trackHeight_ = baseTrack * dpiScale_;
-    thumbRadius_ = baseThumb * dpiScale_;
-    style().height = layout::Length::points(baseHeight * dpiScale_);
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    trackHeight_ = baseTrackHeight_ * scale;
+    thumbRadius_ = baseThumbRadius_ * scale;
+    style().height = layout::Length::points(baseControlHeight_ * scale);
     markLayoutDirty();
+    markPaintDirty();
 }
 
 void Slider::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void Slider::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
-        float ratio = clamped / dpiScale_;
         dpiScale_ = clamped;
-        trackHeight_ *= ratio;
-        thumbRadius_ *= ratio;
+        if (!hasCustomTrackHeight_) {
+            trackHeight_ = baseTrackHeight_ * dpiScale_;
+        }
+        if (!hasCustomThumbRadius_) {
+            thumbRadius_ = baseThumbRadius_ * dpiScale_;
+        }
+        style().height = layout::Length::points(baseControlHeight_ * dpiScale_);
         resolvedDefaultFont_.reset();
         if (!font_) {
             cachedValueLayout_.reset();
             reservedLabelWidth_ = 0.0f;
-        }
-        if (style().height.isPoints()) {
-            style().height = layout::Length::points(style().height.value * ratio);
+            reservedLabelHeight_ = 0.0f;
         }
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
 void Slider::setTrackHeight(float height) noexcept {
+    hasCustomTrackHeight_ = true;
     trackHeight_ = std::max(2.0f, height);
     markPaintDirty();
 }
 
 void Slider::setThumbRadius(float radius) noexcept {
+    hasCustomThumbRadius_ = true;
     thumbRadius_ = std::max(3.0f, radius);
     markLayoutDirty();
+    markPaintDirty();
 }
 
 void Slider::setShowValue(bool show) {
@@ -238,10 +255,12 @@ void Slider::setFont(std::shared_ptr<text::Font> font) {
         font_ = std::move(font);
         cachedValueLayout_.reset();
         reservedLabelWidth_ = 0.0f;
+        reservedLabelHeight_ = 0.0f;
         if (showValue_) {
             updateReservedLabelWidth();
             markLayoutDirty();
         }
+        markPaintDirty();
     }
 }
 
@@ -277,11 +296,11 @@ void Slider::clearColorOverrides() noexcept {
 }
 
 core::Color Slider::effectiveInactiveTrackColor() const noexcept {
-    if (overrideInactiveTrackColor_) {
-        return *overrideInactiveTrackColor_;
-    }
-    const auto& pal = colorPalette();
-    return (pal.mode == theme::ThemeMode::Dark) ? pal.surfaceRaised : pal.borderDefault;
+    core::Color col = overrideInactiveTrackColor_ ? *overrideInactiveTrackColor_ : [&]() {
+        const auto& pal = colorPalette();
+        return (pal.mode == theme::ThemeMode::Dark) ? pal.surfaceRaised : pal.borderDefault;
+    }();
+    return isEnabled() ? col : col.withAlpha(col.a * 0.50f);
 }
 
 core::Color Slider::effectiveActiveTrackColor() const noexcept {
@@ -317,7 +336,7 @@ core::Color Slider::effectiveThumbColor() const noexcept {
     if (!isEnabled()) {
         return pal.surfaceBase;
     }
-    return (pal.mode == theme::ThemeMode::Dark) ? pal.textPrimary : core::Color::white();
+    return core::Color::white();
 }
 
 core::Color Slider::effectiveThumbBorderColor() const noexcept {
@@ -328,7 +347,7 @@ core::Color Slider::effectiveThumbBorderColor() const noexcept {
     if (overrideThumbBorderColor_) {
         return *overrideThumbBorderColor_;
     }
-    return (isHovered_ || isDragging_) ? effectiveActiveTrackColor() : pal.borderStrong;
+    return (isDragging_ || hasKeyboardFocus()) ? effectiveActiveTrackColor() : pal.borderDefault;
 }
 
 void Slider::updateValueFromPosition(float localX) {
@@ -340,7 +359,7 @@ void Slider::updateValueFromPosition(float localX) {
 }
 
 void Slider::updateHoverAnimation() {
-    float targetScale = (isEnabled() && (isHovered_ || isDragging_)) ? 1.25f : 1.0f;
+    float targetScale = (isEnabled() && (isHovered_ || isDragging_)) ? 1.15f : 1.0f;
     thumbScaleAnim_.start(thumbScaleAnim_.currentValue(), targetScale, 0.12f,
                           core::animation::EasingCurve::OutCubic);
     if (context_) {
@@ -349,9 +368,20 @@ void Slider::updateHoverAnimation() {
     markPaintDirty();
 }
 
+void Slider::cancelActiveInteraction() {
+    if (isDragging_ && context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    isDragging_ = false;
+    isHovered_ = false;
+    updateHoverAnimation();
+}
+
 void Slider::updateAnimations(float deltaSeconds) {
-    thumbScaleAnim_.update(deltaSeconds);
-    markPaintDirty();
+    if (thumbScaleAnim_.isRunning()) {
+        thumbScaleAnim_.update(deltaSeconds);
+        markPaintDirty();
+    }
 }
 
 bool Slider::hasActiveAnimations() const noexcept {
@@ -362,8 +392,11 @@ void Slider::onMouseDown(WidgetMouseEvent& ev) {
     if (!isEnabled()) {
         return;
     }
-    if (ev.button() == platform::MouseButton::Left) {
+    if (ev.isPrimaryButton()) {
         isDragging_ = true;
+        if (context_) {
+            context_->setMouseGrabWidget(this);
+        }
         setFocus(FocusReason::Pointer);
         updateHoverAnimation();
         updateValueFromPosition(ev.position().x);
@@ -383,10 +416,13 @@ void Slider::onMouseMove(WidgetMouseEvent& ev) {
 
 void Slider::onMouseUp(WidgetMouseEvent& ev) {
     if (!isEnabled()) {
-        isDragging_ = false;
+        cancelActiveInteraction();
         return;
     }
-    if (ev.button() == platform::MouseButton::Left && isDragging_) {
+    if (ev.isPrimaryButton() && isDragging_) {
+        if (context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
         isDragging_ = false;
         updateHoverAnimation();
         ev.accept();
@@ -427,7 +463,7 @@ void Slider::onMouseWheel(WidgetMouseEvent& ev) {
 }
 
 void Slider::onKeyDown(WidgetKeyEvent& ev) {
-    if (!isEnabled()) {
+    if (!isEnabled() || !ev.isDown()) {
         return;
     }
     float stepDelta = (step_ > 0.0f) ? step_ : (maxValue_ - minValue_) * 0.05f;
@@ -461,6 +497,42 @@ void Slider::onKeyDown(WidgetKeyEvent& ev) {
             onValueCommitted.emit(value_);
         }
     }
+}
+
+void Slider::onFocusGained() {
+    markPaintDirty();
+}
+
+void Slider::onFocusLost() {
+    cancelActiveInteraction();
+    markPaintDirty();
+}
+
+void Slider::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void Slider::onThemeChanged() {
+    cachedValueLayout_.reset();
+    reservedLabelWidth_ = 0.0f;
+    reservedLabelHeight_ = 0.0f;
+    if (showValue_) {
+        updateReservedLabelWidth();
+    }
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+void Slider::onEnabledChanged() {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+        setCursorShape(platform::CursorShape::Arrow);
+    } else {
+        setCursorShape(platform::CursorShape::PointingHand);
+    }
+    markPaintDirty();
 }
 
 void Slider::paint(renderer::PaintContext& ctx) {
@@ -518,12 +590,13 @@ void Slider::paint(renderer::PaintContext& ctx) {
         core::Size{currentRadius * 2.0f, currentRadius * 2.0f},
     };
 
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
     float radii[4] = {currentRadius, currentRadius, currentRadius, currentRadius};
-    ctx.drawBox(thumbRect, effectiveThumbColor(), effectiveThumbBorderColor(), 1.5f * dpiScale_,
-                radii);
+    float borderWidth = std::max(1.0f, std::round(theme::Metrics::BorderWidthHairline * scale));
+    ctx.drawBox(thumbRect, effectiveThumbColor(), effectiveThumbBorderColor(), borderWidth, radii);
 
     if (hasKeyboardFocus() && isEnabled()) {
-        theme::paintFocusRing(ctx, thumbRect, currentRadius);
+        paintFocusRing(ctx, thumbRect, currentRadius);
     }
 
     if (showValue_ && reservedLabelWidth_ > 0.0f &&

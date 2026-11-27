@@ -33,6 +33,9 @@ public:
     void setOrientation(RadioGroupOrientation orientation) noexcept;
     [[nodiscard]] RadioGroupOrientation orientation() const noexcept { return orientation_; }
 
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
+
     [[nodiscard]] std::span<RadioButton* const> buttons() const noexcept { return buttons_; }
     [[nodiscard]] int selectedIndex() const noexcept { return selectedIndex_; }
     [[nodiscard]] RadioButton* selectedButton() const noexcept;
@@ -42,10 +45,15 @@ public:
     bool setSelectedValue(std::string_view value);
 
     void onKeyDown(WidgetKeyEvent& ev) override;
+    void onContextAttached() override;
 
 private:
+    void applyDpiScale(float scale);
+
     std::vector<RadioButton*> buttons_{};
     RadioGroupOrientation orientation_{RadioGroupOrientation::Vertical};
+    float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
     int selectedIndex_{-1};
     bool updatingSelection_{false};
 };

@@ -24,7 +24,6 @@ TitleBar::TitleBar(std::string title, std::shared_ptr<text::Font> font, platform
     style().alignItems = layout::AlignItems::Center;
     style().justifyContent = layout::JustifyContent::SpaceBetween;
 
-    appLogo_ = std::make_unique<Icon>(IconId::AppLogo, 18.0f);
     minIcon_ = std::make_unique<Icon>(IconId::WindowMinimize, 14.0f);
     maxIcon_ = std::make_unique<Icon>(IconId::WindowMaximize, 14.0f);
     restoreIcon_ = std::make_unique<Icon>(IconId::WindowRestore, 14.0f);
@@ -65,10 +64,16 @@ TitleBar::TitleBar(std::string title, std::shared_ptr<text::Font> font, platform
 }
 
 TitleBar::~TitleBar() {
+    if (window_) {
+        window_->setHitTestCallback(nullptr);
+    }
     windowResizeConn_.disconnect();
 }
 
 void TitleBar::setWindow(platform::Window* window) {
+    if (window_ && window_ != window) {
+        window_->setHitTestCallback(nullptr);
+    }
     windowResizeConn_.disconnect();
     window_ = window;
     if (window_) {
@@ -129,6 +134,11 @@ void TitleBar::setSize(TitleBarSize size) noexcept {
 }
 
 void TitleBar::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void TitleBar::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
@@ -139,13 +149,24 @@ void TitleBar::setDpiScale(float scale) {
     }
 }
 
-void TitleBar::setShowLogo(bool show) noexcept {
-    if (showLogo_ != show) {
-        showLogo_ = show;
-        invalidateTitleCache();
-        updateZoneLayout();
-        markPaintDirty();
+void TitleBar::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
     }
+}
+
+void TitleBar::onThemeChanged() {
+    resolvedDefaultFont_.reset();
+    invalidateTitleCache();
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+void TitleBar::onEnabledChanged() {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+    }
+    markPaintDirty();
 }
 
 void TitleBar::setMinimizeVisible(bool visible) noexcept {
@@ -503,21 +524,14 @@ void TitleBar::paint(renderer::PaintContext& ctx) {
     float height = sRect.size.height;
     const auto& palette = colorPalette();
 
+    float borderW = std::max(1.0f, std::round(1.0f * scale));
     ctx.drawRect(sRect, effectiveBackgroundColor());
-    ctx.drawLine(core::Point{sRect.origin.x, sRect.origin.y + height - 0.5f},
-                 core::Point{sRect.origin.x + sRect.size.width, sRect.origin.y + height - 0.5f},
-                 effectiveBorderColor(), std::max(1.0f, std::round(1.0f * scale)));
+    ctx.drawLine(
+        core::Point{sRect.origin.x, sRect.origin.y + height - borderW * 0.5f},
+        core::Point{sRect.origin.x + sRect.size.width, sRect.origin.y + height - borderW * 0.5f},
+        effectiveBorderColor(), borderW);
 
     float titleX = sRect.origin.x + 12.0f * scale;
-    if (showLogo_ && appLogo_) {
-        float logoSize = 18.0f * scale;
-        core::Rect logoRect{core::Point{titleX, sRect.origin.y + (height - logoSize) * 0.5f},
-                            core::Size{logoSize, logoSize}};
-        if (auto doc = appLogo_->svgDocument()) {
-            ctx.drawSvg(*doc, logoRect, palette.accentDefault);
-        }
-        titleX += logoSize + 8.0f * scale;
-    }
 
     float captionAreaWidth =
         static_cast<float>(visibleCaptionButtonCount()) * kCaptionButtonWidth * scale;
@@ -598,13 +612,31 @@ void TitleBar::paint(renderer::PaintContext& ctx) {
     }
 }
 
+void TitleBar::cancelActiveInteraction() {
+    if (context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    bool wasActive = hoveredBtn_ != CaptionButton::None || pressedBtn_ != CaptionButton::None;
+    CaptionButton prev = hoveredBtn_;
+    hoveredBtn_ = CaptionButton::None;
+    pressedBtn_ = CaptionButton::None;
+    hasLastCaptionClick_ = false;
+    updateHoverAnimations(prev, CaptionButton::None);
+    updateCaptionTooltip(CaptionButton::None);
+    if (context_) {
+        context_->dismissTooltip();
+    }
+    if (wasActive) {
+        markPaintDirty();
+    }
+}
+
 void TitleBar::onMouseEnter() {}
 
 void TitleBar::onMouseLeave() {
-    if (hoveredBtn_ != CaptionButton::None || pressedBtn_ != CaptionButton::None) {
+    if (hoveredBtn_ != CaptionButton::None) {
         CaptionButton prev = hoveredBtn_;
         hoveredBtn_ = CaptionButton::None;
-        pressedBtn_ = CaptionButton::None;
         updateHoverAnimations(prev, CaptionButton::None);
         updateCaptionTooltip(CaptionButton::None);
         if (context_) {
@@ -615,6 +647,9 @@ void TitleBar::onMouseLeave() {
 }
 
 void TitleBar::onMouseMove(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        return;
+    }
     CaptionButton btn = hitTestCaptionButton(ev.position());
     if (hoveredBtn_ != btn) {
         CaptionButton prev = hoveredBtn_;
@@ -629,11 +664,17 @@ void TitleBar::onMouseMove(WidgetMouseEvent& ev) {
 }
 
 void TitleBar::onMouseDown(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left) {
+    if (!isEnabled()) {
+        return;
+    }
+    if (ev.isPrimaryButton()) {
         CaptionButton btn = hitTestCaptionButton(ev.position());
         if (btn != CaptionButton::None) {
             pressedBtn_ = btn;
             hasLastCaptionClick_ = false;
+            if (context_) {
+                context_->setMouseGrabWidget(this);
+            }
             ev.accept();
             markPaintDirty();
             return;
@@ -668,7 +709,14 @@ void TitleBar::onMouseDown(WidgetMouseEvent& ev) {
 }
 
 void TitleBar::onMouseUp(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left) {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+        return;
+    }
+    if (ev.isPrimaryButton()) {
+        if (context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
         CaptionButton btn = hitTestCaptionButton(ev.position());
         if (btn != CaptionButton::None && btn == pressedBtn_) {
             ev.accept();

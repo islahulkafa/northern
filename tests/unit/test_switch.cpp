@@ -152,3 +152,86 @@ TEST(SwitchTest, LeadingPlacementDragOffCancelAndDisabledGuards) {
     EXPECT_FALSE(spaceEv.isAccepted());
     EXPECT_FALSE(sw->isChecked());
 }
+
+TEST(SwitchTest, CrispWhiteThumbUncheckedAndSpringSettle) {
+    WidgetContext ctx;
+    auto owned = std::make_unique<Switch>("Sync", false);
+    Switch* sw = owned.get();
+    ctx.setRootWidget(std::move(owned));
+
+    EXPECT_EQ(sw->effectiveThumbColor(), core::Color::white());
+    sw->setChecked(true);
+    EXPECT_TRUE(sw->hasActiveAnimations());
+    for (int i = 0; i < 60; ++i) {
+        sw->updateAnimations(1.0f / 60.0f);
+    }
+    EXPECT_FALSE(sw->hasActiveAnimations());
+    EXPECT_EQ(sw->effectiveThumbColor(), core::Color::white());
+}
+
+TEST(SwitchTest, MouseGrabPressCancelOnDisableAndBlur) {
+    WidgetContext ctx;
+    auto owned = std::make_unique<Switch>("Wi-Fi", false);
+    Switch* sw = owned.get();
+    sw->style().width = layout::Length::points(140.0f);
+    sw->style().height = layout::Length::points(28.0f);
+    ctx.setRootWidget(std::move(owned));
+    sw->layoutNode().computeLayout(140.0f, 28.0f);
+
+    WidgetMouseEvent downEv{core::Point{10.0f, 10.0f}, platform::MouseButton::Left,
+                            platform::KeyModifier::None};
+    sw->onMouseDown(downEv);
+    EXPECT_EQ(ctx.mouseGrabWidget(), sw);
+
+    sw->onMouseLeave();
+    EXPECT_EQ(ctx.mouseGrabWidget(), sw);
+
+    WidgetMouseEvent outsideUp{core::Point{300.0f, 300.0f}, platform::MouseButton::Left,
+                               platform::KeyModifier::None};
+    sw->onMouseUp(outsideUp);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_FALSE(sw->isChecked());
+
+    // Disabling during an active press releases mouse grab and switches cursor to Arrow.
+    sw->onMouseDown(downEv);
+    EXPECT_EQ(ctx.mouseGrabWidget(), sw);
+    sw->setEnabled(false);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_EQ(sw->cursorShape(), platform::CursorShape::Arrow);
+
+    // Re-enabling restores PointingHand, and focus loss cancels active press/grab.
+    sw->setEnabled(true);
+    EXPECT_EQ(sw->cursorShape(), platform::CursorShape::PointingHand);
+    sw->onMouseDown(downEv);
+    EXPECT_EQ(ctx.mouseGrabWidget(), sw);
+    ctx.clearFocus();
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+}
+
+TEST(SwitchTest, ContextDpiAdoptionCustomTrackSizeAndThemeRefresh) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+
+    auto owned =
+        std::make_unique<Switch>("Bluetooth", SwitchSize::Standard, SwitchRole::Accent, true);
+    Switch* sw = owned.get();
+    EXPECT_EQ(sw->size(), SwitchSize::Standard);
+    ctx.setRootWidget(std::move(owned));
+
+    EXPECT_FLOAT_EQ(sw->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(sw->trackWidth(), 54.0f);
+    EXPECT_FLOAT_EQ(sw->trackHeight(), 30.0f);
+
+    // Explicit track size scales proportionally when DPI changes.
+    sw->setTrackSize(60.0f, 32.0f);
+    sw->setDpiScale(2.0f);
+    EXPECT_FLOAT_EQ(sw->trackWidth(), 80.0f);
+    EXPECT_FLOAT_EQ(sw->trackHeight(), 42.666668f);
+
+    // Theme refresh and disabled 0.50f track alpha muting.
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_EQ(sw->effectiveTextColor(), theme::ColorPalette::light().textPrimary);
+    sw->setEnabled(false);
+    EXPECT_EQ(sw->effectiveTrackColor(),
+              theme::ColorPalette::light().borderDefault.withAlpha(0.50f));
+}

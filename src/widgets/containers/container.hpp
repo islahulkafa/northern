@@ -19,7 +19,8 @@ enum class SurfaceRole {
 enum class BorderRole {
     None,    // Transparent or custom width/color
     Subtle,  // 1px hairline colorPalette().borderSubtle
-    Default  // 1px hairline colorPalette().borderDefault
+    Default, // 1px hairline colorPalette().borderDefault
+    Strong   // 1px hairline colorPalette().borderStrong
 };
 
 class Container : public Widget {
@@ -73,6 +74,9 @@ public:
     void updateAnimations(float deltaSeconds) override;
     [[nodiscard]] bool hasActiveAnimations() const noexcept override;
 
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onFocusLost() override;
     void onMouseEnter() override;
     void onMouseLeave() override;
     void onMouseMove(WidgetMouseEvent& ev) override;

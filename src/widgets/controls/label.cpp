@@ -100,6 +100,7 @@ void Label::setText(std::string text) {
         text_ = std::move(text);
         invalidateLayoutCache();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -108,6 +109,7 @@ void Label::setFont(std::shared_ptr<text::Font> font) {
         font_ = std::move(font);
         invalidateLayoutCache();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -118,11 +120,17 @@ void Label::setTextStyle(theme::TypographyStyle style) {
         if (!font_) {
             invalidateLayoutCache();
             markLayoutDirty();
+            markPaintDirty();
         }
     }
 }
 
 void Label::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void Label::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
@@ -130,6 +138,7 @@ void Label::setDpiScale(float scale) {
         if (!font_) {
             invalidateLayoutCache();
             markLayoutDirty();
+            markPaintDirty();
         }
     }
 }
@@ -206,6 +215,7 @@ void Label::setWordWrap(text::WordWrap wrapMode) noexcept {
         cachedLayout_.reset();
         cachedWidth_ = -1.0f;
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -223,6 +233,7 @@ void Label::setMaxLines(uint32_t maxLines) noexcept {
         maxLines_ = maxLines;
         invalidateLayoutCache();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -232,11 +243,28 @@ void Label::setLineHeightMultiplier(float multiplier) noexcept {
         lineHeightMultiplier_ = clamped;
         invalidateLayoutCache();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
 bool Label::isTruncated() const noexcept {
     return cachedLayout_ && cachedLayout_->isTruncated();
+}
+
+void Label::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void Label::onThemeChanged() {
+    invalidateLayoutCache();
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+void Label::onEnabledChanged() {
+    markPaintDirty();
 }
 
 void Label::paint(renderer::PaintContext& ctx) {

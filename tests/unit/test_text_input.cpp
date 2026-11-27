@@ -2,6 +2,7 @@
 #include "renderer/paint_context.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
+#include "widgets/controls/icons.hpp"
 #include "widgets/controls/text_input.hpp"
 #include <gtest/gtest.h>
 
@@ -133,4 +134,51 @@ TEST(TextInputTest, ReadOnlyMaxLengthPasswordModeAndFocusPlaceholder) {
     ctx.handleMouseDown(clickRight);
     EXPECT_EQ(input->cursorIndex(), 10u);
     EXPECT_FALSE(input->hasKeyboardFocus());
+}
+
+TEST(TextInputTest, LeadingIconClearButtonAndBorderFade) {
+    WidgetContext ctx;
+    auto owned = std::make_unique<TextInput>("Search...");
+    TextInput* input = owned.get();
+    input->setLeadingIcon(IconId::Search);
+    input->setClearButtonEnabled(true);
+    input->style().width = layout::Length::points(240.0f);
+    ctx.setRootWidget(std::move(owned));
+    ctx.handleResize({240.0f, 32.0f});
+
+    EXPECT_NE(input->leadingIcon(), nullptr);
+    EXPECT_TRUE(input->isClearButtonEnabled());
+
+    input->setText("northern");
+    EXPECT_EQ(input->text(), "northern");
+
+    input->onMouseEnter();
+    EXPECT_TRUE(input->hasActiveAnimations());
+    input->updateAnimations(0.20f);
+    EXPECT_FALSE(input->hasActiveAnimations());
+
+    // Clicking clear button near trailing edge resets text
+    WidgetMouseEvent clearClick{core::Point{224.0f, 16.0f}, platform::MouseButton::Left,
+                                platform::KeyModifier::None};
+    input->onMouseDown(clearClick);
+    EXPECT_TRUE(input->text().empty());
+
+    // Focus then blur via WidgetContext; hovering afterwards must not flash focus ring
+    ctx.setFocusedWidget(input, FocusReason::Pointer);
+    ctx.advanceAnimations(0.20f);
+    ctx.clearFocus();
+    ctx.advanceAnimations(0.20f);
+    EXPECT_FALSE(input->hasActiveAnimations());
+
+    input->onMouseEnter();
+    renderer::PaintContext pctx;
+    input->paint(pctx);
+    int boxCount = 0;
+    for (const auto& cmd : pctx.commands()) {
+        if (std::holds_alternative<renderer::DrawBoxCommand>(cmd)) {
+            ++boxCount;
+        }
+    }
+    // Only the input box itself (no outer focus ring)
+    EXPECT_EQ(boxCount, 1);
 }

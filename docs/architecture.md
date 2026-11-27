@@ -46,8 +46,8 @@ northern/
 │   ├── renderer/       # BatchRenderer, PaintContext, DynamicRingBuffer, SvgDocument
 │   ├── text/           # FontManager, TextShaper, TextLayout, GlyphAtlas, VectorRasterizer
 │   ├── layout/         # Style, LayoutNode, FlexSolver
-│   └── widgets/        # Retained widget tree (base, containers, controls, dialogs, views)
-├── tests/              # GoogleTest unit suite (324 tests across 54 suites)
+│   └── widgets/        # Retained widget tree (base, containers, controls, dialogs/TitleBar/Dialog/MessageBox, views)
+├── tests/              # GoogleTest unit suite (331 tests across 56 suites)
 ├── CMakeLists.txt      # Root CMake 3.25+ build definition
 └── vcpkg.json          # Dependency manifest (harfbuzz, freetype, gtest)
 ```

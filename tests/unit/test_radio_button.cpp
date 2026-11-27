@@ -273,3 +273,91 @@ TEST(RadioGroupTest, CenteredAutoWidthGroupShrinkWrapsInColumnRoot) {
     EXPECT_TRUE(optB->isChecked());
     EXPECT_FALSE(optA->isChecked());
 }
+
+TEST(RadioButtonTest, ContextDpiAdoptionAndMouseGrabCleanup) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    auto owned = std::make_unique<RadioButton>("Scaled", false);
+    RadioButton* rb = owned.get();
+    ctx.setRootWidget(std::move(owned));
+    ctx.handleResize(core::Size{160.0f, 32.0f});
+
+    EXPECT_FLOAT_EQ(rb->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(rb->circleSize(), 24.0f);
+    ASSERT_NE(rb->effectiveFont(), nullptr);
+    EXPECT_FLOAT_EQ(rb->effectiveFont()->pointSize(), 21.0f);
+
+    // Explicit setDpiScale is preserved on context attachment
+    WidgetContext ctx2;
+    ctx2.setDpiScale(1.5f);
+    auto explicitOwned = std::make_unique<RadioButton>("Explicit", false);
+    RadioButton* explicitRb = explicitOwned.get();
+    explicitRb->setDpiScale(2.0f);
+    ctx2.setRootWidget(std::move(explicitOwned));
+    EXPECT_FLOAT_EQ(explicitRb->dpiScale(), 2.0f);
+
+    // Idle updateAnimations does not dirty paint
+    rb->clearPaintDirty();
+    rb->updateAnimations(0.016f);
+    EXPECT_FALSE(rb->isPaintDirty());
+
+    // Theme switch marks paint dirty
+    rb->clearPaintDirty();
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_TRUE(rb->isPaintDirty());
+
+    // Press acquires mouse grab; release outside cancels toggle and releases grab
+    WidgetMouseEvent pressIn{core::Point{8.0f, 12.0f}, platform::MouseButton::Left,
+                             platform::KeyModifier::None};
+    rb->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), rb);
+
+    WidgetMouseEvent releaseOut{core::Point{400.0f, 12.0f}, platform::MouseButton::Left,
+                                platform::KeyModifier::None};
+    rb->onMouseUp(releaseOut);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_FALSE(rb->isChecked());
+
+    // Disable mid-press releases grab and switches cursor to Arrow
+    rb->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), rb);
+    rb->setEnabled(false);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_EQ(rb->cursorShape(), platform::CursorShape::Arrow);
+
+    rb->setEnabled(true);
+    EXPECT_EQ(rb->cursorShape(), platform::CursorShape::PointingHand);
+
+    // Focus lost mid-press releases grab
+    rb->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), rb);
+    rb->onFocusLost();
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+}
+
+TEST(RadioGroupTest, DpiPropagationAndDisabledKeyGuard) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    auto ownedGroup = std::make_unique<RadioGroup>(RadioGroupOrientation::Vertical);
+    RadioGroup* group = ownedGroup.get();
+
+    auto* opt1 = group->addOption("One", "1");
+    auto customRb = std::make_unique<RadioButton>("Custom");
+    customRb->setDpiScale(2.0f);
+    RadioButton* opt2 = group->addRadioButton(std::move(customRb));
+
+    ctx.setRootWidget(std::move(ownedGroup));
+
+    EXPECT_FLOAT_EQ(group->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(group->style().rowGap, 12.0f);
+    EXPECT_FLOAT_EQ(opt1->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(opt2->dpiScale(), 2.0f);
+
+    // Disabled RadioGroup ignores arrow-key navigation
+    group->setSelectedIndex(0);
+    group->setEnabled(false);
+    WidgetKeyEvent downKey{platform::Key::Down, true, platform::KeyModifier::None};
+    group->onKeyDown(downKey);
+    EXPECT_FALSE(downKey.isAccepted());
+    EXPECT_EQ(group->selectedIndex(), 0);
+}

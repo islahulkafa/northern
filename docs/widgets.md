@@ -6,33 +6,35 @@ This reference documents Northern's retained widget catalog, keyboard focus trav
 
 | Widget               | Header                                                         | Primary features                                                                                                          |
 | :------------------- | :------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
-| `Container`          | [container.hpp](../src/widgets/containers/container.hpp)       | Flexbox layout container with background, border, and corner radius styling                                               |
-| `Label`              | [label.hpp](../src/widgets/controls/label.hpp)                 | Shaped text display using `TextLayout` and optical vertical centering                                                     |
-| `Button`             | [button.hpp](../src/widgets/controls/button.hpp)               | `Secondary`, `Primary`, `Ghost`, and `Destructive` variants; animated hover/press transitions; `Space`/`Enter` activation |
-| `TextInput`          | [text_input.hpp](../src/widgets/controls/text_input.hpp)       | Single-line input with caret blinking, selection highlight, clipboard shortcuts, `IBeam` cursor, and always-on focus ring |
-| `Checkbox`           | [checkbox.hpp](../src/widgets/controls/checkbox.hpp)           | Animated vector checkmark stroke reveal (`checkAnim_`) and `Space`/`Enter` toggling                                       |
-| `Switch`             | [switch.hpp](../src/widgets/controls/switch.hpp)               | Animated thumb slide and track color interpolation (`thumbAnim_`)                                                         |
-| `RadioButton`        | [radio_button.hpp](../src/widgets/controls/radio_button.hpp)   | Animated inner dot scale/fade and outer ring interpolation (`checkAnim_`)                                                 |
-| `RadioGroup`         | [radio_group.hpp](../src/widgets/controls/radio_group.hpp)     | Mutual exclusivity controller with `Up`/`Down`/`Left`/`Right` arrow navigation                                            |
-| `Slider`             | [slider.hpp](../src/widgets/controls/slider.hpp)               | Mouse-capture dragging outside bounds, thumb hover scaling, `Left`/`Right`/`Up`/`Down`/`Home`/`End` stepping              |
-| `ProgressBar`        | [progress_bar.hpp](../src/widgets/controls/progress_bar.hpp)   | Smooth determinate progress transitions and continuous indeterminate marquee                                              |
-| `Dropdown`           | [dropdown.hpp](../src/widgets/containers/dropdown.hpp)         | Top-level overlay popup, continuous vector chevron morphing, and `Up`/`Down`/`Enter`/`Space` navigation                   |
-| `ContextMenu`        | [context_menu.hpp](../src/widgets/containers/context_menu.hpp) | Right-release popup menu supporting action items, submenus, shortcut badges, check items, and keyboard navigation         |
-| `MenuBar`            | [menu_bar.hpp](../src/widgets/containers/menu_bar.hpp)         | Top-level desktop menu bar with cascading `ContextMenu` popups, keyboard accelerators, and DPI scaling                    |
-| `Tooltip`            | [tooltip.hpp](../src/widgets/controls/tooltip.hpp)             | Hover-delayed passive overlay with optional keyboard shortcut badge                                                       |
-| `ScrollView`         | [scroll_view.hpp](../src/widgets/containers/scroll_view.hpp)   | Clipped viewport container with mouse-wheel scrolling                                                                     |
-| `Divider`            | [divider.hpp](../src/widgets/controls/divider.hpp)             | Horizontal or vertical hairline separator with optional centered text label                                               |
-| `SplitView`          | [split_view.hpp](../src/widgets/containers/split_view.hpp)     | Proportional resizing container with draggable sash divider, min-size bounds, and `ResizeEW`/`ResizeNS` cursors           |
-| `TabBar`             | [tab_view.hpp](../src/widgets/containers/tab_view.hpp)         | `Underline`, `Pill`, and `EditorCard` tab styles with SVG icons, drag-to-reorder, close buttons, and overflow scrolling   |
+| `Container`          | [container.hpp](../src/widgets/containers/container.hpp)       | Flexbox layout container with `SurfaceRole`/`BorderRole` (`Subtle`, `Default`, `Strong`), per-corner radii, and interactive card mode |
+| `Label`              | [label.hpp](../src/widgets/controls/label.hpp)                 | Shaped text display using `TextLayout`, optical vertical centering (`theme::computeCenteredTextY`), `contextDpiScale()` adoption, and theme/enabled invalidation |
+| `Button`             | [button.hpp](../src/widgets/controls/button.hpp)               | `Secondary`, `Primary`, `Outline`, `Ghost`, and `Destructive` variants; `0.12s OutCubic` hover/press color fades paired with `0.97` spring press scale; mouse-grab release safety; loading spinner; `onThemeChanged`/`contextDpiScale()` sync; `Space`/`Enter` activation |
+| `TextInput`          | [text_input.hpp](../src/widgets/controls/text_input.hpp)       | Single-line input with caret blinking, rounded selection highlight, leading icon, trailing clear button, synchronized border/ring fade, `IBeam` cursor, and always-on focus ring |
+| `Checkbox`           | [checkbox.hpp](../src/widgets/controls/checkbox.hpp)           | Animated vector checkmark/indeterminate stroke reveal (`checkAnim_`), `10.5pt * dpi` default font fallback with cached `TextLayout`, `contextDpiScale()` adoption, mouse-grab release safety, and `Space`/`Enter` toggling |
+| `Switch`             | [switch.hpp](../src/widgets/controls/switch.hpp)               | Pure white thumb (Light-mode hairline border), soft capsule track, `0.16s OutCubic` slide, mouse-grab press stretch, `contextDpiScale()`, and `Widget::paintFocusRing` |
+| `RadioButton`        | [radio_button.hpp](../src/widgets/controls/radio_button.hpp)   | Animated inner dot scale/fade and outer ring interpolation (`checkAnim_`), `contextDpiScale()` adoption, mouse-grab safety, and `Widget::paintFocusRing` |
+| `RadioGroup`         | [radio_group.hpp](../src/widgets/controls/radio_group.hpp)     | Mutual exclusivity controller with DPI gap/child propagation, disabled guard, and `Up`/`Down`/`Left`/`Right` arrow navigation |
+| `Slider`             | [slider.hpp](../src/widgets/controls/slider.hpp)               | Pure white knob with scaled hairline border, mouse-capture dragging outside bounds, `0.12s OutCubic` thumb hover scaling, `contextDpiScale()` adoption, `Widget::paintFocusRing`, and `Left`/`Right`/`Up`/`Down`/`Home`/`End`/`PageUp`/`PageDown` stepping |
+| `ProgressBar`        | [progress_bar.hpp](../src/widgets/controls/progress_bar.hpp)   | Smooth `0.20s OutCubic` determinate progress and CPU-clipped indeterminate marquee, `contextDpiScale()` adoption, `ProgressRole` semantics, and disabled freeze/muting |
+| `Dropdown`           | [dropdown.hpp](../src/widgets/containers/dropdown.hpp)         | Rotating chevron (`0.18s OutCubic`), top-level `10px` overlay popup with concentric `6px` `0.55`/`0.85` hover/press pills, scrollbar mouse grab, and `Up`/`Down`/`Enter`/`Space` navigation |
+| `ContextMenu`        | [context_menu.hpp](../src/widgets/containers/context_menu.hpp) | Right-release `10px` popup menu supporting concentric `6px` hover pills (`0.12s OutCubic`), inset hairlines, subtitled items, submenus, shortcut badges, Cobalt check/radio groups, and trailing icons |
+| `MenuBar`            | [menu_bar.hpp](../src/widgets/containers/menu_bar.hpp)         | Top-level desktop menu bar with `0.55`/`0.85` `0.12s OutCubic` pill fade, keyboard focus ring, cascading `ContextMenu` popups, keyboard accelerators, disabled state, and DPI scaling |
+| `Tooltip`            | [tooltip.hpp](../src/widgets/controls/tooltip.hpp)             | Hover-delayed passive overlay with concentric shortcut keycap badge, `contextDpiScale()`, `onThemeChanged()`, and Flexbox measurement |
+| `ScrollView`         | [scroll_view.hpp](../src/widgets/containers/scroll_view.hpp)   | Clipped viewport container with `SurfaceRole` theming, `ScrollbarVisibility` (`Automatic` 800ms fade, `AlwaysVisible`, `Never`), content-shrink clamping, hover expansion, thumb grab, and DPI scaling |
+| `Divider`            | [divider.hpp](../src/widgets/controls/divider.hpp)             | Horizontal or vertical hairline separator (`Subtle`, `Default`, `Strong`) with optional aligned text label, `contextDpiScale()` adoption, cached `11pt * dpi` font fallback, and disabled muting |
+| `SplitView`          | [split_view.hpp](../src/widgets/containers/split_view.hpp)     | `SplitStyle::Hairline` (`1px` divider + `4px` grab margin + hover grip pill) and `Classic`; `FixedFirst`/`FixedSecond`/`Proportional` sizing; `0.22s InOutCubic` collapse; `Widget::paintFocusRing`; and disabled state guards |
+| `TabBar`             | [tab_view.hpp](../src/widgets/containers/tab_view.hpp)         | `Underline`, `Pill`, `EditorCard`, and `Segmented` tab styles with SVG icons, drag-to-reorder, close buttons, DPI scaling, and overflow scrolling |
 | `TabView`            | [tab_view.hpp](../src/widgets/containers/tab_view.hpp)         | Complete tabbed workbench hosting a `TabBar` and an automated flex-filling page deck container                            |
-| `CollapsibleSection` | [accordion.hpp](../src/widgets/containers/accordion.hpp)       | Smooth animated height collapse (`OutCubic`), rotating vector chevron, and clipped body                                   |
-| `Accordion`          | [accordion.hpp](../src/widgets/containers/accordion.hpp)       | Stacked section container supporting independent or single-expanded mutual exclusivity                                    |
-| `HeaderView`         | [header_view.hpp](../src/widgets/views/header_view.hpp)        | Multi-column table header with draggable column resizing, `ResizeEW` cursor, and click-to-sort vector arrows              |
-| `ListView`           | [list_view.hpp](../src/widgets/views/list_view.hpp)            | High-performance virtualized 1D list rendering $O(1)$ visible slice with keyboard navigation and scrollbars               |
-| `TableView`          | [table_view.hpp](../src/widgets/views/table_view.hpp)          | 2D virtualized grid with integrated `HeaderView`, column resizing, alternating rows, and grid lines                       |
-| `TreeView`           | [tree_view.hpp](../src/widgets/views/tree_view.hpp)            | Multi-column hierarchical tree-table with visible row flattening, depth indentation, and animated vector chevrons         |
-| `Icon`               | [icon.hpp](../src/widgets/controls/icon.hpp)                   | High-performance resolution-independent SVG vector icon widget with tinting and cached paths                              |
+| `CollapsibleSection` / `DisclosureGroup` | [accordion.hpp](../src/widgets/containers/accordion.hpp) | SwiftUI-inspired disclosure group with trailing Cobalt chevron, concentric `6px` hover/focus pill, `addRow()`, disabled state, and animated collapse |
+| `Accordion`          | [accordion.hpp](../src/widgets/containers/accordion.hpp)       | Stacked section container supporting `Grouped` (Optical Zinc card), `Separated`, and `Flush` styles with visible-section dividers |
+| `HeaderView`         | [header_view.hpp](../src/widgets/views/header_view.hpp)        | Multi-column table header with draggable column resizing, Cobalt divider highlight, `ResizeEW` cursor, and click-to-sort vector arrows |
+| `ListView`           | [list_view.hpp](../src/widgets/views/list_view.hpp)            | Virtualized 1D list (`ListStyle::Inset`, `Sidebar`, `Plain`) rendering $O(1)$ visible slice with rounded selection pills and Dark/Light palette support |
+| `TableView`          | [table_view.hpp](../src/widgets/views/table_view.hpp)          | 2D virtualized grid with integrated `HeaderView`, column resizing, optional border toggle, and Light/Dark `ColorPalette` cells |
+| `TreeView`           | [tree_view.hpp](../src/widgets/views/tree_view.hpp)            | Multi-column hierarchical tree-table with visible row flattening, depth indentation, optional border toggle, and vector chevrons |
+| `Icon`               | [icon.hpp](../src/widgets/controls/icon.hpp)                   | Resolution-independent 24x24 SVG vector icon widget with `IconRole` tinting, `contextDpiScale()` adoption, `SurfaceRaised` interactive pill, mouse-grab safety, and `Widget::paintFocusRing` |
 | `TitleBar`           | [title_bar.hpp](../src/widgets/dialogs/title_bar.hpp)          | Frameless DWM title bar with app logo, customizable center search/action slots, and native SVG caption buttons            |
+| `Dialog`             | [dialog.hpp](../src/widgets/dialogs/dialog.hpp)                | Centered modal overlay card (`SurfaceRole::Overlay`) with standard/custom button bar, `Escape`/`Enter`, and focus trap    |
+| `MessageBox`         | [message_box.hpp](../src/widgets/dialogs/message_box.hpp)      | Standard `info`, `warning`, `error`, and `confirm` modal dialog factories with semantic icons for warnings/errors         |
 | `FileDialog`         | [file_dialog.hpp](../src/platform/file_dialog.hpp)             | Native OS file open/save and folder picker with COM shell integration                                                     |
 
 ## Focus traversal and focus-visible rules
@@ -40,7 +42,8 @@ This reference documents Northern's retained widget catalog, keyboard focus trav
 [WidgetContext](../src/widgets/base/widget_context.hpp) tracks both the active `focusedWidget()` and the `FocusReason` (`Pointer`, `Keyboard`, or `Programmatic`) that granted focus:
 
 - **Tab order**: Pressing `Tab` or `Shift+Tab` invokes `WidgetContext::focusNext(reverse)`, performing depth-first pre-order traversal across visible, enabled, focusable widgets and wrapping around cleanly.
-- **Focus-visible rings**: Interactive controls (`Button`, `Checkbox`, `Switch`, `RadioButton`, `Slider`, `Dropdown`) paint the 2px Cobalt ring (`theme::paintFocusRing`) only when `hasKeyboardFocus()` is `true` (`FocusReason::Keyboard`). `TextInput` renders its focus ring whenever `hasFocus()` is `true`.
+- **Focus-visible rings**: Interactive controls (`Button`, `Checkbox`, `Switch`, `RadioButton`, `Slider`, `Dropdown`, `Accordion`) paint the 2px Cobalt ring (`Widget::paintFocusRing`) only when `hasKeyboardFocus()` is `true` (`FocusReason::Keyboard`). `TextInput` renders its focus ring whenever `hasFocus()` is `true`.
+- **Context lifecycle & DPI hooks**: Attached widgets receive `onContextAttached()` (allowing default DPI sync via `contextDpiScale()`) and `onThemeChanged()` for live palette/layout updates.
 
 ## Retained display lists and viewport culling
 
@@ -97,17 +100,20 @@ card->setContextMenuBuilder([font]() {
 [SplitView](../src/widgets/containers/split_view.hpp) divides space horizontally or vertically with a live draggable sash divider:
 
 ```cpp
-auto splitView = std::make_unique<SplitView>(SplitOrientation::Horizontal, 0.3f);
-splitView->setMinPaneSize(180.0f);
-splitView->setSashThickness(6.0f);
+auto splitView = std::make_unique<SplitView>(SplitOrientation::Horizontal);
+splitView->setDpiScale(dpi);
+splitView->setSizeMode(SplitSizeMode::FixedFirst);
+splitView->setFirstPaneSize(220.0f * dpi);
+splitView->setMinFirstPaneSize(150.0f * dpi);
 splitView->setPanes(std::move(sidebar), std::move(contentDeck));
 splitView->onSplitChanged.connect([](float ratio) {
     // Proportional ratio update [0.01f, 0.99f]
 });
 ```
 
-- **Interactive sash**: Hovering over the divider dispatches `CursorShape::ResizeEW` (horizontal) or `CursorShape::ResizeNS` (vertical). Left-clicking acquires mouse grab (`WidgetContext::setMouseGrabWidget`), allowing dragging even if the cursor moves outside the split container.
-- **Flexbox-native integration**: Resizes child pane styles proportionally via `flexGrow = ratio` and `flexGrow = 1.0f - ratio` within the flex layout engine.
+- **Hairline & Classic styles**: Defaults to `SplitStyle::Hairline` (`1px * dpiScale_` visual divider with an invisible `4px * dpiScale_` `grabMargin_` and hover/drag-revealed pill grip); `SplitStyle::Classic` renders a persistent `6px` sash bar.
+- **Collapse transitions**: `setCollapsed()` and `toggleCollapse(true)` animate smoothly over `0.22s InOutCubic`.
+- **Interactive sash**: Hovering dispatches `CursorShape::ResizeEW` / `ResizeNS` and acquires mouse grab (`WidgetContext::setMouseGrabWidget`).
 
 ### TabBar and TabView
 
@@ -117,15 +123,15 @@ splitView->onSplitChanged.connect([](float ratio) {
 auto tabView = std::make_unique<TabView>();
 tabView->setDpiScale(dpi);
 tabView->setTabBarStyle(TabBarStyle::Underline);
-tabView->addTab("Table View", IconId::Grid, std::move(tableView));
+tabView->addTab("Table View", std::move(tableView));
 tabView->addTab("Console", std::move(consolePage), true); // closable
 tabView->onTabChanged.connect([](int index) { /* Active tab switched */ });
 tabView->onTabClosed.connect([](int index) { /* Tab removed */ });
 ```
 
-- **Styles & DPI**: Supports `TabBarStyle::Underline`, `TabBarStyle::Pill`, and `TabBarStyle::EditorCard`, with `setDpiScale()` and `effectiveFont()` falling back to `FontManager::instance().defaultFont()`.
-- **Keyboard cycling & reordering**: `Left` and `Right` arrow keys cycle active tabs with wrap-around; `setReorderable(true)` enables drag-to-reorder.
-- **Icons & close buttons**: Supports `IconId` or `SvgDocument` leading icons and vector close buttons.
+- **Styles & DPI**: Supports `TabBarStyle::Underline`, `TabBarStyle::Pill`, `TabBarStyle::EditorCard`, and `TabBarStyle::Segmented`, with automatic `contextDpiScale()` adoption, explicit `setDpiScale()`/`setFont()` overrides, `onThemeChanged()` layout invalidation, and `effectiveFont()` falling back to `FontManager::instance().defaultFont()`.
+- **Keyboard cycling, selection & reordering**: `Left`/`Right`/`Home`/`End` and `Ctrl+Tab`/`Ctrl+Shift+Tab` cycle enabled tabs with wrap-around, `Ctrl+W`/`Delete` request close, removing or disabling the active tab automatically falls back to the nearest enabled tab, and `setReorderable(true)` enables drag-to-reorder.
+- **Icons & close buttons**: Supports optional `IconId` or `SvgDocument` leading icons on both `addTab()` and `insertTab()`, modified dot indicators, per-tab `0.12s OutCubic` hover pills, and vector close buttons.
 
 ### MenuBar
 
@@ -135,23 +141,24 @@ tabView->onTabClosed.connect([](int index) { /* Tab removed */ });
 auto menuBar = std::make_unique<MenuBar>();
 menuBar->setDpiScale(dpi);
 auto* fileMenu = menuBar->addMenu("File");
-fileMenu->addItem(IconId::Save, "Save", []() { /* save */ }, "Ctrl+S");
+fileMenu->addItem("Save", []() { /* save */ }, "Ctrl+S");
 menuBar->registerAccelerators(uiContext);
 ```
 
-### CollapsibleSection and Accordion
+### CollapsibleSection (DisclosureGroup) and Accordion
 
-[Accordion](../src/widgets/containers/accordion.hpp) manages stacked sections with animated height collapse:
+[Accordion](../src/widgets/containers/accordion.hpp) and `CollapsibleSection` (aliased as `DisclosureGroup`) manage grouped disclosure sections with animated height collapse:
 
 ```cpp
-auto accordion = std::make_unique<Accordion>(true); // singleExpanded = true
-accordion->addSection("Configuration", std::move(configControls), true);
-accordion->addSection("Telemetry", std::move(metricsControls), false);
+auto accordion = std::make_unique<Accordion>(false, SectionHeaderSize::Standard, AccordionStyle::Grouped);
+accordion->setDpiScale(dpi);
+auto* section = accordion->addSection("Graphics & Rendering", nullptr, true);
+section->addRow("Backend", std::make_unique<Label>("Vulkan 1.3+"));
 ```
 
-- **Smooth animation**: Heights animate from 0 to measured content size via `PropertyAnimation<float>` (0.15s `OutCubic`) with child clipping (`clipsChildren() == true`).
-- **Continuous vector chevron**: Rotates smoothly by 90 degrees from right-pointing `>` when collapsed to downward `v` when expanded.
-- **Single-expanded mode**: Automatically collapses adjacent sections when any section expands.
+- **Grouping styles**: `AccordionStyle::Grouped` (default) renders a unified Optical Zinc `SurfaceDefault` card with `10px` radius and `16px` inset hairline dividers between visible sections; `AccordionStyle::Separated` renders individual cards; `AccordionStyle::Flush` renders edge-to-edge panels with full-width `1px` hairline dividers.
+- **Trailing Cobalt chevron & concentric header pill**: Defaults to `IndicatorPlacement::Trailing`, rotating `>` to `v` across `0.25s InOutCubic` in Cobalt `accentDefault` when expanded or hovered (`textDisabled` when disabled), with a concentric `4px`-inset (`6px` radius) hover pill (`0.12s OutCubic`) and matching keyboard focus ring.
+- **Indented rows & nested groups**: `addRow()` creates `36px` vertically centered rows (`11pt` label, inset row dividers) and supports nested `DisclosureGroup` sections inside `body()`.
 
 ### Divider
 
@@ -162,7 +169,7 @@ auto horizontalDiv = std::make_unique<Divider>("PROPERTIES", font);
 auto verticalDiv = std::make_unique<Divider>(DividerOrientation::Vertical);
 ```
 
-- **Labeled lines**: Centered text label with optical vertical centering (`theme::computeCenteredTextY`) and configurable gap clearance.
+- **Labeled lines & DPI**: Centered/start/end-aligned text label with optical vertical centering (`theme::computeCenteredTextY`), `11pt * dpiScale_` cached font fallback via `effectiveFont()`, configurable gap clearance, automatic `contextDpiScale()` adoption (preserving explicit thickness/gap/offset overrides), and muted disabled styling.
 
 ## Virtualized data and collection views
 
@@ -238,39 +245,43 @@ meshBranch->appendChild({"character.gltf", "Mesh", "14.2 MB"});
 [ListView](../src/widgets/views/list_view.hpp) virtualizes 1D item lists:
 
 ```cpp
-auto listView = std::make_unique<ListView>(stringModel, font);
-listView->setRowHeight(28.0f);
-listView->selectionModel()->setSelectionMode(SelectionMode::Single);
+auto listView = std::make_unique<ListView>(&stringModel, font);
+listView->setDpiScale(dpi);
+listView->setListStyle(ListStyle::Inset);
+listView->setRowHeight(32.0f * dpi);
+listView->selectionModel().setSelectionMode(SelectionMode::Single);
 listView->onItemClicked.connect([](const ModelIndex& idx) {
     // Handle item selection
 });
 ```
 
-- **$O(1)$ Slicing**: Calculates `firstRow = std::max(0, static_cast<int>(scrollOffsetY / rowHeight))` and paints only visible rows, supporting millions of entries with constant frame time.
+- **$O(1)$ Slicing & Styles**: Calculates `firstRow` from `scrollOffsetY_` and paints only visible rows. Supports `ListStyle::Inset` (default, rounded pills with inset hairlines), `ListStyle::Sidebar` (transparent borderless sidebar pills), and `ListStyle::Plain`.
 
 #### TableView
 
 [TableView](../src/widgets/views/table_view.hpp) renders 2D grids with an integrated `HeaderView`:
 
 ```cpp
-auto tableView = std::make_unique<TableView>(tableModel, font);
-tableView->setRowHeight(28.0f);
+auto tableView = std::make_unique<TableView>(&tableModel, font);
+tableView->setDpiScale(dpi);
+tableView->setRowHeight(28.0f * dpi);
 tableView->setShowGridLines(true);
-tableView->setAlternatingRowColors(true);
-tableView->headerView()->setSectionWidth(0, 180.0f);
+tableView->setShowBorder(true);
+tableView->horizontalHeader()->setSectionWidth(0, 180.0f * dpi);
 ```
 
 - **Synchronized scrolling**: Horizontal scrolling smoothly syncs between header sections and table grid cells.
-- **Cell focus & row selection**: Highlights selected rows with subtle Cobalt accent fills and active focus outlines.
+- **Cell focus & row selection**: Highlights selected rows with Cobalt accent tints across both Dark and Light `ColorPalette` themes.
 
 #### TreeView
 
 [TreeView](../src/widgets/views/tree_view.hpp) renders hierarchical tree-tables:
 
 ```cpp
-auto treeView = std::make_unique<TreeView>(treeModel, font);
-treeView->setRowHeight(28.0f);
-treeView->setIndentation(18.0f);
+auto treeView = std::make_unique<TreeView>(&treeModel, font);
+treeView->setDpiScale(dpi);
+treeView->setRowHeight(28.0f * dpi);
+treeView->setIndentPerLevel(16.0f * dpi);
 treeView->expandAll();
 ```
 
@@ -304,6 +315,24 @@ auto icon = std::make_unique<Icon>(IconId::FolderOpen, 16.0f, theme::ColorTokens
 
 - **De Casteljau curve decomposition**: Uses NanoSVG to parse SVG paths and evaluates cubic Bezier curves into anti-aliased 2D line primitives via adaptive subdivision.
 - **Standard icon catalog**: [icons.hpp](../src/widgets/controls/icons.hpp) provides a built-in catalog of 24x24 desktop icons conforming to standard geometric design grids.
+
+### Dialog and MessageBox
+
+[Dialog](../src/widgets/dialogs/dialog.hpp) and [MessageBox](../src/widgets/dialogs/message_box.hpp) provide non-blocking in-window modal dialogs rendered over `WidgetContext::showOverlay` with `OverlayPlacement::Center` and `isModal = true`:
+
+```cpp
+MessageBox::confirm(uiContext, "Exit Application", "Are you sure you want to close Northern?",
+    [&](DialogResult res) {
+        if (res == DialogResult::Accepted) {
+            app.quit(0);
+        }
+    },
+    dpi);
+```
+
+- **Modal scrim & focus trap**: Blocks background pointer events with a `0.14s OutCubic` faded `0.55f` backdrop scrim (`dismissOnOutsideClick = false`) and traps `Tab` / `Shift+Tab` inside the dialog controls.
+- **Keyboard actions**: `Escape` rejects/closes the dialog (`DialogResult::Rejected`); `Enter` activates the primary/default button (`DialogResult::Accepted`).
+- **Semantic icon restraint**: `MessageBox::info` and `MessageBox::confirm` omit icons for a clean layout, while `MessageBox::warning` and `MessageBox::error` display semantic `24px` warning/error icons.
 
 ### Platform FileDialog
 

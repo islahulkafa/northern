@@ -6,6 +6,7 @@
 #include "widgets/base/widget.hpp"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -79,19 +80,34 @@ public:
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onMouseUp(WidgetMouseEvent& ev) override;
     void onMouseLeave() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
 private:
-    void updateMeasure();
+    struct SectionTextCache {
+        std::optional<text::TextLayout> layout{std::nullopt};
+        float maxWidth{-1.0f};
+        bool valid{false};
+    };
+
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
+    void invalidateSectionCaches() noexcept;
+    void ensureSectionLayout(size_t index, float maxWidth) const;
     float resolvedSectionWidth(size_t index) const;
 
     std::vector<HeaderSection> sections_{};
+    mutable std::vector<SectionTextCache> sectionCaches_{};
     std::shared_ptr<text::Font> font_{nullptr};
     mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
     bool stretchLastSection_{true};
     float horizontalOffset_{0.0f};
 
     int hoveredSection_{-1};
+    int pressedSection_{-1};
     int hoveredDivider_{-1};
     bool isDraggingDivider_{false};
     int dragDivider_{-1};

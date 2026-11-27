@@ -1,5 +1,6 @@
 #include "widgets/controls/checkbox.hpp"
 #include "renderer/paint_context.hpp"
+#include "text/font_manager.hpp"
 #include "text/text_layout.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
@@ -25,12 +26,16 @@ Checkbox::Checkbox(std::string text, CheckState state, std::shared_ptr<text::Fon
 
     layoutNode_.setMeasureFunc([this](const layout::LayoutNode&, float availW,
                                       float) -> core::Size {
+        auto f = effectiveFont();
         float textW = 0.0f;
         float textH = boxSize_;
-        if (font_ && !text_.empty()) {
-            auto l = text::TextLayout::create(text_, font_);
-            textW = l.size().width + gap_;
-            textH = std::max(textH, l.size().height);
+        if (f && !text_.empty()) {
+            if (isTextLayoutDirty_ || !cachedTextLayout_) {
+                cachedTextLayout_ = text::TextLayout::create(text_, f);
+                isTextLayoutDirty_ = false;
+            }
+            textW = cachedTextLayout_->size().width + gap_;
+            textH = std::max(textH, cachedTextLayout_->size().height);
         }
         float padH = style().padding.left.resolve(availW, 0.0f) +
                      style().padding.right.resolve(availW, 0.0f);
@@ -69,9 +74,18 @@ void Checkbox::setCheckState(CheckState state) {
 }
 
 void Checkbox::updateAnimations(float deltaSeconds) {
-    checkAnim_.update(deltaSeconds);
-    hoverAnim_.update(deltaSeconds);
-    markPaintDirty();
+    bool changed = false;
+    if (checkAnim_.isRunning()) {
+        checkAnim_.update(deltaSeconds);
+        changed = true;
+    }
+    if (hoverAnim_.isRunning()) {
+        hoverAnim_.update(deltaSeconds);
+        changed = true;
+    }
+    if (changed) {
+        markPaintDirty();
+    }
 }
 
 bool Checkbox::hasActiveAnimations() const noexcept {
@@ -102,23 +116,66 @@ void Checkbox::toggle() {
 void Checkbox::setText(std::string text) {
     if (text_ != text) {
         text_ = std::move(text);
+        isTextLayoutDirty_ = true;
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
 void Checkbox::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
+        resolvedDefaultFont_.reset();
+        isTextLayoutDirty_ = true;
         markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+std::shared_ptr<text::Font> Checkbox::effectiveFont() const {
+    if (font_) {
+        return font_;
+    }
+    if (!resolvedDefaultFont_) {
+        float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+        resolvedDefaultFont_ =
+            text::FontManager::instance().defaultFont(10.5f * scale).valueOr(nullptr);
+    }
+    return resolvedDefaultFont_;
+}
+
+void Checkbox::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void Checkbox::applyDpiScale(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        if (!hasCustomBoxSize_) {
+            boxSize_ = 16.0f * dpiScale_;
+        }
+        if (!hasCustomCornerRadius_) {
+            boxCornerRadius_ = 4.0f * dpiScale_;
+        }
+        gap_ = 8.0f * dpiScale_;
+        resolvedDefaultFont_.reset();
+        isTextLayoutDirty_ = true;
+        markLayoutDirty();
+        markPaintDirty();
     }
 }
 
 void Checkbox::setBoxSize(float size) noexcept {
+    hasCustomBoxSize_ = true;
     boxSize_ = size;
     markLayoutDirty();
+    markPaintDirty();
 }
 
 void Checkbox::setBoxCornerRadius(float radius) noexcept {
+    hasCustomCornerRadius_ = true;
     boxCornerRadius_ = radius;
     markPaintDirty();
 }
@@ -197,6 +254,16 @@ core::Color Checkbox::effectiveTextColor() const noexcept {
     return isEnabled() ? colorPalette().textPrimary : colorPalette().textDisabled;
 }
 
+void Checkbox::cancelActiveInteraction() {
+    if (isPressed_ && context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    isPressed_ = false;
+    isHovered_ = false;
+    hoverAnim_.stop();
+    hoverAnim_.setCurrentValue(0.0f);
+}
+
 void Checkbox::onMouseEnter() {
     if (!isEnabled()) {
         return;
@@ -212,7 +279,6 @@ void Checkbox::onMouseEnter() {
 
 void Checkbox::onMouseLeave() {
     isHovered_ = false;
-    isPressed_ = false;
     if (isEnabled()) {
         hoverAnim_.start(hoverAnim_.currentValue(), 0.0f, 0.12f,
                          core::animation::EasingCurve::OutCubic);
@@ -227,8 +293,11 @@ void Checkbox::onMouseDown(WidgetMouseEvent& ev) {
     if (!isEnabled()) {
         return;
     }
-    if (ev.button() == platform::MouseButton::Left) {
+    if (ev.isPrimaryButton()) {
         isPressed_ = true;
+        if (context_) {
+            context_->setMouseGrabWidget(this);
+        }
         setFocus(FocusReason::Pointer);
         ev.accept();
         markPaintDirty();
@@ -239,21 +308,63 @@ void Checkbox::onMouseUp(WidgetMouseEvent& ev) {
     if (!isEnabled()) {
         return;
     }
-    if (ev.button() == platform::MouseButton::Left && isPressed_) {
+    if (ev.isPrimaryButton() && isPressed_) {
+        if (context_ && context_->mouseGrabWidget() == this) {
+            context_->releaseMouseGrab();
+        }
+        core::Rect rect = layoutRect();
+        bool inside = (rect.size.width <= 0.0f || rect.size.height <= 0.0f) ||
+                      (ev.position().x >= 0.0f && ev.position().x <= rect.size.width &&
+                       ev.position().y >= 0.0f && ev.position().y <= rect.size.height);
         isPressed_ = false;
+        isHovered_ = inside;
         ev.accept();
-        toggle();
+        markPaintDirty();
+        if (inside) {
+            toggle();
+        }
     }
 }
 
 void Checkbox::onKeyDown(WidgetKeyEvent& ev) {
-    if (!isEnabled()) {
+    if (!isEnabled() || !ev.isDown()) {
         return;
     }
     if (ev.key() == platform::Key::Space || ev.key() == platform::Key::Enter) {
         ev.accept();
         toggle();
     }
+}
+
+void Checkbox::onFocusGained() {
+    markPaintDirty();
+}
+
+void Checkbox::onFocusLost() {
+    cancelActiveInteraction();
+    markPaintDirty();
+}
+
+void Checkbox::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void Checkbox::onThemeChanged() {
+    isTextLayoutDirty_ = true;
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+void Checkbox::onEnabledChanged() {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+        setCursorShape(platform::CursorShape::Arrow);
+    } else {
+        setCursorShape(platform::CursorShape::PointingHand);
+    }
+    markPaintDirty();
 }
 
 void Checkbox::drawCheckmark(renderer::PaintContext& ctx, const core::Rect& inner, float progress,
@@ -328,8 +439,12 @@ void Checkbox::paint(renderer::PaintContext& ctx) {
     float boxY = targetCenterY - boxSize_ * 0.5f;
     core::Rect boxRect{core::Point{boxX, boxY}, core::Size{boxSize_, boxSize_}};
 
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
     float radii[4] = {boxCornerRadius_, boxCornerRadius_, boxCornerRadius_, boxCornerRadius_};
     core::Color baseBg = effectiveUncheckedColor().lerp(effectiveCheckedColor(), progress);
+    if (isEnabled() && isPressed_ && checkState_ == CheckState::Unchecked) {
+        baseBg = baseBg.lerp(colorPalette().textPrimary, 0.06f);
+    }
     core::Color idleBorder = effectiveBorderColor(false);
     core::Color hoverBorder = effectiveBorderColor(true);
     core::Color baseBorder = idleBorder.lerp(hoverBorder, hoverAlpha);
@@ -340,14 +455,15 @@ void Checkbox::paint(renderer::PaintContext& ctx) {
         border = border.withAlpha(border.a * 0.25f);
     }
 
-    ctx.drawBox(boxRect, baseBg, border, 1.0f, radii);
+    float borderWidth = std::max(1.0f, std::round(theme::Metrics::BorderWidthHairline * scale));
+    ctx.drawBox(boxRect, baseBg, border, borderWidth, radii);
 
-    if (hasKeyboardFocus()) {
-        theme::paintFocusRing(ctx, boxRect, boxCornerRadius_);
+    if (isEnabled() && hasKeyboardFocus()) {
+        paintFocusRing(ctx, boxRect, boxCornerRadius_);
     }
 
     if (progress > 0.001f) {
-        float innerPadding = std::max(2.5f, boxSize_ * 0.22f);
+        float innerPadding = std::max(2.5f * scale, boxSize_ * 0.22f);
         core::Rect innerRect{
             core::Point{boxRect.origin.x + innerPadding, boxRect.origin.y + innerPadding},
             core::Size{boxSize_ - 2.0f * innerPadding, boxSize_ - 2.0f * innerPadding}};
@@ -364,11 +480,15 @@ void Checkbox::paint(renderer::PaintContext& ctx) {
         }
     }
 
-    if (font_ && !text_.empty()) {
-        auto layout = text::TextLayout::create(text_, font_);
+    auto f = effectiveFont();
+    if (f && !text_.empty()) {
+        if (isTextLayoutDirty_ || !cachedTextLayout_) {
+            cachedTextLayout_ = text::TextLayout::create(text_, f);
+            isTextLayoutDirty_ = false;
+        }
         float textX = boxRect.origin.x + boxSize_ + gap_;
-        float textY = theme::computeCenteredTextY(targetCenterY, *font_);
-        ctx.drawTextLayout(core::Point{textX, textY}, layout, effectiveTextColor());
+        float textY = theme::computeCenteredTextY(targetCenterY, *f);
+        ctx.drawTextLayout(core::Point{textX, textY}, *cachedTextLayout_, effectiveTextColor());
     }
 }
 

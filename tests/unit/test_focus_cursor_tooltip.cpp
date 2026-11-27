@@ -333,3 +333,42 @@ TEST(FocusCursorTooltipTest, TooltipBubblingPlacementWarmupAndO1Dismissal) {
     EXPECT_FALSE(ctx.isPaintDirty());
     EXPECT_EQ(rootPtr->paintCount, 1);
 }
+
+TEST(FocusCursorTooltipTest, TooltipContextDpiFlexMeasureAndLiveThemeRefresh) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    ctx.setTheme(theme::Theme::dark());
+
+    auto owned = std::make_unique<Tooltip>("Initial");
+    Tooltip* tip = owned.get();
+    ctx.setRootWidget(std::move(owned));
+
+    EXPECT_FLOAT_EQ(tip->dpiScale(), 1.5f);
+
+    tip->setText("Updated Tooltip");
+    tip->setShortcut("Ctrl+K");
+    tip->layoutNode().computeLayout(400.0f, 100.0f);
+    core::Size preferred = tip->preferredSize();
+    EXPECT_FLOAT_EQ(tip->layoutRect().size.width, preferred.width);
+    EXPECT_FLOAT_EQ(tip->layoutRect().size.height, preferred.height);
+
+    // Live theme switch while an active tooltip is visible marks tooltip dirty and updates colors.
+    auto root = std::make_unique<Container>();
+    auto* btn = root->addChild(std::make_unique<Button>("Action"));
+    btn->style().width = layout::Length::points(100.0f);
+    btn->style().height = layout::Length::points(30.0f);
+    btn->setTooltip("Run Action", "F5");
+    ctx.setRootWidget(std::move(root));
+    ctx.handleResize(core::Size{400.0f, 300.0f});
+
+    core::Rect btnR = btn->screenRect();
+    ctx.handleMouseMove(makeMouseEvent(platform::MouseEventType::Move, platform::MouseButton::None,
+                                       {btnR.origin.x + 10.0f, btnR.origin.y + 10.0f}));
+    ctx.advanceAnimations(0.55f);
+    ASSERT_TRUE(ctx.isTooltipVisible());
+    ASSERT_NE(ctx.activeTooltip(), nullptr);
+
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_EQ(ctx.activeTooltip()->effectiveBackgroundColor(),
+              theme::ColorPalette::light().surfaceOverlay);
+}

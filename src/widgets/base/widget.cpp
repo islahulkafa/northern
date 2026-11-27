@@ -22,9 +22,16 @@ Widget::Widget(Widget&& other) noexcept
       isEnabled_(other.isEnabled_), isFocusable_(other.isFocusable_),
       isPaintDirty_(other.isPaintDirty_), isLayoutDirty_(other.isLayoutDirty_),
       isScreenRectDirty_(other.isScreenRectDirty_), cachedScreenRect_(other.cachedScreenRect_),
-      isPendingDelete_(other.isPendingDelete_) {
+      isPendingDelete_(other.isPendingDelete_), isFocusedStandalone_(other.isFocusedStandalone_),
+      standaloneFocusReason_(other.standaloneFocusReason_), cursorShape_(other.cursorShape_),
+      tooltipText_(std::move(other.tooltipText_)),
+      tooltipShortcut_(std::move(other.tooltipShortcut_)),
+      tooltipDescription_(std::move(other.tooltipDescription_)),
+      tooltipPlacement_(other.tooltipPlacement_),
+      contextMenuBuilder_(std::move(other.contextMenuBuilder_)) {
     other.parent_ = nullptr;
     other.context_ = nullptr;
+    other.isFocusedStandalone_ = false;
     for (const auto& child : children_) {
         if (child) {
             child->parent_ = this;
@@ -50,9 +57,18 @@ Widget& Widget::operator=(Widget&& other) noexcept {
         isScreenRectDirty_ = other.isScreenRectDirty_;
         cachedScreenRect_ = other.cachedScreenRect_;
         isPendingDelete_ = other.isPendingDelete_;
+        isFocusedStandalone_ = other.isFocusedStandalone_;
+        standaloneFocusReason_ = other.standaloneFocusReason_;
+        cursorShape_ = other.cursorShape_;
+        tooltipText_ = std::move(other.tooltipText_);
+        tooltipShortcut_ = std::move(other.tooltipShortcut_);
+        tooltipDescription_ = std::move(other.tooltipDescription_);
+        tooltipPlacement_ = other.tooltipPlacement_;
+        contextMenuBuilder_ = std::move(other.contextMenuBuilder_);
 
         other.parent_ = nullptr;
         other.context_ = nullptr;
+        other.isFocusedStandalone_ = false;
         for (const auto& child : children_) {
             if (child) {
                 child->parent_ = this;
@@ -225,6 +241,14 @@ void Widget::setVisible(bool visible) {
     if (isVisible_ != visible) {
         isVisible_ = visible;
         layoutNode_.style().display = visible ? layout::Display::Flex : layout::Display::None;
+        if (!visible) {
+            if (context_) {
+                context_->clearInteractionForSubtree(this);
+            } else if (isFocusedStandalone_) {
+                isFocusedStandalone_ = false;
+                onFocusLost();
+            }
+        }
         markLayoutDirty();
     }
 }
@@ -232,6 +256,15 @@ void Widget::setVisible(bool visible) {
 void Widget::setEnabled(bool enabled) {
     if (isEnabled_ != enabled) {
         isEnabled_ = enabled;
+        if (!enabled) {
+            if (context_) {
+                context_->clearInteractionForSubtree(this);
+            } else if (isFocusedStandalone_) {
+                isFocusedStandalone_ = false;
+                onFocusLost();
+            }
+        }
+        onEnabledChanged();
         markPaintDirty();
     }
 }
@@ -255,6 +288,14 @@ void Widget::setFocus(FocusReason reason) {
         isFocusedStandalone_ = true;
         standaloneFocusReason_ = reason;
     }
+}
+
+bool Widget::isHovered() const noexcept {
+    return context_ && context_->hoveredWidget() == this;
+}
+
+float Widget::contextDpiScale() const noexcept {
+    return context_ ? context_->dpiScale() : 1.0f;
 }
 
 void Widget::setCursorShape(platform::CursorShape shape) noexcept {
@@ -283,13 +324,32 @@ void Widget::setContextMenuBuilder(std::function<std::unique_ptr<ContextMenu>()>
 }
 
 void Widget::setContext(WidgetContext* context) noexcept {
+    WidgetContext* oldCtx = context_;
+    if (oldCtx == context) {
+        return;
+    }
+    if (oldCtx) {
+        oldCtx->unregisterWidget(this);
+    }
     context_ = context;
     for (const auto& child : children_) {
         if (child) {
             child->setContext(context);
         }
     }
+    if (context_) {
+        onContextAttached();
+    }
 }
+
+void Widget::paintFocusRing(renderer::PaintContext& ctx, const core::Rect& rect,
+                            float cornerRadius) const {
+    theme::paintFocusRing(ctx, rect, cornerRadius, colorPalette(), contextDpiScale());
+}
+
+void Widget::onContextAttached() {}
+void Widget::onThemeChanged() {}
+void Widget::onEnabledChanged() {}
 
 const theme::Theme& Widget::theme() const noexcept {
     if (context_) {

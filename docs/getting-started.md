@@ -48,9 +48,9 @@ Execute the headless GoogleTest binary directly to verify all subsystems (`core`
 Expected output:
 
 ```text
-[==========] Running 324 tests from 54 test suites.
+[==========] Running 331 tests from 56 test suites.
 ...
-[  PASSED  ] 324 tests.
+[  PASSED  ] 331 tests.
 ```
 
 Run a specific test suite or test case using GoogleTest filters:
@@ -64,7 +64,7 @@ Run a specific test suite or test case using GoogleTest filters:
 
 ## Launch the desktop demo
 
-Run the interactive Vulkan windowing showcase featuring the custom `TitleBar`, top-level `MenuBar` (with theme toggling), and `TabView` switching between virtualized `TableView`, `TreeView`, and `ListView` pages:
+Run the interactive Vulkan windowing showcase featuring the custom `TitleBar`, top-level `MenuBar` (with theme toggling and `MessageBox` dialogs), and `TabView` switching between virtualized `TableView`, `TreeView`, `ListView`, and `Accordion` (`DisclosureGroup`) pages:
 
 ```powershell
 .\build\examples\example_windowing.exe

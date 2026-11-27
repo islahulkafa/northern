@@ -11,6 +11,10 @@
 #include <memory>
 #include <string>
 
+namespace northern::theme {
+struct ColorPalette;
+}
+
 namespace northern::widgets {
 
 struct StyleOptionViewItem {
@@ -36,6 +40,11 @@ struct StyleOptionViewItem {
     core::Color badgeColor{core::Color::transparent()};
     core::Color badgeTextColor{core::Color{0.96f, 0.96f, 0.96f, 1.0f}};
     float dpiScale{1.0f};
+    const theme::ColorPalette* palette{nullptr};
+    float rowInsetX{0.0f};
+    float rowInsetY{0.0f};
+    float cornerRadius{0.0f};
+    bool drawSeparator{false};
 };
 
 class ItemDelegate {

@@ -84,3 +84,27 @@ TEST(ListViewTest, KeyboardNavigation) {
     list.onKeyDown(enterEv);
     EXPECT_EQ(activatedIndex.row, 0);
 }
+
+TEST(ListViewTest, ListStylePresetsAndOverrides) {
+    StringListModel model({"Overview", "Shaders"});
+    ListView list(&model);
+
+    EXPECT_EQ(list.listStyle(), ListStyle::Inset);
+    EXPECT_TRUE(list.showBorder());
+    EXPECT_FALSE(list.alternatingRowColors());
+
+    list.setListStyle(ListStyle::Sidebar);
+    EXPECT_EQ(list.listStyle(), ListStyle::Sidebar);
+    EXPECT_FALSE(list.showBorder());
+    EXPECT_FALSE(list.alternatingRowColors());
+
+    list.setListStyle(ListStyle::Plain);
+    EXPECT_EQ(list.listStyle(), ListStyle::Plain);
+    EXPECT_TRUE(list.showBorder());
+    EXPECT_TRUE(list.alternatingRowColors());
+
+    list.setShowBorder(false);
+    list.setAlternatingRowColors(false);
+    EXPECT_FALSE(list.showBorder());
+    EXPECT_FALSE(list.alternatingRowColors());
+}

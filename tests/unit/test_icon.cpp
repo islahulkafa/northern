@@ -148,3 +148,87 @@ TEST(IconTest, IconConcurrentCacheAccess) {
         t.join();
     }
 }
+
+TEST(IconTest, SafeZoneCatalogGeometry) {
+    std::string_view eyeOff = getSvgString(IconId::EyeOff);
+    EXPECT_NE(eyeOff.find("x1=\"2\" y1=\"2\" x2=\"22\" y2=\"22\""), std::string_view::npos);
+    std::string_view play = getSvgString(IconId::Play);
+    EXPECT_NE(play.find("points=\"6 3 20 12 6 21 6 3\""), std::string_view::npos);
+}
+
+TEST(IconTest, ContextDpiAdoptionAndCustomSizePreservation) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    auto iconUnique = std::make_unique<Icon>(IconId::Settings, IconSize::Standard);
+    Icon* icon = iconUnique.get();
+    ctx.setRootWidget(std::move(iconUnique));
+
+    EXPECT_FLOAT_EQ(icon->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(icon->iconSize(), 24.0f);
+    EXPECT_FLOAT_EQ(icon->style().width.value, 24.0f);
+
+    // Explicit setIconSize survives DPI changes (e.g. MessageBox)
+    Icon custom(IconId::Bell, IconSize::Large);
+    custom.setIconSize(30.0f);
+    custom.setDpiScale(2.0f);
+    EXPECT_FLOAT_EQ(custom.iconSize(), 30.0f);
+
+    // Explicit setDpiScale survives context attachment
+    WidgetContext ctx2;
+    ctx2.setDpiScale(1.5f);
+    auto explicitUnique = std::make_unique<Icon>(IconId::Folder, IconSize::Standard);
+    Icon* explicitIcon = explicitUnique.get();
+    explicitIcon->setDpiScale(2.0f);
+    ctx2.setRootWidget(std::move(explicitUnique));
+    EXPECT_FLOAT_EQ(explicitIcon->dpiScale(), 2.0f);
+
+    // Theme change marks Icon paint dirty
+    icon->clearPaintDirty();
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_TRUE(icon->isPaintDirty());
+}
+
+TEST(IconTest, InteractiveMouseGrabDisableAndFocusLost) {
+    WidgetContext ctx;
+    auto iconUnique = std::make_unique<Icon>(IconId::Edit, IconSize::Standard);
+    Icon* icon = iconUnique.get();
+    icon->setInteractive(true);
+    ctx.setRootWidget(std::move(iconUnique));
+    ctx.handleResize(core::Size{24.0f, 24.0f});
+
+    int clicks = 0;
+    icon->onClicked.connect([&]() { ++clicks; });
+
+    // Idle updateAnimations does not mark paint dirty
+    icon->clearPaintDirty();
+    icon->updateAnimations(0.016f);
+    EXPECT_FALSE(icon->isPaintDirty());
+
+    // Press acquires mouse grab; release outside bounds does not click and releases grab
+    WidgetMouseEvent pressIn{core::Point{8.0f, 8.0f}, platform::MouseButton::Left,
+                             platform::KeyModifier::None};
+    icon->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), icon);
+
+    WidgetMouseEvent releaseOut{core::Point{100.0f, 100.0f}, platform::MouseButton::Left,
+                                platform::KeyModifier::None};
+    icon->onMouseUp(releaseOut);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_EQ(clicks, 0);
+
+    // Disabling mid-press releases grab and sets Arrow cursor
+    icon->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), icon);
+    icon->setEnabled(false);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_EQ(icon->cursorShape(), platform::CursorShape::Arrow);
+
+    icon->setEnabled(true);
+    EXPECT_EQ(icon->cursorShape(), platform::CursorShape::PointingHand);
+
+    // Focus lost mid-press releases grab
+    icon->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), icon);
+    icon->onFocusLost();
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+}

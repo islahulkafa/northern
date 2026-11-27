@@ -27,6 +27,7 @@ ContextMenu* MenuBar::addMenu(std::string title, std::unique_ptr<ContextMenu> me
     if (!menu) {
         menu = std::make_unique<ContextMenu>(font_);
     }
+    menu->setDpiScale(dpiScale_);
     ContextMenu* raw = menu.get();
     menus_.push_back(MenuEntry{
         .title = std::move(title),
@@ -34,6 +35,7 @@ ContextMenu* MenuBar::addMenu(std::string title, std::unique_ptr<ContextMenu> me
         .layout = std::nullopt,
         .itemRect = core::Rect{},
     });
+    isItemsLayoutDirty_ = true;
     markLayoutDirty();
     markPaintDirty();
     return raw;
@@ -58,6 +60,7 @@ void MenuBar::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
         resolvedDefaultFont_.reset();
+        isItemsLayoutDirty_ = true;
         for (auto& m : menus_) {
             m.layout.reset();
             if (m.menu) {
@@ -81,14 +84,45 @@ std::shared_ptr<text::Font> MenuBar::effectiveFont() const {
 }
 
 void MenuBar::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiMetrics(scale);
+}
+
+void MenuBar::applyDpiMetrics(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
         resolvedDefaultFont_.reset();
+        isItemsLayoutDirty_ = true;
         for (auto& m : menus_) {
             m.layout.reset();
+            if (m.menu) {
+                m.menu->setDpiScale(clamped);
+            }
         }
         updateDimensions();
+        markPaintDirty();
+    }
+}
+
+void MenuBar::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        float ctxDpi = contextDpiScale();
+        if (ctxDpi > 0.0f && ctxDpi != dpiScale_) {
+            applyDpiMetrics(ctxDpi);
+        }
+    }
+    markPaintDirty();
+}
+
+void MenuBar::onThemeChanged() {
+    markPaintDirty();
+}
+
+void MenuBar::onEnabledChanged() {
+    if (!isEnabled()) {
+        highlightedIndex_ = -1;
+        closeMenu();
         markPaintDirty();
     }
 }
@@ -109,6 +143,9 @@ void MenuBar::updateDimensions() noexcept {
 }
 
 void MenuBar::updateItemRects() const {
+    if (!isItemsLayoutDirty_) {
+        return;
+    }
     auto f = effectiveFont();
     float startX = 6.0f * dpiScale_;
     float h = preferredHeight();
@@ -123,6 +160,7 @@ void MenuBar::updateItemRects() const {
         m.itemRect = core::Rect{core::Point{startX, 0.0f}, core::Size{itemW, h}};
         startX += itemW + 2.0f * dpiScale_;
     }
+    isItemsLayoutDirty_ = false;
 }
 
 int MenuBar::itemIndexAtPoint(const core::Point& pos) const {
@@ -136,6 +174,9 @@ int MenuBar::itemIndexAtPoint(const core::Point& pos) const {
 }
 
 void MenuBar::openMenu(int index) {
+    if (!isEnabled()) {
+        return;
+    }
     if (openMenuIndex_ == index && index >= 0) {
         return;
     }
@@ -146,19 +187,21 @@ void MenuBar::openMenu(int index) {
 
     if (index < 0 || index >= static_cast<int>(menus_.size())) {
         openMenuIndex_ = -1;
+        updateHoverTargets();
         markPaintDirty();
         return;
     }
 
     openMenuIndex_ = index;
     highlightedIndex_ = index;
+    updateHoverTargets();
     markPaintDirty();
     updateItemRects();
 
     auto* menu = menus_[index].menu.get();
     if (menu && context_) {
-        if (!menu->font()) {
-            menu->setFont(effectiveFont());
+        if (!menu->font() && font_) {
+            menu->setFont(font_);
         }
 
         core::Rect sRect = screenRect();
@@ -170,11 +213,12 @@ void MenuBar::openMenu(int index) {
         desc.anchorRect = anchorScreen;
         desc.preferredPlacement = OverlayPlacement::Bottom;
         desc.autoFlip = true;
-        desc.gap = 1.0f;
+        desc.gap = 1.0f * dpiScale_;
         desc.dismissOnOutsideClick = true;
         desc.dismissOnEscape = true;
         desc.onDismiss = [this]() {
             openMenuIndex_ = -1;
+            updateHoverTargets();
             markPaintDirty();
         };
 
@@ -196,7 +240,61 @@ void MenuBar::closeMenu() {
         context_->dismissOverlaysForOwner(this);
     }
     openMenuIndex_ = -1;
+    updateHoverTargets();
     markPaintDirty();
+}
+
+void MenuBar::updateHoverTargets() {
+    bool anyAnimating = false;
+    const bool enabled = isEnabled();
+    for (size_t i = 0; i < menus_.size(); ++i) {
+        float target = 0.0f;
+        if (enabled) {
+            if (static_cast<int>(i) == openMenuIndex_) {
+                target = 0.85f;
+            } else if (static_cast<int>(i) == highlightedIndex_) {
+                target = 0.55f;
+            }
+        }
+        auto& anim = menus_[i].hoverAnim;
+        if (std::abs(anim.targetValue() - target) > 0.001f ||
+            (!anim.isRunning() && std::abs(anim.currentValue() - target) > 0.001f)) {
+            if (context_) {
+                anim.start(anim.currentValue(), target, 0.12f,
+                           core::animation::EasingCurve::OutCubic);
+                anyAnimating = true;
+            } else {
+                anim.setCurrentValue(target);
+            }
+        } else if (anim.isRunning()) {
+            anyAnimating = true;
+        }
+    }
+    if (anyAnimating && context_) {
+        context_->registerAnimatedWidget(this);
+    }
+}
+
+void MenuBar::updateAnimations(float deltaSeconds) {
+    bool dirty = false;
+    for (auto& m : menus_) {
+        if (m.hoverAnim.isRunning()) {
+            m.hoverAnim.update(deltaSeconds);
+            dirty = true;
+        }
+    }
+    if (dirty) {
+        markPaintDirty();
+    }
+}
+
+bool MenuBar::hasActiveAnimations() const noexcept {
+    for (const auto& m : menus_) {
+        if (m.hoverAnim.isRunning()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void MenuBar::registerAccelerators(WidgetContext& ctx) {
@@ -208,13 +306,20 @@ void MenuBar::registerAccelerators(WidgetContext& ctx) {
 }
 
 void MenuBar::onMouseEnter() {
-    markPaintDirty();
+    if (isEnabled()) {
+        markPaintDirty();
+    }
 }
 
 void MenuBar::onMouseMove(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        onMouseLeave();
+        return;
+    }
     int nextHighlight = itemIndexAtPoint(ev.position());
     if (highlightedIndex_ != nextHighlight) {
         highlightedIndex_ = nextHighlight;
+        updateHoverTargets();
         markPaintDirty();
 
         if (openMenuIndex_ >= 0 && nextHighlight >= 0 && nextHighlight != openMenuIndex_) {
@@ -225,15 +330,20 @@ void MenuBar::onMouseMove(WidgetMouseEvent& ev) {
 }
 
 void MenuBar::onMouseLeave() {
-    if (openMenuIndex_ < 0 && highlightedIndex_ != -1) {
+    if ((openMenuIndex_ < 0 || !isEnabled()) && highlightedIndex_ != -1) {
         highlightedIndex_ = -1;
+        updateHoverTargets();
         markPaintDirty();
     }
 }
 
 void MenuBar::onMouseDown(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left) {
+    if (!isEnabled()) {
+        return;
+    }
+    if (ev.isPrimaryButton()) {
         ev.accept();
+        setFocus(FocusReason::Pointer);
         int idx = itemIndexAtPoint(ev.position());
         if (idx >= 0) {
             if (openMenuIndex_ == idx) {
@@ -246,6 +356,9 @@ void MenuBar::onMouseDown(WidgetMouseEvent& ev) {
 }
 
 void MenuBar::onKeyDown(WidgetKeyEvent& ev) {
+    if (!ev.isDown() || !isEnabled()) {
+        return;
+    }
     int count = static_cast<int>(menus_.size());
     if (count == 0) {
         return;
@@ -255,6 +368,7 @@ void MenuBar::onKeyDown(WidgetKeyEvent& ev) {
         ev.accept();
         int next = (highlightedIndex_ <= 0) ? count - 1 : highlightedIndex_ - 1;
         highlightedIndex_ = next;
+        updateHoverTargets();
         markPaintDirty();
         if (openMenuIndex_ >= 0) {
             openMenu(next);
@@ -267,6 +381,7 @@ void MenuBar::onKeyDown(WidgetKeyEvent& ev) {
         int next =
             (highlightedIndex_ < 0 || highlightedIndex_ >= count - 1) ? 0 : highlightedIndex_ + 1;
         highlightedIndex_ = next;
+        updateHoverTargets();
         markPaintDirty();
         if (openMenuIndex_ >= 0) {
             openMenu(next);
@@ -286,6 +401,7 @@ void MenuBar::onKeyDown(WidgetKeyEvent& ev) {
         ev.accept();
         closeMenu();
         highlightedIndex_ = -1;
+        updateHoverTargets();
         markPaintDirty();
         return;
     }
@@ -294,6 +410,7 @@ void MenuBar::onKeyDown(WidgetKeyEvent& ev) {
 void MenuBar::onFocusLost() {
     if (openMenuIndex_ < 0) {
         highlightedIndex_ = -1;
+        updateHoverTargets();
         markPaintDirty();
     }
 }
@@ -307,13 +424,18 @@ void MenuBar::paint(renderer::PaintContext& ctx) {
     const auto& pal = colorPalette();
     ctx.drawRect(rect, pal.surfaceBase);
 
-    float borderY = rect.origin.y + rect.size.height - 1.0f;
+    float hairline = theme::Metrics::BorderWidthHairline * dpiScale_;
+    float borderY = rect.origin.y + rect.size.height - hairline;
     ctx.drawLine(core::Point{rect.origin.x, borderY},
-                 core::Point{rect.origin.x + rect.size.width, borderY}, pal.borderSubtle, 1.0f);
+                 core::Point{rect.origin.x + rect.size.width, borderY}, pal.borderSubtle, hairline);
 
     updateItemRects();
     auto f = effectiveFont();
     float targetCenterY = rect.origin.y + rect.size.height * 0.5f;
+    float pillRadius = theme::Metrics::CornerRadiusControl * dpiScale_;
+    float radii[4] = {pillRadius, pillRadius, pillRadius, pillRadius};
+    const bool enabled = isEnabled();
+    const bool kbFocus = enabled && hasKeyboardFocus() && openMenuIndex_ < 0;
 
     for (size_t i = 0; i < menus_.size(); ++i) {
         const auto& m = menus_[i];
@@ -322,23 +444,26 @@ void MenuBar::paint(renderer::PaintContext& ctx) {
                         rect.origin.y + m.itemRect.origin.y + 2.0f * dpiScale_},
             core::Size{m.itemRect.size.width, m.itemRect.size.height - 4.0f * dpiScale_}};
 
-        bool isOpen = (static_cast<int>(i) == openMenuIndex_);
-        bool isHigh = (static_cast<int>(i) == highlightedIndex_);
+        bool isOpen = enabled && (static_cast<int>(i) == openMenuIndex_);
+        bool isHigh = enabled && (static_cast<int>(i) == highlightedIndex_);
+        float targetAlpha = isOpen ? 0.85f : (isHigh ? 0.55f : 0.0f);
+        float hoverT = m.hoverAnim.isRunning() ? m.hoverAnim.currentValue() : targetAlpha;
 
-        if (isOpen) {
-            float radii[4] = {4.0f * dpiScale_, 4.0f * dpiScale_, 4.0f * dpiScale_,
-                              4.0f * dpiScale_};
-            ctx.drawRoundedRect(itemScreen, pal.surfaceRaised, radii);
-        } else if (isHigh) {
-            float radii[4] = {4.0f * dpiScale_, 4.0f * dpiScale_, 4.0f * dpiScale_,
-                              4.0f * dpiScale_};
-            ctx.drawRoundedRect(itemScreen, pal.surfaceRaised.withAlpha(0.6f), radii);
+        if (enabled && hoverT > 0.001f) {
+            ctx.drawRoundedRect(itemScreen,
+                                pal.surfaceRaised.withAlpha(pal.surfaceRaised.a * hoverT), radii);
+        }
+
+        if (kbFocus && static_cast<int>(i) == highlightedIndex_) {
+            paintFocusRing(ctx, itemScreen, pillRadius);
         }
 
         if (f && m.layout) {
             float textY = theme::computeCenteredTextY(targetCenterY, *f);
             float textX = itemScreen.origin.x + 8.0f * dpiScale_;
-            core::Color textCol = (isOpen || isHigh) ? pal.textPrimary : pal.textSecondary;
+            core::Color textCol = !enabled
+                                      ? pal.textDisabled
+                                      : ((isOpen || isHigh) ? pal.textPrimary : pal.textSecondary);
             ctx.drawTextLayout(core::Point{textX, textY}, *m.layout, textCol);
         }
     }

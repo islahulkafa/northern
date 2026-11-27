@@ -1,3 +1,7 @@
+#include "renderer/paint_context.hpp"
+#include "widgets/base/theme.hpp"
+#include "widgets/base/widget_context.hpp"
+#include "widgets/containers/container.hpp"
 #include "widgets/views/item_delegate.hpp"
 #include "widgets/views/item_model.hpp"
 #include "widgets/views/item_selection_model.hpp"
@@ -165,4 +169,143 @@ TEST(CollectionViewsTest, DpiScalingPropagation) {
     EXPECT_FLOAT_EQ(tree.dpiScale(), 1.25f);
     EXPECT_FLOAT_EQ(tree.rowHeight(), TreeView::kDefaultRowHeight * 1.25f);
     EXPECT_FLOAT_EQ(tree.indentPerLevel(), TreeView::kDefaultIndentPerLevel * 1.25f);
+}
+
+TEST(CollectionViewsTest, ThemePaletteAndBorderTogglesAcrossViews) {
+    WidgetContext ctx;
+    ctx.setTheme(theme::Theme::light());
+    auto root = std::make_unique<Container>();
+    root->setFlexDirection(layout::FlexDirection::Column);
+
+    StringListModel listModel({"Alpha", "Beta", "Gamma"});
+    auto list = std::make_unique<ListView>(&listModel);
+    list->setListStyle(ListStyle::Sidebar);
+    list->selectionModel().select(listModel.index(0, 0), SelectionFlag::ClearAndSelect);
+    list->style().height = layout::Length::points(100.0f);
+    ListView* listPtr = list.get();
+    root->addChild(std::move(list));
+
+    StandardTableModel tableModel({"Name", "Value"});
+    tableModel.appendRow({"Row1", "100"});
+    auto table = std::make_unique<TableView>(&tableModel);
+    EXPECT_TRUE(table->showBorder());
+    table->setShowBorder(false);
+    EXPECT_FALSE(table->showBorder());
+    table->style().height = layout::Length::points(100.0f);
+    TableView* tablePtr = table.get();
+    root->addChild(std::move(table));
+
+    StandardTreeModel treeModel({"Item"});
+    treeModel.rootItem()->appendChild(
+        std::make_unique<StandardTreeItem>(std::vector<std::string>{"Node"}));
+    auto tree = std::make_unique<TreeView>(&treeModel);
+    EXPECT_TRUE(tree->showBorder());
+    tree->setShowBorder(false);
+    EXPECT_FALSE(tree->showBorder());
+    tree->style().height = layout::Length::points(100.0f);
+    TreeView* treePtr = tree.get();
+    root->addChild(std::move(tree));
+
+    ctx.setRootWidget(std::move(root));
+    ctx.handleResize(core::Size{400.0f, 360.0f});
+
+    renderer::PaintContext paintCtx;
+    ctx.render(paintCtx, core::Size{400.0f, 360.0f});
+    EXPECT_FALSE(paintCtx.commands().empty());
+    EXPECT_EQ(listPtr->listStyle(), ListStyle::Sidebar);
+    EXPECT_FALSE(tablePtr->showBorder());
+    EXPECT_FALSE(treePtr->showBorder());
+}
+
+TEST(CollectionViewsTest, ContextDpiAdoptionCustomRowHeightThumbGrabCancelAndThemeRefresh) {
+    // 1. ListView: contextDpiScale adoption, custom rowHeight preservation, thumb grab cancel
+    {
+        WidgetContext ctx;
+        ctx.setDpiScale(1.5f);
+        std::vector<std::string> items;
+        for (int i = 0; i < 30; ++i) {
+            items.push_back("Row " + std::to_string(i));
+        }
+        StringListModel model(std::move(items));
+
+        auto owned = std::make_unique<ListView>(&model);
+        ListView* list = owned.get();
+        ctx.setRootWidget(std::move(owned));
+        ctx.handleResize(Size{240.0f, 120.0f});
+
+        EXPECT_FLOAT_EQ(list->dpiScale(), 1.5f);
+        EXPECT_FLOAT_EQ(list->rowHeight(), ListView::kDefaultRowHeight * 1.5f);
+
+        list->setRowHeight(45.0f); // 30.0f logical at 1.5x
+        list->setDpiScale(2.0f);
+        EXPECT_FLOAT_EQ(list->rowHeight(), 60.0f);
+
+        // Start dragging vertical scrollbar thumb and cancel via disable
+        float thumbX = 240.0f - 6.0f * 2.0f;
+        WidgetMouseEvent downThumb{Point{thumbX, 10.0f}, platform::MouseButton::Left,
+                                   platform::KeyModifier::None};
+        list->onMouseDown(downThumb);
+        EXPECT_EQ(ctx.mouseGrabWidget(), list);
+        list->setEnabled(false);
+        EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+
+        list->setEnabled(true);
+        ctx.setTheme(theme::Theme::light());
+        renderer::PaintContext pctx;
+        list->paint(pctx);
+        EXPECT_FALSE(pctx.commands().empty());
+    }
+
+    // 2. TableView: contextDpiScale adoption, custom rowHeight preservation, theme forward
+    {
+        WidgetContext ctx;
+        ctx.setDpiScale(1.5f);
+        StandardTableModel model({"Name", "Value"});
+        for (int i = 0; i < 20; ++i) {
+            model.appendRow({"Item " + std::to_string(i), "Val"});
+        }
+
+        auto owned = std::make_unique<TableView>(&model);
+        TableView* table = owned.get();
+        ctx.setRootWidget(std::move(owned));
+        ctx.handleResize(Size{300.0f, 140.0f});
+
+        EXPECT_FLOAT_EQ(table->dpiScale(), 1.5f);
+        EXPECT_FLOAT_EQ(table->horizontalHeader()->dpiScale(), 1.5f);
+        table->setRowHeight(45.0f);
+        table->setDpiScale(2.0f);
+        EXPECT_FLOAT_EQ(table->rowHeight(), 60.0f);
+
+        ctx.setTheme(theme::Theme::light());
+        renderer::PaintContext pctx;
+        table->paint(pctx);
+        EXPECT_FALSE(pctx.commands().empty());
+    }
+
+    // 3. TreeView: contextDpiScale adoption, custom rowHeight & indent preservation, theme forward
+    {
+        WidgetContext ctx;
+        ctx.setDpiScale(1.5f);
+        StandardTreeModel model({"Node"});
+        model.rootItem()->appendChild(
+            std::make_unique<StandardTreeItem>(std::vector<std::string>{"Root"}));
+
+        auto owned = std::make_unique<TreeView>(&model);
+        TreeView* tree = owned.get();
+        ctx.setRootWidget(std::move(owned));
+        ctx.handleResize(Size{300.0f, 140.0f});
+
+        EXPECT_FLOAT_EQ(tree->dpiScale(), 1.5f);
+        EXPECT_FLOAT_EQ(tree->header()->dpiScale(), 1.5f);
+        tree->setRowHeight(45.0f);
+        tree->setIndentPerLevel(30.0f);
+        tree->setDpiScale(2.0f);
+        EXPECT_FLOAT_EQ(tree->rowHeight(), 60.0f);
+        EXPECT_FLOAT_EQ(tree->indentPerLevel(), 40.0f);
+
+        ctx.setTheme(theme::Theme::light());
+        renderer::PaintContext pctx;
+        tree->paint(pctx);
+        EXPECT_FALSE(pctx.commands().empty());
+    }
 }

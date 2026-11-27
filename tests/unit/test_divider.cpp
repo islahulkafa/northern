@@ -140,3 +140,57 @@ TEST(DividerTest, PaintExecutionGeneratesDrawCommands) {
     div->paint(vPaintCtx);
     EXPECT_FALSE(vPaintCtx.commands().empty());
 }
+
+TEST(DividerTest, ContextDpiAdoptionAndCustomOverridePreservation) {
+    WidgetContext ctx;
+    ctx.setDpiScale(2.0f);
+    auto divUnique = std::make_unique<Divider>("SECTION");
+    Divider* div = divUnique.get();
+    ctx.setRootWidget(std::move(divUnique));
+
+    EXPECT_FLOAT_EQ(div->dpiScale(), 2.0f);
+    EXPECT_FLOAT_EQ(div->thickness(), 2.0f);
+    EXPECT_FLOAT_EQ(div->gap(), 16.0f);
+    EXPECT_FLOAT_EQ(div->labelOffset(), 48.0f);
+    ASSERT_NE(div->effectiveFont(), nullptr);
+    EXPECT_FLOAT_EQ(div->effectiveFont()->pointSize(), 22.0f);
+
+    // Explicit metric overrides survive DPI changes
+    Divider custom("CUSTOM");
+    custom.setThickness(3.0f);
+    custom.setGap(10.0f);
+    custom.setLabelOffset(30.0f);
+    custom.setDpiScale(1.5f);
+    EXPECT_FLOAT_EQ(custom.thickness(), 3.0f);
+    EXPECT_FLOAT_EQ(custom.gap(), 10.0f);
+    EXPECT_FLOAT_EQ(custom.labelOffset(), 30.0f);
+    ASSERT_NE(custom.effectiveFont(), nullptr);
+    EXPECT_FLOAT_EQ(custom.effectiveFont()->pointSize(), 16.5f);
+
+    // Explicit setDpiScale is preserved on context attachment
+    WidgetContext ctx2;
+    ctx2.setDpiScale(2.0f);
+    auto explicitUnique = std::make_unique<Divider>();
+    Divider* explicitDiv = explicitUnique.get();
+    explicitDiv->setDpiScale(1.5f);
+    ctx2.setRootWidget(std::move(explicitUnique));
+    EXPECT_FLOAT_EQ(explicitDiv->dpiScale(), 1.5f);
+}
+
+TEST(DividerTest, DisabledVisualsAndThemeChangeInvalidation) {
+    WidgetContext ctx;
+    auto divUnique = std::make_unique<Divider>("Section");
+    Divider* div = divUnique.get();
+    ctx.setRootWidget(std::move(divUnique));
+
+    const core::Color enabledLine = div->effectiveColor();
+    div->setEnabled(false);
+    EXPECT_EQ(div->effectiveTextColor(), ctx.theme().colors().textDisabled);
+    EXPECT_LT(div->effectiveColor().a, enabledLine.a);
+
+    div->setEnabled(true);
+    div->clearPaintDirty();
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_TRUE(div->isPaintDirty());
+    EXPECT_EQ(div->effectiveColor(), ctx.theme().colors().borderSubtle);
+}

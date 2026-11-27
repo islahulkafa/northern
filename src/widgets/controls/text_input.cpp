@@ -1,8 +1,10 @@
 #include "widgets/controls/text_input.hpp"
 #include "platform/clipboard.hpp"
 #include "renderer/paint_context.hpp"
+#include "renderer/svg/svg_document.hpp"
 #include "text/font_manager.hpp"
 #include "widgets/base/widget_context.hpp"
+#include "widgets/controls/icons.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -399,6 +401,87 @@ void TextInput::setMaxLength(size_t maxChars) {
     }
 }
 
+void TextInput::setLeadingIcon(std::shared_ptr<renderer::SvgDocument> icon) {
+    if (leadingIcon_ != icon) {
+        leadingIcon_ = std::move(icon);
+        ensureCursorVisible();
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+void TextInput::setLeadingIcon(IconId iconId) {
+    setLeadingIcon(getSvgDocument(iconId));
+}
+
+void TextInput::setClearButtonEnabled(bool enabled) noexcept {
+    if (clearButtonEnabled_ != enabled) {
+        clearButtonEnabled_ = enabled;
+        isHoveringClear_ = false;
+        ensureCursorVisible();
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+bool TextInput::shouldShowClearButton() const noexcept {
+    return clearButtonEnabled_ && isEnabled() && !readOnly_ && !text_.empty();
+}
+
+float TextInput::effectiveTextLeftInset(float availWidth) const noexcept {
+    float padL = style().padding.left.resolve(availWidth, 0.0f);
+    if (leadingIcon_ && leadingIcon_->isValid()) {
+        padL += 14.0f * dpiScale_ + 6.0f * dpiScale_;
+    }
+    return padL;
+}
+
+float TextInput::effectiveTextRightInset(float availWidth) const noexcept {
+    float padR = style().padding.right.resolve(availWidth, 0.0f);
+    if (clearButtonEnabled_) {
+        padR += 14.0f * dpiScale_ + 6.0f * dpiScale_;
+    }
+    return padR;
+}
+
+core::Rect TextInput::clearButtonLocalRect() const noexcept {
+    core::Rect r = layoutRect();
+    if (!shouldShowClearButton() || r.size.width <= 0.0f || r.size.height <= 0.0f) {
+        return {};
+    }
+    float btnSize = 18.0f * dpiScale_;
+    float padR = style().padding.right.resolve(r.size.width, 0.0f);
+    float x = r.size.width - padR - btnSize + 2.0f * dpiScale_;
+    float y = (r.size.height - btnSize) * 0.5f;
+    return core::Rect{core::Point{x, y}, core::Size{btnSize, btnSize}};
+}
+
+void TextInput::updateBorderAnimation(bool animated, bool focused) {
+    float targetHover = (isEnabled() && isHovered_) ? 1.0f : 0.0f;
+    float targetFocus = (isEnabled() && focused) ? 1.0f : 0.0f;
+    if (animated && isEnabled()) {
+        if (std::abs(hoverAnim_.targetValue() - targetHover) > 0.001f ||
+            (!hoverAnim_.isRunning() &&
+             std::abs(hoverAnim_.currentValue() - targetHover) > 0.001f)) {
+            hoverAnim_.start(hoverAnim_.currentValue(), targetHover, 0.12f,
+                             core::animation::EasingCurve::OutCubic);
+        }
+        if (std::abs(focusAnim_.targetValue() - targetFocus) > 0.001f ||
+            (!focusAnim_.isRunning() &&
+             std::abs(focusAnim_.currentValue() - targetFocus) > 0.001f)) {
+            focusAnim_.start(focusAnim_.currentValue(), targetFocus, 0.14f,
+                             core::animation::EasingCurve::OutCubic);
+        }
+        if (context_ && (hoverAnim_.isRunning() || focusAnim_.isRunning())) {
+            context_->registerAnimatedWidget(this);
+        }
+    } else {
+        hoverAnim_.setCurrentValue(targetHover);
+        focusAnim_.setCurrentValue(targetFocus);
+    }
+    markPaintDirty();
+}
+
 std::string TextInput::selectedText() const {
     if (!hasSelection()) {
         return "";
@@ -619,7 +702,10 @@ void TextInput::ensureCursorVisible() {
         return;
     }
     float cursorX = measureOffsetAt(cursorIndex_);
-    float contentW = layoutNode_.contentRect().size.width;
+    float totalW = layoutRect().size.width;
+    float contentW = totalW > 0.0f ? std::max(0.0f, totalW - effectiveTextLeftInset(totalW) -
+                                                        effectiveTextRightInset(totalW))
+                                   : layoutNode_.contentRect().size.width;
     if (contentW <= 0.0f) {
         return;
     }
@@ -637,12 +723,16 @@ void TextInput::onMouseEnter() {
         return;
     }
     isHovered_ = true;
-    markPaintDirty();
+    updateBorderAnimation(true, hasFocus());
 }
 
 void TextInput::onMouseLeave() {
     isHovered_ = false;
-    markPaintDirty();
+    if (isHoveringClear_) {
+        isHoveringClear_ = false;
+        setCursorShape(platform::CursorShape::IBeam);
+    }
+    updateBorderAnimation(true, hasFocus());
 }
 
 void TextInput::onMouseDown(WidgetMouseEvent& ev) {
@@ -652,9 +742,18 @@ void TextInput::onMouseDown(WidgetMouseEvent& ev) {
     if (ev.button() == platform::MouseButton::Left) {
         setFocus(FocusReason::Pointer);
         ev.accept();
+
+        if (shouldShowClearButton() && clearButtonLocalRect().contains(ev.position())) {
+            isDraggingSelection_ = false;
+            setText("");
+            isHoveringClear_ = false;
+            setCursorShape(platform::CursorShape::IBeam);
+            return;
+        }
+
         isDraggingSelection_ = true;
 
-        float padL = style().padding.left.resolve(layoutRect().size.width, 0.0f);
+        float padL = effectiveTextLeftInset(layoutRect().size.width);
         size_t idx = hitTestCharacter(ev.position().x - padL);
         cursorIndex_ = idx;
         selectionAnchor_ = idx;
@@ -669,10 +768,19 @@ void TextInput::onMouseMove(WidgetMouseEvent& ev) {
     }
     if (isDraggingSelection_) {
         ev.accept();
-        float padL = style().padding.left.resolve(layoutRect().size.width, 0.0f);
+        float padL = effectiveTextLeftInset(layoutRect().size.width);
         size_t idx = hitTestCharacter(ev.position().x - padL);
         cursorIndex_ = idx;
         ensureCursorVisible();
+        markPaintDirty();
+        return;
+    }
+
+    bool hoverClear = shouldShowClearButton() && clearButtonLocalRect().contains(ev.position());
+    if (hoverClear != isHoveringClear_) {
+        isHoveringClear_ = hoverClear;
+        setCursorShape(hoverClear ? platform::CursorShape::PointingHand
+                                  : platform::CursorShape::IBeam);
         markPaintDirty();
     }
 }
@@ -895,6 +1003,7 @@ void TextInput::onKeyDown(WidgetKeyEvent& ev) {
 void TextInput::onFocusGained() {
     cursorBlinkTimer_ = 0.0f;
     cursorVisible_ = true;
+    updateBorderAnimation(true, true);
     if (context_) {
         context_->registerAnimatedWidget(this);
     }
@@ -905,25 +1014,35 @@ void TextInput::onFocusLost() {
     isDraggingSelection_ = false;
     selectionAnchor_ = cursorIndex_;
     cursorVisible_ = false;
-    if (context_) {
-        context_->unregisterAnimatedWidget(this);
-    }
+    updateBorderAnimation(true, false);
     markPaintDirty();
 }
 
 void TextInput::updateAnimations(float deltaSeconds) {
+    bool dirty = false;
+    if (hoverAnim_.isRunning()) {
+        hoverAnim_.update(deltaSeconds);
+        dirty = true;
+    }
+    if (focusAnim_.isRunning()) {
+        focusAnim_.update(deltaSeconds);
+        dirty = true;
+    }
     if (hasFocus()) {
         cursorBlinkTimer_ += deltaSeconds;
         bool visible = (std::fmod(cursorBlinkTimer_, 1.06f) < 0.53f);
         if (visible != cursorVisible_) {
             cursorVisible_ = visible;
-            markPaintDirty();
+            dirty = true;
         }
+    }
+    if (dirty) {
+        markPaintDirty();
     }
 }
 
 bool TextInput::hasActiveAnimations() const noexcept {
-    return hasFocus() && isEnabled();
+    return (hasFocus() && isEnabled()) || hoverAnim_.isRunning() || focusAnim_.isRunning();
 }
 
 void TextInput::paint(renderer::PaintContext& ctx) {
@@ -932,68 +1051,110 @@ void TextInput::paint(renderer::PaintContext& ctx) {
         return;
     }
 
-    ctx.drawBox(rect, effectiveBackgroundColor(), effectiveBorderColor(), borderWidth_,
-                cornerRadii_);
+    const auto& pal = colorPalette();
+    float hoverT = hoverAnim_.isRunning() ? hoverAnim_.currentValue() : (isHovered_ ? 1.0f : 0.0f);
+    float focusT = focusAnim_.isRunning() ? focusAnim_.currentValue() : (hasFocus() ? 1.0f : 0.0f);
 
-    if (hasFocus() && isEnabled()) {
-        theme::paintFocusRing(ctx, rect, cornerRadii_[0]);
+    core::Color borderCol = pal.borderSubtle;
+    if (isEnabled()) {
+        core::Color idleCol = overrideIdleBorderColor_.value_or(pal.borderDefault);
+        core::Color hoverCol = pal.borderStrong;
+        core::Color focusCol = overrideFocusedBorderColor_.value_or(pal.accentDefault);
+        borderCol = idleCol.lerp(hoverCol, hoverT).lerp(focusCol, focusT);
     }
 
-    float padL = style().padding.left.resolve(rect.size.width, 0.0f);
-    float padR = style().padding.right.resolve(rect.size.width, 0.0f);
+    ctx.drawBox(rect, effectiveBackgroundColor(), borderCol, borderWidth_, cornerRadii_);
+
+    if (isEnabled() && focusT > 0.001f) {
+        core::Color ringCol = pal.accentFocusRing.withAlpha(pal.accentFocusRing.a * focusT);
+        theme::paintFocusRing(ctx, rect, cornerRadii_[0], theme::Metrics::FocusRingOffset,
+                              theme::Metrics::FocusRingWidth, ringCol);
+    }
+    float targetCenterY = rect.origin.y + rect.size.height * 0.5f;
+
+    if (leadingIcon_ && leadingIcon_->isValid()) {
+        float padL = style().padding.left.resolve(rect.size.width, 0.0f);
+        float iconSize = 14.0f * dpiScale_;
+        core::Rect iconRect{
+            core::Point{rect.origin.x + padL, std::round(targetCenterY - iconSize * 0.5f)},
+            core::Size{iconSize, iconSize}};
+        core::Color iconCol = isEnabled() ? pal.textTertiary : pal.textDisabled;
+        ctx.drawSvg(*leadingIcon_, iconRect, iconCol);
+    }
+
+    float leftInset = effectiveTextLeftInset(rect.size.width);
+    float rightInset = effectiveTextRightInset(rect.size.width);
 
     core::Rect textClipRect{
-        core::Point{rect.origin.x + padL, rect.origin.y + 1.0f},
-        core::Size{std::max(0.0f, rect.size.width - padL - padR),
+        core::Point{rect.origin.x + leftInset, rect.origin.y + 1.0f},
+        core::Size{std::max(0.0f, rect.size.width - leftInset - rightInset),
                    std::max(0.0f, rect.size.height - 2.0f)},
     };
 
-    if (textClipRect.size.width <= 0.0f || textClipRect.size.height <= 0.0f) {
-        return;
+    if (textClipRect.size.width > 0.0f && textClipRect.size.height > 0.0f) {
+        ctx.pushClip(textClipRect);
+
+        auto f = effectiveFont();
+        float textX = textClipRect.origin.x - scrollOffset_;
+        float textY = f ? theme::computeCenteredTextY(targetCenterY, *f) : targetCenterY;
+        float cursorH = f ? std::min(textClipRect.size.height, f->pointSize() * 1.3f) : 16.0f;
+        float cursorY = targetCenterY - cursorH * 0.5f;
+
+        if (text_.empty() && !placeholder_.empty() && f) {
+            ensurePlaceholderCache();
+            if (cachedPlaceholderLayout_) {
+                ctx.drawTextLayout(core::Point{textX, textY}, *cachedPlaceholderLayout_,
+                                   effectivePlaceholderColor());
+            }
+        } else if (!text_.empty() && f) {
+            ensureTextCache();
+            if (hasSelection()) {
+                size_t selStart = std::min(cursorIndex_, selectionAnchor_);
+                size_t selEnd = std::max(cursorIndex_, selectionAnchor_);
+                float selStartX = measureOffsetAt(selStart);
+                float selEndX = measureOffsetAt(selEnd);
+                core::Rect selRect{
+                    core::Point{textX + selStartX, cursorY},
+                    core::Size{selEndX - selStartX, cursorH},
+                };
+                ctx.drawRoundedRect(selRect, effectiveSelectionColor(), 3.0f * dpiScale_);
+            }
+
+            if (cachedTextLayout_) {
+                ctx.drawTextLayout(core::Point{textX, textY}, *cachedTextLayout_,
+                                   effectiveTextColor());
+            }
+        }
+
+        if (hasFocus() && isEnabled() && !readOnly_ && f && cursorVisible_) {
+            float cursorX = measureOffsetAt(cursorIndex_);
+            core::Rect cursorRect{core::Point{textX + cursorX, cursorY},
+                                  core::Size{1.5f * dpiScale_, cursorH}};
+            ctx.drawRect(cursorRect, effectiveCursorColor());
+        }
+
+        ctx.popClip();
     }
 
-    ctx.pushClip(textClipRect);
+    if (shouldShowClearButton()) {
+        core::Rect localClear = clearButtonLocalRect();
+        core::Rect screenClear{
+            core::Point{rect.origin.x + localClear.origin.x, rect.origin.y + localClear.origin.y},
+            localClear.size};
+        float r = screenClear.size.width * 0.5f;
+        core::Color pillBg = isHoveringClear_ ? pal.surfaceOverlay : pal.surfaceRaised;
+        ctx.drawRoundedRect(screenClear, pillBg, r);
 
-    auto f = effectiveFont();
-    float targetCenterY = rect.origin.y + rect.size.height * 0.5f;
-    float textX = textClipRect.origin.x - scrollOffset_;
-    float textY = f ? theme::computeCenteredTextY(targetCenterY, *f) : targetCenterY;
-    float cursorH = f ? std::min(textClipRect.size.height, f->pointSize() * 1.3f) : 16.0f;
-    float cursorY = targetCenterY - cursorH * 0.5f;
-
-    if (text_.empty() && !placeholder_.empty() && f) {
-        ensurePlaceholderCache();
-        if (cachedPlaceholderLayout_) {
-            ctx.drawTextLayout(core::Point{textX, textY}, *cachedPlaceholderLayout_,
-                               effectivePlaceholderColor());
-        }
-    } else if (!text_.empty() && f) {
-        ensureTextCache();
-        if (hasSelection()) {
-            size_t selStart = std::min(cursorIndex_, selectionAnchor_);
-            size_t selEnd = std::max(cursorIndex_, selectionAnchor_);
-            float selStartX = measureOffsetAt(selStart);
-            float selEndX = measureOffsetAt(selEnd);
-            core::Rect selRect{
-                core::Point{textX + selStartX, cursorY},
-                core::Size{selEndX - selStartX, cursorH},
-            };
-            ctx.drawRect(selRect, effectiveSelectionColor());
-        }
-
-        if (cachedTextLayout_) {
-            ctx.drawTextLayout(core::Point{textX, textY}, *cachedTextLayout_, effectiveTextColor());
+        if (auto closeDoc = getSvgDocument(IconId::Close)) {
+            float iconSize = 10.0f * dpiScale_;
+            core::Rect iconRect{
+                core::Point{screenClear.origin.x + (screenClear.size.width - iconSize) * 0.5f,
+                            screenClear.origin.y + (screenClear.size.height - iconSize) * 0.5f},
+                core::Size{iconSize, iconSize}};
+            ctx.drawSvg(*closeDoc, iconRect,
+                        isHoveringClear_ ? pal.textPrimary : pal.textSecondary);
         }
     }
-
-    if (hasFocus() && isEnabled() && !readOnly_ && f && cursorVisible_) {
-        float cursorX = measureOffsetAt(cursorIndex_);
-        core::Rect cursorRect{core::Point{textX + cursorX, cursorY},
-                              core::Size{1.5f * dpiScale_, cursorH}};
-        ctx.drawRect(cursorRect, effectiveCursorColor());
-    }
-
-    ctx.popClip();
 }
 
 } // namespace northern::widgets

@@ -159,10 +159,19 @@ struct Metrics {
     static constexpr float CornerRadiusControl = 6.0f;
     static constexpr float CornerRadiusCard = 8.0f;
     static constexpr float CornerRadiusOverlay = 10.0f;
+    static constexpr float CornerRadiusButtonCompact = 6.0f;
+    static constexpr float CornerRadiusButtonStandard = 8.0f;
+    static constexpr float CornerRadiusButtonComfortable = 9.0f;
     static constexpr float BorderWidthHairline = 1.0f;
     static constexpr float FocusRingWidth = 2.0f;
     static constexpr float FocusRingOffset = 2.0f;
 };
+
+[[nodiscard]] constexpr float resolveConcentricRadius(float outerRadius, float inset,
+                                                      float minRadius = 4.0f) noexcept {
+    float candidate = outerRadius - inset;
+    return candidate > minRadius ? candidate : minRadius;
+}
 
 inline void paintFocusRing(renderer::PaintContext& ctx, const core::Rect& rect, float cornerRadius,
                            float ringOffset = Metrics::FocusRingOffset,
@@ -171,6 +180,13 @@ inline void paintFocusRing(renderer::PaintContext& ctx, const core::Rect& rect, 
     core::Rect ringRect = rect.outset(core::Insets{ringOffset});
     float outerRadius = cornerRadius > 0.0f ? cornerRadius + ringOffset : 0.0f;
     ctx.drawBorder(ringRect, ringColor, ringWidth, outerRadius);
+}
+
+inline void paintFocusRing(renderer::PaintContext& ctx, const core::Rect& rect, float cornerRadius,
+                           const ColorPalette& palette, float dpiScale = 1.0f) {
+    float scale = dpiScale > 0.0f ? dpiScale : 1.0f;
+    paintFocusRing(ctx, rect, cornerRadius, Metrics::FocusRingOffset * scale,
+                   Metrics::FocusRingWidth * scale, palette.accentFocusRing);
 }
 
 inline float computeCenteredTextY(float targetCenterY, const text::Font& font) {

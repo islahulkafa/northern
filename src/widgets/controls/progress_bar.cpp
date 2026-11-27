@@ -20,11 +20,12 @@ ProgressBar::ProgressBar(float progress, bool isIndeterminate)
 
     layoutNode_.setMeasureFunc(
         [this](const layout::LayoutNode&, float availW, float) -> core::Size {
-            float minW = 60.0f;
+            float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+            float minW = 60.0f * scale;
             float h = barHeight_;
             if (showValue_ && !isIndeterminate_) {
                 updateReservedLabelWidth();
-                minW += kReadoutGap + reservedLabelWidth_;
+                minW += kReadoutGap * scale + reservedLabelWidth_;
                 h = std::max(h, reservedLabelHeight_);
             }
             float w = std::max(minW, availW);
@@ -34,9 +35,10 @@ ProgressBar::ProgressBar(float progress, bool isIndeterminate)
 
 ProgressBar::ProgressBar(ProgressSize size, ProgressRole role, float progress, bool isIndeterminate)
     : ProgressBar(progress, isIndeterminate) {
-    barHeight_ = toPoints(size);
+    baseBarHeight_ = toPoints(size);
+    barHeight_ = baseBarHeight_ * dpiScale_;
     role_ = role;
-    style().height = layout::Length::points(barHeight_);
+    syncLayoutHeight();
 }
 
 std::shared_ptr<text::Font> ProgressBar::effectiveFont() const {
@@ -130,18 +132,36 @@ void ProgressBar::setIndeterminate(bool isIndeterminate) {
     }
 }
 
+void ProgressBar::syncLayoutHeight() {
+    if (showValue_ && !isIndeterminate_) {
+        updateReservedLabelWidth();
+        style().height = layout::Length::points(std::max(barHeight_, reservedLabelHeight_));
+    } else {
+        style().height = layout::Length::points(barHeight_);
+    }
+}
+
 void ProgressBar::setSize(ProgressSize size) noexcept {
-    setBarHeight(toPoints(size));
+    hasCustomBarHeight_ = false;
+    baseBarHeight_ = toPoints(size);
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    float scaled = baseBarHeight_ * scale;
+    if (barHeight_ != scaled) {
+        barHeight_ = scaled;
+        syncLayoutHeight();
+        markLayoutDirty();
+        markPaintDirty();
+    }
 }
 
 void ProgressBar::setBarHeight(float height) noexcept {
+    hasCustomBarHeight_ = true;
     float clamped = std::max(2.0f, height);
     if (barHeight_ != clamped) {
         barHeight_ = clamped;
-        float minH = showValue_ && !isIndeterminate_ ? std::max(barHeight_, reservedLabelHeight_)
-                                                     : barHeight_;
-        style().height = layout::Length::points(minH);
+        syncLayoutHeight();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -155,13 +175,9 @@ void ProgressBar::setRole(ProgressRole role) noexcept {
 void ProgressBar::setShowValue(bool show) {
     if (showValue_ != show) {
         showValue_ = show;
-        if (showValue_) {
-            updateReservedLabelWidth();
-            style().height = layout::Length::points(std::max(barHeight_, reservedLabelHeight_));
-        } else {
-            style().height = layout::Length::points(barHeight_);
-        }
+        syncLayoutHeight();
         markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -171,29 +187,33 @@ void ProgressBar::setFont(std::shared_ptr<text::Font> font) {
         cachedValueLayout_.reset();
         cachedPercent_ = -1;
         reservedLabelWidth_ = 0.0f;
-        if (showValue_) {
-            updateReservedLabelWidth();
-            style().height = layout::Length::points(std::max(barHeight_, reservedLabelHeight_));
-            markLayoutDirty();
-        }
+        reservedLabelHeight_ = 0.0f;
+        syncLayoutHeight();
+        markLayoutDirty();
+        markPaintDirty();
     }
 }
 
 void ProgressBar::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void ProgressBar::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
-        resolvedDefaultFont_.reset();
-        if (!font_) {
-            cachedValueLayout_.reset();
-            cachedPercent_ = -1;
-            reservedLabelWidth_ = 0.0f;
-            if (showValue_) {
-                updateReservedLabelWidth();
-                style().height = layout::Length::points(std::max(barHeight_, reservedLabelHeight_));
-                markLayoutDirty();
-            }
+        if (!hasCustomBarHeight_) {
+            barHeight_ = baseBarHeight_ * dpiScale_;
         }
+        resolvedDefaultFont_.reset();
+        cachedValueLayout_.reset();
+        cachedPercent_ = -1;
+        reservedLabelWidth_ = 0.0f;
+        reservedLabelHeight_ = 0.0f;
+        syncLayoutHeight();
+        markLayoutDirty();
+        markPaintDirty();
     }
 }
 
@@ -222,11 +242,11 @@ void ProgressBar::clearColorOverrides() noexcept {
 }
 
 core::Color ProgressBar::effectiveTrackColor() const noexcept {
-    if (overrideTrackColor_) {
-        return *overrideTrackColor_;
-    }
-    const auto& pal = colorPalette();
-    return (pal.mode == theme::ThemeMode::Dark) ? pal.surfaceRaised : pal.borderDefault;
+    core::Color col = overrideTrackColor_ ? *overrideTrackColor_ : [&]() {
+        const auto& pal = colorPalette();
+        return (pal.mode == theme::ThemeMode::Dark) ? pal.surfaceRaised : pal.borderDefault;
+    }();
+    return isEnabled() ? col : col.withAlpha(col.a * 0.50f);
 }
 
 core::Color ProgressBar::effectiveFillColor() const noexcept {
@@ -254,23 +274,57 @@ core::Color ProgressBar::effectiveFillColor() const noexcept {
 }
 
 core::Color ProgressBar::effectiveBorderColor() const noexcept {
+    core::Color col = core::Color::transparent();
     if (overrideBorderColor_) {
-        return *overrideBorderColor_;
+        col = *overrideBorderColor_;
+    } else {
+        float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+        if (barHeight_ >= 6.0f * scale) {
+            col = colorPalette().borderSubtle;
+        }
     }
-    if (barHeight_ < 6.0f) {
-        return core::Color::transparent();
+    return isEnabled() ? col : col.withAlpha(col.a * 0.50f);
+}
+
+void ProgressBar::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
     }
-    return colorPalette().borderSubtle;
+    if (hasActiveAnimations() && context_) {
+        context_->registerAnimatedWidget(this);
+    }
+}
+
+void ProgressBar::onThemeChanged() {
+    cachedValueLayout_.reset();
+    cachedPercent_ = -1;
+    reservedLabelWidth_ = 0.0f;
+    reservedLabelHeight_ = 0.0f;
+    syncLayoutHeight();
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+void ProgressBar::onEnabledChanged() {
+    if (isEnabled() && hasActiveAnimations() && context_) {
+        context_->registerAnimatedWidget(this);
+    }
+    markPaintDirty();
 }
 
 void ProgressBar::updateAnimations(float deltaSeconds) {
+    bool changed = false;
     if (progressAnim_.isRunning()) {
         progressAnim_.update(deltaSeconds);
+        changed = true;
     }
-    if (isIndeterminate_) {
+    if (isIndeterminate_ && isEnabled()) {
         advanceAnimation(deltaSeconds);
+        changed = true;
     }
-    markPaintDirty();
+    if (changed) {
+        markPaintDirty();
+    }
 }
 
 bool ProgressBar::hasActiveAnimations() const noexcept {
@@ -278,7 +332,7 @@ bool ProgressBar::hasActiveAnimations() const noexcept {
 }
 
 void ProgressBar::advanceAnimation(float deltaSeconds) noexcept {
-    if (isIndeterminate_) {
+    if (isIndeterminate_ && isEnabled()) {
         constexpr float speed = 0.75f;
         indeterminateOffset_ += deltaSeconds * speed;
         if (indeterminateOffset_ >= 1.0f) {
@@ -298,13 +352,15 @@ void ProgressBar::paint(renderer::PaintContext& ctx) {
         return;
     }
 
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    float readoutGap = kReadoutGap * scale;
     float trackTotalW = rect.size.width;
     bool drawReadout = (showValue_ && !isIndeterminate_);
     if (drawReadout) {
         updateReservedLabelWidth();
         if (reservedLabelWidth_ > 0.0f &&
-            rect.size.width > reservedLabelWidth_ + kReadoutGap + 12.0f) {
-            trackTotalW = rect.size.width - reservedLabelWidth_ - kReadoutGap;
+            rect.size.width > reservedLabelWidth_ + readoutGap + 12.0f * scale) {
+            trackTotalW = rect.size.width - reservedLabelWidth_ - readoutGap;
         } else {
             drawReadout = false;
         }
@@ -319,7 +375,9 @@ void ProgressBar::paint(renderer::PaintContext& ctx) {
 
     core::Color trackCol = effectiveTrackColor();
     core::Color borderCol = effectiveBorderColor();
-    float borderW = borderCol.a > 0.0f ? 1.0f : 0.0f;
+    float borderW = borderCol.a > 0.0f
+                        ? std::max(1.0f, std::round(theme::Metrics::BorderWidthHairline * scale))
+                        : 0.0f;
     ctx.drawBox(trackRect, trackCol, borderCol, borderW, radii);
 
     core::Color fillCol = effectiveFillColor();
@@ -361,7 +419,7 @@ void ProgressBar::paint(renderer::PaintContext& ctx) {
         ensureValueLayout(pct);
         if (cachedValueLayout_) {
             auto f = effectiveFont();
-            float textX = trackRect.origin.x + trackTotalW + kReadoutGap +
+            float textX = trackRect.origin.x + trackTotalW + readoutGap +
                           std::max(0.0f, reservedLabelWidth_ - cachedValueLayout_->size().width);
             float textY = f ? theme::computeCenteredTextY(targetCenterY, *f) : rect.origin.y;
             const auto& pal = colorPalette();

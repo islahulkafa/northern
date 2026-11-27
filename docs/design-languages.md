@@ -1,297 +1,280 @@
-# Desktop Design Language and UX Architecture
+# Northern Zinc Design Language
 
-This document establishes the official design language, layout metrics, color tokens, and desktop UX specifications for the Northern framework. It defines how Northern applications achieve authentic desktop software craft while strictly eliminating AI slop, unmotivated decoration, and web-centric layout antipatterns.
+This specification defines **Northern Zinc**, the official UI design language, concentric geometry system, color tokens, motion grammar, and component architecture for the Northern desktop framework. It pairs quiet neutral workspace chrome with SwiftUI-inspired tactile craft, high information density, and crisp 1px physical hairlines.
 
 ---
 
 ## 1. Core Philosophy and Anti-Slop Invariants
 
-Desktop software operates under fundamentally different constraints than mobile applications and marketing web pages. Desktop users interact via mouse and keyboard for hours at a time, requiring high information density, quiet window chrome, instantaneous responsiveness, and predictable ergonomics.
+Desktop applications run side-by-side in multi-hour technical workflows where visual noise causes fatigue. Chrome must stay calm while data, typography, and active state cues remain unambiguous.
 
-### The Four Anti-Slop Invariants
+### The Four Design Invariants
 
-1. **Quiet Chrome, Content Foreground**: Window chrome, sidebars, panels, and toolbars must remain strictly neutral. Richness and saturated color belong exclusively to user content (code, documents, artwork, audio waveforms, data visualizations) and purposeful primary actions.
-2. **Zero Unmotivated Neon and Gradients**: Strictly forbid violet-to-cyan gradients (`#6366F1` to `#8B5CF6`), neon card borders, glowing drop shadows, and glassmorphic blur filters. Depth is established through subtle luminance steps across surfaces and crisp 1px neutral hairline borders.
-3. **High Density over Empty Air**: Forbid excessive mobile-style whitespace. Control heights adhere to a strict 28–36px desktop baseline with compact 8–16px container paddings. Every pixel on screen must serve information hierarchy or functional grouping.
-4. **Desktop-Native Ergonomics**: Keyboard navigation, distinct focus rings, instant hover feedback, and native cursor states are first-class requirements—not progressive enhancements.
+1. **Quiet Chrome, Content Foreground**: Window chrome, sidebars, toolbars, and disclosure containers remain strictly neutral in Optical Zinc gray ramps. Saturated color is reserved exclusively for user content, primary triggers, active state indicators, and semantic status.
+2. **Zero Unmotivated Neon, Gradients, or Blur**: Forbid purple-to-cyan gradients (`#6366F1` to `#8B5CF6`), glowing neon borders, colored drop shadows, and glassmorphic blur cards. Depth is communicated strictly through stepped surface luminance and 1px neutral hairlines.
+3. **Concentric Geometry & Compact Density**: Nesting radii follow concentric math ($R_{\text{inner}} = R_{\text{outer}} - \text{inset}$) on a 4px layout grid with 28–36px control heights. Standard push buttons use crisp rounded rectangles (`6px`–`9px`)—never oversized capsule pills.
+4. **Desktop-Native Ergonomics & Restraint**: Full keyboard navigation, focus-visible Cobalt rings, instant pointer cursor dispatch, and semantic-only iconography (`Warning`, `Error`, toolbar icons) over decorative clutter.
 
 ```mermaid
 flowchart LR
-    subgraph Antipatterns["AI Slop Antipatterns (Forbidden)"]
-        A1["Purple/Cyan Neon Gradients"]
-        A2["Floating Blurred Glass Cards"]
-        A3["Excessive 48px Mobile Padding"]
-        A4["Glowing Drop Shadows"]
+    subgraph Antipatterns["Forbidden Antipatterns"]
+        A1["Neon Gradients & Glows"]
+        A2["Blurred Glass & Colored Shadows"]
+        A3["Mobile Padding & Capsule Buttons"]
+        A4["Decorative Icon Clutter"]
     end
 
-    subgraph DesktopCraft["Northern Desktop Craft (Enforced)"]
-        D1["Neutral Optical Zinc Ramps"]
-        D2["1px Crisp Hairline Borders"]
-        D3["28-36px Compact Density Grid"]
-        D4["Luminance Steps & Subtle Elevation"]
+    subgraph NorthernZinc["Northern Zinc Design Language"]
+        Z1["Optical Zinc Luminance Ramp"]
+        Z2["1px Physical Hairlines & Concentric Radii"]
+        Z3["28-36px High-Density Grid"]
+        Z4["OutCubic Deceleration & Pure White Controls"]
     end
 
-    Antipatterns -.->|Replaced By| DesktopCraft
+    Antipatterns -.->|Replaced By| NorthernZinc
 ```
 
 ---
 
-## 2. Desktop Surface Hierarchy and Elevation
+## 2. Optical Zinc Surface Hierarchy
 
-Northern establishes depth through a 4-tier surface elevation ramp in neutral optical zinc grays. Surfaces never cast saturated or colored shadows. In dark mode, higher elevation layers become subtly lighter to reflect virtual overhead lighting, framed by 1px hairline borders with fine-tuned opacity.
+Depth relies on a 5-level neutral luminance ramp framed by 1px alpha-blended hairline borders (`BorderWidthHairline * dpiScale_`). In dark mode, higher elevation surfaces step subtly upward in lightness (`#09090B` → `#323238`); in light mode, clean crisp whites separate against soft neutral zinc backdrops.
 
 ### Dark Mode Surface Ramp
 
-| Elevation Tier  | Token Name       | Hex Value | Hairline Border             | Usage Context                                               |
-| :-------------- | :--------------- | :-------- | :-------------------------- | :---------------------------------------------------------- |
-| **0 - Canvas**  | `SurfaceCanvas`  | `#09090B` | None                        | Window backdrop, empty workspace background                 |
-| **1 - Base**    | `SurfaceBase`    | `#121215` | None                        | Primary application window body, main content panels        |
-| **2 - Surface** | `SurfaceDefault` | `#18181B` | `rgba(255, 255, 255, 0.08)` | Sidebars, toolbars, property inspectors, cards              |
-| **3 - Raised**  | `SurfaceRaised`  | `#27272A` | `rgba(255, 255, 255, 0.12)` | Push buttons, input fields, dropdown triggers, active items |
-| **4 - Overlay** | `SurfaceOverlay` | `#323238` | `rgba(255, 255, 255, 0.16)` | Menus, popovers, context flyouts, modal dialogs, tooltips   |
+| Elevation Tier  | Token Name       | Hex Value | Hairline Border             | Usage Context                                                 |
+| :-------------- | :--------------- | :-------- | :-------------------------- | :------------------------------------------------------------ |
+| **0 - Canvas**  | `SurfaceCanvas`  | `#09090B` | None                        | Window backdrop, list/table wells, detail panes               |
+| **1 - Base**    | `SurfaceBase`    | `#121215` | None                        | Menu bars, table headers, segmented tracks, alternate rows    |
+| **2 - Surface** | `SurfaceDefault` | `#18181B` | `rgba(255, 255, 255, 0.08)` | Sidebars, titlebars, grouped accordion cards, inspectors      |
+| **3 - Raised**  | `SurfaceRaised`  | `#27272A` | `rgba(255, 255, 255, 0.12)` | Secondary buttons, segmented thumbs, inset row hover pills    |
+| **4 - Overlay** | `SurfaceOverlay` | `#323238` | `rgba(255, 255, 255, 0.16)` | Context menus, dropdown popups, modal dialogs, tooltips       |
 
 ### Light Mode Surface Ramp
 
-| Elevation Tier  | Token Name       | Hex Value | Hairline Border       | Usage Context                             |
-| :-------------- | :--------------- | :-------- | :-------------------- | :---------------------------------------- |
-| **0 - Canvas**  | `SurfaceCanvas`  | `#F4F4F5` | None                  | Desktop workspace backdrop                |
-| **1 - Base**    | `SurfaceBase`    | `#FAFAFA` | None                  | Application window body                   |
-| **2 - Surface** | `SurfaceDefault` | `#FFFFFF` | `rgba(0, 0, 0, 0.08)` | Sidebars, toolbars, content cards         |
-| **3 - Raised**  | `SurfaceRaised`  | `#F4F4F5` | `rgba(0, 0, 0, 0.12)` | Push buttons, input fields, control wells |
-| **4 - Overlay** | `SurfaceOverlay` | `#FFFFFF` | `rgba(0, 0, 0, 0.14)` | Menus, context flyouts, dialogs, tooltips |
-
-> [!NOTE]
-> Hairline borders are always 1 physical pixel wide (scaled by display DPI: `std::round(1.0f * dpi)`). Borders are blended over surface backgrounds using alpha transparency to adapt seamlessly across elevation transitions.
+| Elevation Tier  | Token Name       | Hex Value | Hairline Border       | Usage Context                                    |
+| :-------------- | :--------------- | :-------- | :-------------------- | :----------------------------------------------- |
+| **0 - Canvas**  | `SurfaceCanvas`  | `#F4F4F5` | None                  | Desktop workspace backdrop, list/table wells     |
+| **1 - Base**    | `SurfaceBase`    | `#FAFAFA` | None                  | Menu bars, table headers, segmented tracks       |
+| **2 - Surface** | `SurfaceDefault` | `#FFFFFF` | `rgba(0, 0, 0, 0.08)` | Sidebars, titlebars, grouped cards, text inputs  |
+| **3 - Raised**  | `SurfaceRaised`  | `#F4F4F5` | `rgba(0, 0, 0, 0.12)` | Secondary buttons, segmented thumbs, hover pills |
+| **4 - Overlay** | `SurfaceOverlay` | `#FFFFFF` | `rgba(0, 0, 0, 0.14)` | Menus, dropdown popups, modal dialogs, tooltips  |
 
 ---
 
-## 3. Color Roles and Palette Architecture
+## 3. Accent System, Semantics, and Text Hierarchy
 
-Northern uses a single primary accent color paired with functional semantic tokens. Color is reserved for state communication, actionable triggers, and data alerts.
+### Cobalt Accent Tokens
 
-```mermaid
-flowchart TD
-    subgraph Accent["Accent System"]
-        DefaultAccent["Cobalt Default (#2563EB)"]
-        OSQuery["OS Accent Inheritance (Win32 DWM / macOS NSColor)"]
-        ResolvedAccent["Resolved Accent Token"]
-        DefaultAccent --> ResolvedAccent
-        OSQuery -.->|Overrides if Enabled| ResolvedAccent
-    end
-
-    subgraph Controls["Accent Application Scope"]
-        F1["Focus Indicators (2px Outer Ring)"]
-        F2["Primary Action Buttons (Fill)"]
-        F3["Active Slider Tracks & Toggles"]
-        F4["Text Selection & Row Highlights"]
-    end
-
-    ResolvedAccent --> Controls
-```
-
-### Accent Color Tokens
-
-- **Default Cobalt Accent**: `#2563EB` (RGB: `37, 99, 235`). High-contrast, unambiguous, accessible.
-- **Accent Hover**: `#1D4ED8` (RGB: `29, 78, 216`).
-- **Accent Active / Pressed**: `#1E40AF` (RGB: `30, 64, 175`).
-- **Accent Muted / Selection Tint**: `rgba(37, 99, 235, 0.20)`. Used for multi-select lists and text selection highlights.
-- **OS Accent Inheritance**: On Windows, the framework can query `DwmGetColorizationColor` or `UISettings.GetColorValue` to dynamically align with the user's OS personalization settings when enabled.
+- **Accent Default**: `#2563EB` (`AccentDefault`) — primary buttons, focus rings, active slider tracks, selected checkmarks, expanded chevrons, active header dividers.
+- **Accent Hover**: `#1D4ED8` (`AccentHover`) — primary button & checked switch hover.
+- **Accent Active**: `#1E40AF` (`AccentActive`) — primary button pressed state.
+- **Accent Muted**: `rgba(37, 99, 235, 0.20)` dark / `rgba(37, 99, 235, 0.15)` light (`AccentMuted`) — text selection, selected list rows (`0.17f`–`0.24f` fill with `TextPrimary`).
+- **Focus Ring**: `rgba(37, 99, 235, 0.70)` (`AccentFocusRing`) — 2px outer focus border at 2px outset.
 
 ### Semantic Status Tokens
 
-Semantic colors must strictly satisfy WCAG 2.2 AA contrast requirements (minimum 4.5:1 for normal text, 3:1 for UI borders and graphical objects).
-
-| Role               | Dark Mode Hex | Light Mode Hex | Purpose                                                      |
-| :----------------- | :------------ | :------------- | :----------------------------------------------------------- |
-| **Success**        | `#22C55E`     | `#16A34A`      | Successful operations, active connections, valid input check |
-| **Warning**        | `#F59E0B`     | `#D97706`      | Non-fatal warnings, caution banners, dirty unsaved changes   |
-| **Danger / Error** | `#EF4444`     | `#DC2626`      | Destructive actions, validation errors, crash diagnostics    |
-| **Info**           | `#3B82F6`     | `#2563EB`      | Informational callouts, neutral indicators                   |
+| Role               | Dark Mode Hex | Light Mode Hex | Usage Context                                      |
+| :----------------- | :------------ | :------------- | :------------------------------------------------- |
+| **Success**        | `#22C55E`     | `#16A34A`      | Validated checks, active status switches/sliders   |
+| **Warning**        | `#F59E0B`     | `#D97706`      | Caution alerts (`MessageBox::warning`)             |
+| **Danger / Error** | `#EF4444`     | `#DC2626`      | Destructive menu/button actions, error modals      |
+| **Info**           | `#3B82F6`     | `#2563EB`      | Informational progress fills and accent indicators |
 
 ### Text Color Hierarchy
 
-| Token Name      | Dark Mode         | Light Mode        | Contrast Ratio | Usage                                              |
-| :-------------- | :---------------- | :---------------- | :------------- | :------------------------------------------------- |
-| `TextPrimary`   | `#FAFAFA` (98% L) | `#09090B` (4% L)  | > 14:1         | Headings, primary body labels, active control text |
-| `TextSecondary` | `#A1A1AA` (65% L) | `#52525B` (35% L) | > 5.5:1        | Secondary labels, descriptions, table headers      |
-| `TextTertiary`  | `#71717A` (48% L) | `#71717A` (48% L) | > 4.5:1        | Placeholders, hotkey badges, metadata, hints       |
-| `TextDisabled`  | `#52525B` (35% L) | `#A1A1AA` (65% L) | > 2.5:1        | Disabled controls and inactive state text          |
+| Token Name      | Dark Mode Hex | Light Mode Hex | Usage Context                                      |
+| :-------------- | :------------ | :------------- | :------------------------------------------------- |
+| `TextPrimary`   | `#FAFAFA`     | `#09090B`      | Primary labels, titles, active menu/row items      |
+| `TextSecondary` | `#A1A1AA`     | `#52525B`      | Descriptions, unselected tabs, row subtitles       |
+| `TextTertiary`  | `#71717A`     | `#71717A`      | Placeholders, menu shortcut badges, disabled hints |
+| `TextDisabled`  | `#52525B`     | `#A1A1AA`      | Disabled control labels and inactive foregrounds   |
 
 ---
 
-## 4. Typography Scale and Platform Stacks
-
-Northern leverages native operating system font rasterization and typography metrics to render sharp, legible text at standard desktop reading distances.
+## 4. Typography and Optical Centering
 
 ### Platform Font Stacks
 
-- **Windows**: `Segoe UI Variable Text`, `Segoe UI`, fallback to `Arial`.
-- **macOS**: `SF Pro Text`, system default sans-serif.
-- **Linux (Wayland / X11)**: `Inter`, `Cantarell`, `Ubuntu`, or `Noto Sans`.
-- **Monospace / Code**: `Cascadia Code`, `Consolas`, `JetBrains Mono`, `Fira Code`.
+- **Windows**: `Segoe UI Variable Text` / `Segoe UI`, Bold `Segoe UI Bold` (fallback `Arial`).
+- **macOS**: `SF Pro Text` / system sans-serif.
+- **Linux**: `Inter`, `Cantarell`, `Ubuntu`, or `Noto Sans`.
+- **Monospace**: `Cascadia Code`, `Consolas`, `JetBrains Mono`, `Fira Code`.
 
-### Type Scale Matrix
+### Type Scale Matrix (`theme::resolveFont`)
 
-| Role                  | Font Size (pt) | Line Height (px) | Weight         | Letter Spacing | Target Usage                                           |
-| :-------------------- | :------------- | :--------------- | :------------- | :------------- | :----------------------------------------------------- |
-| **Display**           | 24             | 32               | SemiBold (600) | -0.02em        | Hero headers, empty state titles                       |
-| **Title**             | 18             | 24               | SemiBold (600) | -0.015em       | Window header, section titles, dialog headers          |
-| **Subtitle**          | 15             | 20               | Medium (500)   | -0.01em        | Group headings, sidebar section labels                 |
-| **Body (Default)**    | 14             | 20               | Regular (400)  | 0.0em          | Standard control labels, input text, body paragraphs   |
-| **Body Strong**       | 14             | 20               | SemiBold (600) | 0.0em          | Emphasized list items, active menu items               |
-| **Caption / Compact** | 12             | 16               | Regular (400)  | +0.01em        | Tooltips, status bar items, badge counters, timestamps |
-| **Monospace**         | 13             | 18               | Regular (400)  | 0.0em          | Code snippets, hex readouts, debug metrics             |
+| Token                        | Size (pt)       | Resolved Font        | Line Height Guidance | Target Usage                                           |
+| :--------------------------- | :-------------- | :------------------- | :------------------- | :----------------------------------------------------- |
+| `TypographyStyle::Display`   | `24pt * dpi`    | `boldFont` (700)     | `~1.15x–1.25x`       | Hero headlines, empty-state headers, splash banners    |
+| `TypographyStyle::Title`     | `18pt * dpi`    | `boldFont` (700)     | `~1.20x–1.30x`       | Window headers, detail pane headings, top view titles  |
+| `TypographyStyle::Subtitle`  | `15pt * dpi`    | `defaultFont` (400)  | `~1.30x–1.35x`       | Secondary section headers, form group intros           |
+| `TypographyStyle::BodyStrong`| `14pt * dpi`    | `boldFont` (700)     | `~1.40x–1.45x`       | Dialog titles, card titles, sidebar headings, key KPIs |
+| `TypographyStyle::Body`      | `14pt * dpi`    | `defaultFont` (400)  | `~1.40x–1.50x`       | Multi-line prose, descriptions, table cells, dialogs   |
+| `TypographyStyle::Monospace` | `13pt * dpi`    | `monospaceFont`      | `~1.35x–1.45x`       | Technical readouts, memory/version badges, code, logs  |
+| `TypographyStyle::Caption`   | `12pt * dpi`    | `defaultFont` (400)  | `~1.40x–1.55x`       | Helper hints, status subtitles, badges, click counters |
+| **Dense Controls & Rows**    | `9.5–12pt * dpi`| Regular / Bold       | Single-line centered | `Button`/`TextInput` (`9.5/10.5/11.5pt`), `ContextMenu`/`Dropdown`/`Accordion` (`10.5–12pt`), `ListView`/`TableView` (`10–10.5pt`) |
 
----
+### Hierarchy, Weight, and Contrast Rules
 
-## 5. Density, Metrics, and Geometry
+Informed by Microsoft Fluent 2 and Apple macOS Human Interface Guidelines for high-density desktop tools:
 
-Northern employs a strict 4px geometric grid. All control dimensions, paddings, gaps, and margins must be integer multiples of 4px before DPI scaling.
+1. **Header Sizing Strategy**:
+   - Step view anchors cleanly down from **pane/view titles (`Title` `18pt`)** to **subsection headers (`Subtitle` `15pt`)** or **compact group titles (`BodyStrong` `14pt`)** and **body copy (`Body` `14pt`)**.
+   - Reserve **`Display` (`24pt`)** for uncrowded hero/empty states; avoid exceeding `18pt` inside dense sidebars or inspectors.
+2. **When to Use Bold (`boldFont`)**:
+   - **Structural Anchors**: Use `Title` (`18pt`) for view headers and `BodyStrong` (`14pt`) for card titles, modal headers, sidebar titles, and emphasized list headings.
+   - **Avoid Over-Weighting ("Christmas Tree Effect")**: Never set paragraphs, descriptions, form values, or long wrapped prose in `BodyStrong`; heavier strokes close small glyph counters (`12–14pt`) and fatigue sustained reading. Prefer at most 1–2 bold anchors per card or panel.
+3. **When to Use Regular + Color Luminance (`TextPrimary` / `TextSecondary` / `TextTertiary`)**:
+   - Pair `Subtitle` (`15pt` Regular) with `TextPrimary`, descriptions (`Body` `14pt`) with `TextSecondary`, and timestamps/hints (`Caption` `12pt`) with `TextSecondary` or `TextTertiary`. Combining subtle scale shifts with optical luminance separates levels cleanly without extra heavy fonts.
+   - Strictly forbid `Thin` / `Light` (`100–300`) weights in dense UI due to subpixel contrast loss.
+4. **When to Use `Monospace` (`13pt`)**:
+   - Use for numeric readouts, version strings, byte counts, coordinates, keyboard accelerators, and code snippets where tabular alignment aids scannability.
+5. **Line Height & Optical Centering**:
+   - Multi-line wrapped paragraphs use tighter heading line height (`~1.2x`) and looser body/caption leading (`~1.4x–1.5x` via `setLineHeightMultiplier()`).
+   - Single-line labels inside fixed-height rows (`height = percent(100.0f)`) **must** position text with `theme::computeCenteredTextY(centerY, font)` (engaged automatically by `Label` when `VerticalAlignment::Center`), aligning cap-height center rather than raw ascender+descender bounds.
 
-### Multi-Tier Density System
+### Concrete Typography Example
 
-Desktop workflows vary between high-density technical workspaces (e.g., debuggers, editors) and comfortable utility applications. Northern specifies three standard density tiers:
+```cpp
+// Header + body + metadata + technical readout inside a detail panel:
+auto viewHeader = std::make_unique<Label>(
+    "Render Pipeline", theme::TypographyStyle::Title, theme::TextRole::Primary);
 
-| Metric                         | Compact Tier (Data/Tooling) | Standard Tier (Default Desktop) | Comfortable Tier (Touch/Spacious) |
-| :----------------------------- | :-------------------------- | :------------------------------ | :-------------------------------- |
-| **Control Row Height**         | 28px                        | 32px                            | 36px                              |
-| **Body Font Size**             | 12pt                        | 14pt                            | 14pt                              |
-| **Horizontal Control Padding** | 8px                         | 12px                            | 16px                              |
-| **Vertical Control Padding**   | 4px                         | 6px                             | 8px                               |
-| **Control Corner Radius**      | 4px                         | 6px                             | 6px                               |
-| **Container Padding**          | 8px                         | 12px                            | 16px                              |
-| **Item Row Gap**               | 4px                         | 8px                             | 12px                              |
+auto sectionLead = std::make_unique<Label>(
+    "Physical Hairline & Retention Metrics", theme::TypographyStyle::Subtitle,
+    theme::TextRole::Primary);
 
-### Corner Radius Standards
+auto description = std::make_unique<Label>(
+    "Retained display lists cull off-screen subtrees and skip redundant layout passes.",
+    theme::TypographyStyle::Body, theme::TextRole::Secondary);
 
-- **Controls** (`Button`, `TextInput`, `Checkbox`, `Slider` track): `6px` (`4px` in Compact tier).
-- **Cards & Inner Containers**: `8px`.
-- **Window Chrome / Flyouts / Menus / Dialogs**: `10px`.
-- **Pills / Fully Circular**: Strictly restricted to status tags, notification badges, and circular avatar chips. Standard interactive push buttons must **never** be rendered as 24px+ fully round pills.
+auto cardTitle = std::make_unique<Label>(
+    "Frame Budget", theme::TypographyStyle::BodyStrong, theme::TextRole::Primary);
 
----
+auto metricReadout = std::make_unique<Label>(
+    "Vulkan 1.3+ / 64 KB Scratch", theme::TypographyStyle::Monospace,
+    theme::TextRole::Secondary);
 
-## 6. Window Chrome and Integrated Titlebar
-
-Modern desktop applications unify the window titlebar with the application body, eliminating visual seams and maximizing vertical screen space.
-
-```mermaid
-flowchart LR
-    subgraph IntegratedChrome["Integrated Unified Titlebar (36-40px)"]
-        Icon["App Icon (16x16)"]
-        DragRegion["Draggable Area (Tabs / Breadcrumbs / Window Title)"]
-        SearchBox["Quick Search (28px)"]
-        CaptionMin["Minimize (_)"]
-        CaptionMax["Maximize ([])"]
-        CaptionClose["Close (X)"]
-    end
-
-    Icon --- DragRegion --- SearchBox --- CaptionMin --- CaptionMax --- CaptionClose
+auto footnote = std::make_unique<Label>(
+    "Updated on resize and DPI change", theme::TypographyStyle::Caption,
+    theme::TextRole::Tertiary);
 ```
 
-### Integrated Titlebar Specifications
+---
 
-1. **Height**: `36px` (Compact) or `40px` (Standard).
-2. **Surface**: Matches the top application panel (`SurfaceBase` or `SurfaceDefault`) without an artificial separator line unless scrolled.
-3. **Draggable Region**: All non-control areas of the titlebar act as window drag regions (`WM_NCHITTEST` returning `HTCAPTION` on Windows).
-4. **Caption Buttons**:
-   - Integrated into the titlebar top-right (Windows) or top-left (macOS).
-   - Dimensions: `46px` width × titlebar height (Windows standard) for comfortable mouse targeting.
-   - Close button hover: `#E81123` with white icon (`#FFFFFF`).
-   - Minimize / Maximize hover: `rgba(255, 255, 255, 0.08)`.
-5. **Snap Layouts**: On Windows 11, hovering over the Maximize button triggers the native OS Snap Layout flyout by routing `WM_NCHITTEST` with `HTMAXBUTTON`.
+## 5. Concentric Geometry and Density Tiers
+
+Northern Zinc anchors on a 4px spatial grid (`Metrics::GridBase = 4.0f`) scaled cleanly by `dpiScale_`.
+
+### Concentric Corner Formula
+
+Inner interactive highlights inside padded cards or tracks follow $R_{\text{inner}} = \max(4\text{px}, R_{\text{outer}} - \text{inset})$ so nested silhouettes share a visual center:
+
+| Parent Surface / Container                    | Outer Radius | Inset          | Inner Element & Radius                         |
+| :-------------------------------------------- | :----------- | :------------- | :--------------------------------------------- |
+| `ContextMenu` (`SurfaceOverlay`)              | `10px`       | `4px H / 2px V` | Menu item highlight pill (`6px`)               |
+| `DropdownPopup` (`SurfaceOverlay`)            | `10px`       | `4px H / 1px V` | Option highlight pill (`6px`)                  |
+| `Accordion` header/body (`Grouped` card)      | `10px`       | `4px`          | Header inset hover/focus pill (`6px`)          |
+| `TabBarStyle::Segmented` track (`SurfaceBase`) | `8px`       | `2px`          | Sliding active `SurfaceRaised` thumb (`6px`)   |
+| Standard Push Controls (`Button`, `TextInput`) | `6px`/`8px`/`9px` | —         | 2px outset focus ring (`R + 2px`)              |
+
+### Density Tiers
+
+| Metric                         | Compact (`28px`) | Standard (`32px`) | Comfortable (`36px`) |
+| :----------------------------- | :--------------- | :---------------- | :------------------- |
+| **Control Height**             | `28px`           | `32px`            | `36px`               |
+| **Button Corner Radius**       | `6px`            | `8px`             | `9px`                |
+| **TextInput / Control Radius** | `4px`–`6px`      | `6px`             | `6px`                |
+| **Horizontal Padding**         | `8px`            | `12px` (`10px` input) | `16px`           |
 
 ---
 
-## 7. Component Design Specifications
+## 6. Window Chrome and Navigation
+
+1. **TitleBar (`TitleBar`)**: `36px`–`40px` height on `SurfaceDefault` with `1px` subtle bottom divider, native SVG caption controls (`46px` wide targets, `#E81123` close hover), center slot, and DWM `WM_NCHITTEST` drag/snap regions.
+2. **MenuBar (`MenuBar`)**: `SurfaceBase` strip with `1px * dpiScale_` `BorderSubtle` bottom separator, `CornerRadiusControl` (`6px`) `SurfaceRaised` pills (`0.55` hover / `0.85` open fading across `0.12s OutCubic`), keyboard focus rings, and disabled state guards.
+3. **TabBar (`TabView` / `TabBar`)**:
+   - `Underline`: quiet horizontal tab strip with an animated `0.15s OutCubic` accent bottom bar (`2px * dpiScale_`).
+   - `Pill` & `EditorCard`: rounded pills (`CornerRadiusControl`) or document editor tabs with optional close buttons, per-tab `0.55f` `SurfaceRaised` hover fades (`0.12s OutCubic`), and drag-to-reorder.
+   - `Segmented`: SwiftUI `.pickerStyle(.segmented)` track (`SurfaceBase`, `8px` radius) with vertical inactive hairlines and a sliding `SurfaceRaised` + `BorderDefault` thumb (`6px` radius).
+   - Shared invariants: full `dpiScale_` metric/stroke scaling, disabled-state input/visual guards, nearest-enabled-tab fallback on removal or disable, and style-matched `Widget::paintFocusRing()` (`CornerRadiusControl * scale` for `Pill`/`Segmented`, `0px` for `Underline`/`EditorCard`).
+4. **SplitView (`SplitView`)**: Defaults to `SplitStyle::Hairline` (`1px * dpiScale_` divider with an invisible `4px * dpiScale_` `grabMargin_` and hover/drag/focus-revealed rounded pill grip), `FixedFirst`/`FixedSecond`/`Proportional` pane sizing, and `0.22s InOutCubic` collapsible transitions.
+
+---
+
+## 7. Component Specifications
 
 ### 1. Button
 
-- **Geometry**: Height 32px (Standard), 28px (Compact). Corner radius 6px. Horizontal padding 12px.
-- **Variants**:
-  - **Primary**: Background `Accent` (`#2563EB`), text `#FFFFFF`, hairline border none.
-  - **Secondary (Default)**: Background `SurfaceRaised` (`#27272A`), text `TextPrimary` (`#FAFAFA`), 1px border `rgba(255, 255, 255, 0.12)`.
-  - **Ghost / Subtle**: Background transparent, text `TextPrimary`, border transparent. On hover: background `rgba(255, 255, 255, 0.06)`.
-  - **Destructive**: Background `#DC2626`, text `#FFFFFF`.
-- **States**:
-  - Hover: Background lightens by 6–8% luminance or accent switches to `AccentHover`.
-  - Active / Pressed: Background darkens by 6–8% luminance, subtle 1px internal content displacement or scale `0.98`.
-  - Disabled: Opacity `0.40`, cursor `Arrow` (not allowed), pointer events disabled.
+- **Geometry & Variants**: `Primary` (Cobalt fill, white text), `Secondary` (`SurfaceRaised` fill, `BorderSubtle`), `Outline` (transparent, `BorderDefault`), `Ghost` (transparent, `TextSecondary`), `Destructive` (`Danger` fill).
+- **Motion & Lifecycle**: `0.12s OutCubic` fill/border color fades paired with `SpringConfig::Snappy` (`1.0 → 0.97`) press scale around the button center, mouse grab during active press, automatic `contextDpiScale()` and `onThemeChanged()` token sync, and clean press/hover/cursor reset on disable or loading.
 
 ### 2. TextInput
 
-- **Geometry**: Height 32px (Standard), corner radius 6px, horizontal text inset 10px.
-- **Background**: `SurfaceRaised` (`#1F1F23` in dark, `#FFFFFF` in light).
-- **Border**: 1px neutral hairline `rgba(255, 255, 255, 0.12)` at rest.
-- **Focus State**: Border color transitions to `Accent` (`#2563EB`) with a 2px outer focus ring at 2px offset (`rgba(37, 99, 235, 0.40)`).
-- **Text Selection**: Background `rgba(37, 99, 235, 0.35)`, text maintains primary color.
-- **Caret**: 1.5px width, color `TextPrimary`, 500ms blink cycle.
+- **Geometry & Features**: `Compact` (`28px`), `Standard` (`32px`), `Comfortable` (`36px`), `6px` radius, `1.5px` blinking caret, `3px` rounded selection highlights (`AccentMuted`), optional leading SVG icon (`IconId::Search`), and trailing circular clear pill.
+- **Synchronized Focus Motion**: `hoverAnim_` (`0.12s OutCubic`) and `focusAnim_` (`0.14s OutCubic`) interpolate the border continuously (`BorderDefault` → `BorderStrong` → `AccentDefault`) while fading `AccentFocusRing` in sync.
 
-### 3. Checkbox
+### 3. Switch, Checkbox, and RadioButton
 
-- **Geometry**: Box size 16px × 16px, corner radius 4px. Label margin left 8px.
-- **Unchecked State**: Background transparent, 1.5px border `rgba(255, 255, 255, 0.30)`.
-- **Checked State**: Background `Accent` (`#2563EB`), border `Accent`, glyph 2px white checkmark (`#FFFFFF`).
-- **Indeterminate State**: Background `Accent`, glyph 2px horizontal white bar.
-- **Hover**: Box border lightens to `rgba(255, 255, 255, 0.50)`.
+- **Switch (Toggle)**: Borderless soft capsule track (`SurfaceOverlay` dark / `BorderDefault` light when off; semantic role when on) with a pure white circular thumb (`#FFFFFF` in both checked and unchecked states), `0.08s` pill press stretch, and a crisp `0.16s OutCubic` thumb slide.
+- **Checkbox & RadioButton**: `16px * dpi` targets with animated vector stroke checkmarks/dots (`checkAnim_`), Cobalt accent checked fills, subtle unchecked press tint, `10.5pt * dpi` default font fallback, and mouse-grab release safety.
 
-### 4. Slider
+### 4. Slider and ProgressBar
 
-- **Geometry**: Track height 4px, corner radius 2px. Thumb diameter 16px circle (or rounded square 14px × 14px with 4px radius).
-- **Track Inactive**: Background `SurfaceRaised` (`#27272A`).
-- **Track Active**: Background `Accent` (`#2563EB`).
-- **Thumb**:
-  - Background `TextPrimary` (`#FAFAFA`).
-  - Border 1px `rgba(0, 0, 0, 0.20)`.
-  - Subtle 2px contact shadow: `rgba(0, 0, 0, 0.25)`.
-  - Hover: Thumb scales to 18px diameter.
-  - Active Drag: Thumb scales to 16px, ring tinted with `Accent`.
+- **Slider**: `4px` rounded track (`SurfaceRaised` / `BorderDefault` inactive, role color active), pure white circular knob (`#FFFFFF`) with a crisp `1.0px * dpiScale_` `BorderDefault` hairline (`activeTrackColor` only while dragging or focused), and `0.12s OutCubic` `1.0 → 1.15` hover scaling.
+- **ProgressBar**: Smooth determinate fill transitions (`0.20s OutCubic`) and eased indeterminate marquee pulse with optional right-aligned percentage readout.
 
-### 5. ScrollView and Scrollbar
+### 5. ContextMenu and Dropdown
 
-- **Behavior**: Quiet overlay scrollbars that appear upon scroll activity and fade after 800ms of inactivity.
-- **Track**: Width 8px (or 4px collapsed), background transparent.
-- **Thumb**: Width 6px, corner radius 3px.
-  - Rest: `rgba(255, 255, 255, 0.20)` (dark) / `rgba(0, 0, 0, 0.20)` (light).
-  - Hover / Drag: `rgba(255, 255, 255, 0.45)` (dark) / `rgba(0, 0, 0, 0.45)` (light).
-- **Interaction**: Mouse wheel scrolls with smooth inertia clamping. Never covers content; margin padding reserved if persistent scrollbar setting is active.
+- **Shared Card Architecture**: Floating `SurfaceOverlay` cards (`10px` radius, `1px BorderSubtle`) opening cleanly without height clipping, displaying concentric `4px`-inset (`6px` radius) `SurfaceRaised` pills (`0.55` hover fade over `0.12s OutCubic`, `0.85` press matching `Accordion`; `danger` tint on destructive hover), inset hairline dividers (suppressed adjacent to highlighted rows), subtle centered `BorderDefault` `addSeparator()` hairlines, and trailing SVG icons.
+- **Dropdown**: Trigger displays an animated rotating chevron (`0.18s OutCubic`) tinting toward `AccentDefault` on hover/open; popup (`DropdownPopup`) mirrors `ContextMenu` `10px` cards, `4px`-inset (`6px` radius) `0.55` hover / `0.85` press pills (`0.12s OutCubic`), and Cobalt selection checkmarks.
 
----
+### 6. Accordion and DisclosureGroup
 
-## 8. Keyboard Ergonomics, Focus, and Motion
+- **Grouping Styles**: `AccordionStyle::Grouped` (default) renders a unified `SurfaceDefault` rounded card (`10px` radius, `1px BorderSubtle`) with `16px` horizontal inset section hairlines; `AccordionStyle::Separated` renders individual `SurfaceDefault` cards with an `8px` gap; `AccordionStyle::Flush` renders borderless inspector sections with full-width `1px BorderSubtle` dividers.
+- **Interactive Header**: `38px` Standard (`11.5pt`) / `30px` Compact (`10.5pt`) rows with concentric `4px`-inset (`6px` radius) hover pills (`0.12s OutCubic`) and matching Cobalt focus rings (`Widget::paintFocusRing`), trailing rotating Cobalt chevrons (`0.25s InOutCubic`), `addRow()` optical text rows (`20px` left indentation), and smooth animated height collapse.
 
-Desktop applications must be 100% operable via keyboard without reliance on a pointer device.
+### 7. Collection Views (`ListView`, `TableView`, `TreeView`, `HeaderView`)
 
-### Keyboard focus indicators
+- **`ListView`**: Supports `ListStyle::Inset` (default: bordered `SurfaceCanvas`, `6px` rounded inset hover/selection pills with Cobalt `0.17f`–`0.24f` selection tint, inset row hairlines, no zebra stripes), `ListStyle::Sidebar` (transparent borderless pills sitting directly over `SplitView` `SurfaceDefault` sidebars), and `ListStyle::Plain`.
+- **`TableView` & `TreeView`**: Integrated `HeaderView` with Cobalt-highlighted active resize dividers (`2px`), optional outer border toggles (`setShowBorder`), theme-adaptive Dark/Light scrollbars, and live `ColorPalette` injection into `ItemDelegate`.
 
-1. **Two-pixel offset focus ring**: Focused interactive elements display a 2px solid outer ring offset by 2px from the control boundary (`theme::paintFocusRing`).
-2. **Focus-visible distinction**:
-   - The focus ring renders on all focusable controls when focus is acquired via keyboard navigation (`Tab`, `Shift+Tab`, arrow keys, setting `FocusReason::Keyboard`).
-   - Direct mouse clicks (`FocusReason::Pointer`) suppress the outer focus ring on non-input controls (`Button`, `Checkbox`, `Switch`, `RadioButton`, `Slider`, `Dropdown`), while `TextInput` always displays its focus border and caret when focused.
-3. **Contrast**: The focus ring maintains at least 3:1 contrast against both the control background and the surrounding container canvas.
+### 8. ScrollView and Quiet Overlay Scrollbars
 
-### Desktop motion dynamics
+- **Visibility Policy**: `ScrollbarVisibility::Automatic` (default) displays slim overlay thumbs on open, scroll, hover, or drag, then fades out smoothly (`0.18s OutCubic`) after `800ms` of inactivity (`kInactivityFadeDelay`). `AlwaysVisible` and `Never` overrides are supported.
+- **Hover Expansion & Grab**: Thumbs expand smoothly from `0.67x` rest width to `1.0x` on hover/drag (`0.12s OutCubic`) and acquire pointer mouse grab during dragging.
 
-- **Duration standard**: Standard UI state transitions (hover fades, toggle slides, dropdown/context-menu popups, tooltip fades) complete within `120ms – 180ms`.
-- **Easing curve**: Standard `OutCubic` / cubic bezier `(0.0, 0.0, 0.2, 1.0)` easing for crisp deceleration without overshoot.
-- **Analytical damping**: Northern includes a closed-form damped harmonic `Spring` solver in [spring.hpp](../src/core/animation/spring.hpp); normal controls avoid bouncy overshoot or 400ms+ lingering fades.
+### 9. Modal Dialogs and MessageBox
 
-### Accelerator keys and tooltips
-
-- Every actionable menu item or toolbar button supports consistent keyboard shortcut labels (e.g., `Ctrl+S`, `Ctrl+R`, `F5`).
-- Tooltips display after a `500ms` hover delay, rendering the action description alongside its optional shortcut badge in `TextTertiary`.
+- **Presentation**: Centered `SurfaceOverlay` card (`10px` radius, `BorderDefault`) over a `0.14s OutCubic` animated `0.55` backdrop scrim, trapping `Tab`/`Shift+Tab` focus and mapping `Enter` / `Escape` cleanly.
+- **Icon Restraint**: `MessageBox::info` and `MessageBox::confirm` omit icons cleanly; `MessageBox::warning` and `MessageBox::error` display semantic `24px` badges.
 
 ---
 
-## 9. C++ implementation tokens reference
+## 8. Keyboard Ergonomics and Motion Grammar
 
-The design language tokens map directly into Northern's C++ types in [color.hpp](../src/core/math/color.hpp), [style.hpp](../src/layout/style.hpp), and [theme.hpp](../src/widgets/base/theme.hpp).
+Desktop software requires distinct timing semantics depending on whether an element communicates direct pointer state, structural layout change, or tactile press energy:
+
+| Animation Role              | Curve & Timing             | Rationale                                                      |
+| :-------------------------- | :------------------------- | :------------------------------------------------------------- |
+| **Hover / Focus / Menu Pill** | `OutCubic` (`120–140ms`) | Instant visual lock with zero asymptotic tail or sluggish lag  |
+| **Toggle / Slider / Scrollbar** | `OutCubic` (`120–180ms`) | Clean, straight travel without overshoot outside track bounds |
+| **Collapse / Resize Motion** | `InOutCubic` (`220–250ms`) | Balanced acceleration/deceleration for `Accordion` & `SplitView` |
+| **Tactile Press Feedback**  | `SpringConfig::Snappy`     | Brief `1.0 → 0.97` elastic squish on `Button` press            |
+
+- **Focus-Visible Contract**: `Button`, `Checkbox`, `Switch`, `RadioButton`, `Slider`, `Dropdown`, `Accordion`, `SplitView`, and `TabBar` paint Cobalt focus rings **only** for `FocusReason::Keyboard`. `TextInput` always illuminates its border + focus ring when focused.
+
+---
+
+## 9. C++ Implementation Tokens Reference
+
+All visual tokens resolve dynamically through `ColorPalette::dark()`, `ColorPalette::light()`, and `Metrics` in [theme.hpp](../src/widgets/base/theme.hpp):
 
 ```cpp
 namespace northern::theme {
 
 struct ColorTokens {
-    // Dark Mode Surface Elevation Ramp
+    // Dark Mode Optical Zinc Ramp
     static constexpr core::Color SurfaceCanvas{0.035f, 0.035f, 0.043f, 1.0f};  // #09090B
     static constexpr core::Color SurfaceBase{0.071f, 0.071f, 0.082f, 1.0f};    // #121215
     static constexpr core::Color SurfaceDefault{0.094f, 0.094f, 0.106f, 1.0f}; // #18181B
@@ -303,22 +286,12 @@ struct ColorTokens {
     static constexpr core::Color BorderDefault{1.0f, 1.0f, 1.0f, 0.12f};
     static constexpr core::Color BorderStrong{1.0f, 1.0f, 1.0f, 0.16f};
 
-    // Accent Roles
+    // Accent System (Cobalt #2563EB)
     static constexpr core::Color AccentDefault{0.145f, 0.388f, 0.922f, 1.0f}; // #2563EB
     static constexpr core::Color AccentHover{0.114f, 0.306f, 0.847f, 1.0f};   // #1D4ED8
     static constexpr core::Color AccentActive{0.118f, 0.251f, 0.686f, 1.0f};  // #1E40AF
     static constexpr core::Color AccentMuted{0.145f, 0.388f, 0.922f, 0.20f};
-
-    // Text Hierarchy
-    static constexpr core::Color TextPrimary{0.980f, 0.980f, 0.980f, 1.0f};   // #FAFAFA
-    static constexpr core::Color TextSecondary{0.631f, 0.631f, 0.667f, 1.0f}; // #A1A1AA
-    static constexpr core::Color TextTertiary{0.443f, 0.443f, 0.478f, 1.0f};  // #71717A
-    static constexpr core::Color TextDisabled{0.322f, 0.322f, 0.357f, 1.0f};  // #52525B
-
-    // Semantics
-    static constexpr core::Color Success{0.133f, 0.773f, 0.369f, 1.0f}; // #22C55E
-    static constexpr core::Color Warning{0.961f, 0.620f, 0.043f, 1.0f}; // #F59E0B
-    static constexpr core::Color Danger{0.937f, 0.267f, 0.267f, 1.0f};  // #EF4444
+    static constexpr core::Color AccentFocusRing{0.145f, 0.388f, 0.922f, 0.70f};
 };
 
 struct Metrics {
@@ -326,10 +299,13 @@ struct Metrics {
     static constexpr float ControlHeightCompact = 28.0f;
     static constexpr float ControlHeightStandard = 32.0f;
     static constexpr float ControlHeightComfortable = 36.0f;
-    static constexpr float TitlebarHeight = 36.0f;
     static constexpr float CornerRadiusControl = 6.0f;
+    static constexpr float CornerRadiusButtonCompact = 6.0f;
+    static constexpr float CornerRadiusButtonStandard = 8.0f;
+    static constexpr float CornerRadiusButtonComfortable = 9.0f;
     static constexpr float CornerRadiusCard = 8.0f;
     static constexpr float CornerRadiusOverlay = 10.0f;
+    static constexpr float BorderWidthHairline = 1.0f;
     static constexpr float FocusRingWidth = 2.0f;
     static constexpr float FocusRingOffset = 2.0f;
 };

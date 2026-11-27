@@ -144,3 +144,63 @@ TEST(ProgressBarTest, IndeterminateAnimationZeroScissorAndReadout) {
     }
     EXPECT_TRUE(hasGlyphs);
 }
+
+TEST(ProgressBarTest, ContextDpiAdoptionAndCustomBarHeightPreservation) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    auto owned = std::make_unique<ProgressBar>(ProgressSize::Standard, ProgressRole::Accent, 0.5f);
+    ProgressBar* bar = owned.get();
+    ctx.setRootWidget(std::move(owned));
+
+    EXPECT_FLOAT_EQ(bar->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(bar->barHeight(), 9.0f);
+    ASSERT_NE(bar->effectiveFont(), nullptr);
+    EXPECT_FLOAT_EQ(bar->effectiveFont()->pointSize(), 18.0f);
+
+    // Explicit barHeight survives DPI changes
+    ProgressBar custom(ProgressSize::Thin);
+    custom.setBarHeight(10.0f);
+    custom.setDpiScale(2.0f);
+    EXPECT_FLOAT_EQ(custom.barHeight(), 10.0f);
+
+    // Explicit setDpiScale survives context attachment
+    WidgetContext ctx2;
+    ctx2.setDpiScale(1.5f);
+    auto explicitOwned = std::make_unique<ProgressBar>(ProgressSize::Thin);
+    ProgressBar* explicitBar = explicitOwned.get();
+    explicitBar->setDpiScale(2.0f);
+    ctx2.setRootWidget(std::move(explicitOwned));
+    EXPECT_FLOAT_EQ(explicitBar->dpiScale(), 2.0f);
+}
+
+TEST(ProgressBarTest, DisabledFreezesAnimationAndReEnablesCleanly) {
+    WidgetContext ctx;
+    auto owned = std::make_unique<ProgressBar>(0.0f, true);
+    ProgressBar* bar = owned.get();
+    ctx.setRootWidget(std::move(owned));
+
+    EXPECT_TRUE(bar->hasActiveAnimations());
+    const float enabledTrackAlpha = bar->effectiveTrackColor().a;
+    const float startOffset = bar->indeterminateOffset();
+
+    bar->setEnabled(false);
+    EXPECT_FALSE(bar->hasActiveAnimations());
+    EXPECT_LT(bar->effectiveTrackColor().a, enabledTrackAlpha);
+
+    bar->advanceAnimation(0.5f);
+    EXPECT_FLOAT_EQ(bar->indeterminateOffset(), startOffset);
+
+    bar->setEnabled(true);
+    EXPECT_TRUE(bar->hasActiveAnimations());
+
+    // Idle determinate bar does not mark paint dirty in updateAnimations
+    bar->setIndeterminate(false);
+    bar->clearPaintDirty();
+    bar->updateAnimations(0.016f);
+    EXPECT_FALSE(bar->isPaintDirty());
+
+    // Theme change marks paint dirty
+    bar->clearPaintDirty();
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_TRUE(bar->isPaintDirty());
+}

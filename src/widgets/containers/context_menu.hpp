@@ -19,10 +19,13 @@ class WidgetContext;
 
 enum class MenuItemType { Standard, Checkbox, Radio, Separator, Submenu };
 
+enum class MenuIconPlacement : uint8_t { Trailing, Leading };
+
 struct ContextMenuItem {
     MenuItemType type{MenuItemType::Standard};
     bool isSeparator{false};
     std::string label{};
+    std::string subtitle{};
     std::string shortcut{};
     bool enabled{true};
     bool checked{false};
@@ -33,7 +36,9 @@ struct ContextMenuItem {
     std::function<std::unique_ptr<ContextMenu>()> submenuBuilder{nullptr};
 
     mutable std::optional<text::TextLayout> cachedLabelLayout{std::nullopt};
+    mutable std::optional<text::TextLayout> cachedSubtitleLayout{std::nullopt};
     mutable std::optional<text::TextLayout> cachedShortcutLayout{std::nullopt};
+    core::animation::PropertyAnimation<float> hoverAnim{0.0f};
 };
 
 class ContextMenu : public Widget {
@@ -47,11 +52,20 @@ public:
     void addItem(IconId iconId, std::string label, std::function<void()> onTriggered,
                  std::string shortcut = {}, bool enabled = true);
 
+    void addSubtitledItem(std::string label, std::string subtitle,
+                          std::function<void()> onTriggered, std::string shortcut = {},
+                          bool enabled = true);
+    void addSubtitledItem(IconId iconId, std::string label, std::string subtitle,
+                          std::function<void()> onTriggered, std::string shortcut = {},
+                          bool enabled = true);
+
     void addCheckItem(std::string label, bool checked, std::function<void(bool)> onToggled,
                       std::string shortcut = {}, bool enabled = true);
     void addRadioItem(std::string label, bool checked, std::function<void()> onSelected,
                       std::string shortcut = {}, bool enabled = true);
     void addDestructiveItem(std::string label, std::function<void()> onTriggered,
+                            std::string shortcut = {}, bool enabled = true);
+    void addDestructiveItem(IconId iconId, std::string label, std::function<void()> onTriggered,
                             std::string shortcut = {}, bool enabled = true);
 
     void addSubmenu(std::string label, std::function<std::unique_ptr<ContextMenu>()> builder,
@@ -67,9 +81,16 @@ public:
     [[nodiscard]] int highlightedIndex() const noexcept { return highlightedIndex_; }
     [[nodiscard]] bool hasLeadingGutter() const noexcept;
 
+    void setIconPlacement(MenuIconPlacement placement) noexcept;
+    [[nodiscard]] MenuIconPlacement iconPlacement() const noexcept { return iconPlacement_; }
+
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
+
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
     [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
+    [[nodiscard]] std::shared_ptr<text::Font> subtitleFont() const;
 
     void setOnSiblingMenuNavigate(std::function<void(int delta)> cb) {
         onSiblingMenuNavigate_ = std::move(cb);
@@ -89,6 +110,8 @@ public:
     [[nodiscard]] ContextMenu* parentMenu() const noexcept { return parentMenu_; }
     [[nodiscard]] int parentItemIndex() const noexcept { return parentItemIndex_; }
 
+    void onContextAttached() override;
+    void onThemeChanged() override;
     void onMouseMove(WidgetMouseEvent& ev) override;
     void onMouseLeave() override;
     void onMouseDown(WidgetMouseEvent& ev) override;
@@ -101,6 +124,9 @@ public:
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    void applyDpiMetrics(float scale);
+    void setHighlightedIndex(int nextHighlight, bool animated);
+    [[nodiscard]] float itemHeightFor(const ContextMenuItem& item) const noexcept;
     int itemIndexAtY(float localY) const noexcept;
     void moveHighlight(int delta) noexcept;
     void activateItem(int index);
@@ -108,8 +134,14 @@ private:
     std::vector<ContextMenuItem> items_{};
     std::shared_ptr<text::Font> font_{nullptr};
     mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
+    mutable std::shared_ptr<text::Font> resolvedSubtitleFont_{nullptr};
+    float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
+    MenuIconPlacement iconPlacement_{MenuIconPlacement::Trailing};
+
     std::function<void(int delta)> onSiblingMenuNavigate_{nullptr};
     int highlightedIndex_{-1};
+    int pressedIndex_{-1};
 
     ContextMenu* parentMenu_{nullptr};
     int parentItemIndex_{-1};

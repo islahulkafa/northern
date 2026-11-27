@@ -234,3 +234,43 @@ TEST(TitleBarTest, DoubleClickCaptionMaximizeAndTooltips) {
     bar->onMouseDown(click2);
     EXPECT_EQ(maxCount, 1);
 }
+
+TEST(TitleBarTest, MouseGrabCaptionPressCancelAndContextDpiAdoption) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+
+    auto owned = std::make_unique<TitleBar>("Grab Test");
+    TitleBar* bar = owned.get();
+    bool closeClicked = false;
+    bar->onCloseClicked.connect([&]() { closeClicked = true; });
+    ctx.setRootWidget(std::move(owned));
+    ctx.handleResize(core::Size{800.0f, 54.0f});
+
+    EXPECT_FLOAT_EQ(bar->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(bar->style().height.value, TitleBar::kDefaultHeight * 1.5f);
+
+    // Close button at 1.5x DPI: width 800, btnW = 44 * 1.5 = 66 -> x in [734, 800].
+    WidgetMouseEvent downClose{core::Point{770.0f, 20.0f}, platform::MouseButton::Left,
+                               platform::KeyModifier::None};
+    bar->onMouseDown(downClose);
+    EXPECT_EQ(ctx.mouseGrabWidget(), bar);
+
+    bar->onMouseLeave();
+    EXPECT_EQ(ctx.mouseGrabWidget(), bar);
+
+    WidgetMouseEvent outsideUp{core::Point{100.0f, 20.0f}, platform::MouseButton::Left,
+                               platform::KeyModifier::None};
+    bar->onMouseUp(outsideUp);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_FALSE(closeClicked);
+
+    // Disabling during an active press releases mouse grab cleanly.
+    bar->onMouseDown(downClose);
+    EXPECT_EQ(ctx.mouseGrabWidget(), bar);
+    bar->setEnabled(false);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+
+    bar->setEnabled(true);
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_EQ(bar->effectiveBackgroundColor(), theme::ColorPalette::light().surfaceDefault);
+}

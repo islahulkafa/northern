@@ -113,6 +113,7 @@ void TreeView::setDelegate(std::unique_ptr<ItemDelegate> delegate) {
 
 void TreeView::setRowHeight(float height) noexcept {
     float h = std::max(14.0f, height);
+    baseRowHeight_ = h / dpiScale_;
     if (rowHeight_ != h) {
         rowHeight_ = h;
         clampScrollOffsets();
@@ -143,12 +144,17 @@ std::shared_ptr<text::Font> TreeView::effectiveFont() const {
 }
 
 void TreeView::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void TreeView::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
         resolvedDefaultFont_.reset();
-        rowHeight_ = kDefaultRowHeight * dpiScale_;
-        indentPerLevel_ = kDefaultIndentPerLevel * dpiScale_;
+        rowHeight_ = std::max(14.0f, baseRowHeight_ * dpiScale_);
+        indentPerLevel_ = std::max(8.0f, baseIndentPerLevel_ * dpiScale_);
         scrollbarThickness_ = 6.0f * dpiScale_;
         if (header_) {
             header_->setDpiScale(dpiScale_);
@@ -156,6 +162,39 @@ void TreeView::setDpiScale(float scale) {
         clampScrollOffsets();
         markPaintDirty();
     }
+}
+
+void TreeView::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void TreeView::onThemeChanged() {
+    resolvedDefaultFont_.reset();
+    if (header_) {
+        header_->onThemeChanged();
+    }
+    markPaintDirty();
+}
+
+void TreeView::onEnabledChanged() {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+    }
+    if (header_) {
+        header_->setEnabled(isEnabled());
+    }
+    markPaintDirty();
+}
+
+void TreeView::onFocusGained() {
+    markPaintDirty();
+}
+
+void TreeView::onFocusLost() {
+    cancelActiveInteraction();
+    markPaintDirty();
 }
 
 void TreeView::expand(const ModelIndex& index) {
@@ -304,9 +343,9 @@ core::Rect TreeView::verticalThumbRect() const noexcept {
         return {};
     }
 
-    float thumbH = std::max(20.0f, gridH * (gridH / totalH));
+    float thumbH = std::max(20.0f * dpiScale_, gridH * (gridH / totalH));
     float thumbY = headerH + (scrollOffsetY_ / maxScroll) * (gridH - thumbH);
-    float thumbX = layoutRect().size.width - scrollbarThickness_ - 2.0f;
+    float thumbX = layoutRect().size.width - scrollbarThickness_ - 2.0f * dpiScale_;
 
     return core::Rect{core::Point{thumbX, thumbY}, {scrollbarThickness_, thumbH}};
 }
@@ -322,9 +361,9 @@ core::Rect TreeView::horizontalThumbRect() const noexcept {
         return {};
     }
 
-    float thumbW = std::max(20.0f, viewW * (viewW / totalW));
+    float thumbW = std::max(20.0f * dpiScale_, viewW * (viewW / totalW));
     float thumbX = (scrollOffsetX_ / maxScroll) * (viewW - thumbW);
-    float thumbY = layoutRect().size.height - scrollbarThickness_ - 2.0f;
+    float thumbY = layoutRect().size.height - scrollbarThickness_ - 2.0f * dpiScale_;
 
     return core::Rect{core::Point{thumbX, thumbY}, {thumbW, scrollbarThickness_}};
 }
@@ -382,6 +421,7 @@ void TreeView::paint(renderer::PaintContext& ctx) {
                 opt.text = model_->data(cellIdx, ItemDataRole::Display);
                 opt.font = f;
                 opt.dpiScale = dpiScale_;
+                opt.palette = &pal;
                 opt.textColor = opt.isSelected
                                     ? pal.textPrimary
                                     : (opt.isHovered ? pal.textPrimary : pal.textSecondary);
@@ -429,15 +469,18 @@ void TreeView::paint(renderer::PaintContext& ctx) {
         }
     }
 
+    core::Color restThumbCol = pal.mode == theme::ThemeMode::Dark
+                                   ? core::Color{1.0f, 1.0f, 1.0f, 0.20f}
+                                   : core::Color{0.0f, 0.0f, 0.0f, 0.20f};
+
     if (maxScrollOffsetY() > 0.0f) {
         core::Rect localThumb = verticalThumbRect();
         core::Rect screenThumb{
             core::Point{sRect.origin.x + localThumb.origin.x, sRect.origin.y + localThumb.origin.y},
             localThumb.size};
-        core::Color thumbCol =
-            isDraggingVThumb_
-                ? pal.textSecondary
-                : (isHoveringVThumb_ ? pal.textTertiary : core::Color{1.0f, 1.0f, 1.0f, 0.20f});
+        core::Color thumbCol = isDraggingVThumb_
+                                   ? pal.textSecondary
+                                   : (isHoveringVThumb_ ? pal.textTertiary : restThumbCol);
         float rV[4] = {scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f,
                        scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f};
         ctx.drawRoundedRect(screenThumb, thumbCol, rV);
@@ -448,20 +491,45 @@ void TreeView::paint(renderer::PaintContext& ctx) {
         core::Rect screenThumb{
             core::Point{sRect.origin.x + localThumb.origin.x, sRect.origin.y + localThumb.origin.y},
             localThumb.size};
-        core::Color thumbCol =
-            isDraggingHThumb_
-                ? pal.textSecondary
-                : (isHoveringHThumb_ ? pal.textTertiary : core::Color{1.0f, 1.0f, 1.0f, 0.20f});
+        core::Color thumbCol = isDraggingHThumb_
+                                   ? pal.textSecondary
+                                   : (isHoveringHThumb_ ? pal.textTertiary : restThumbCol);
         float rH[4] = {scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f,
                        scrollbarThickness_ * 0.5f, scrollbarThickness_ * 0.5f};
         ctx.drawRoundedRect(screenThumb, thumbCol, rH);
     }
 
-    ctx.drawBorder(sRect, pal.borderSubtle, 1.0f);
+    if (showBorder_) {
+        ctx.drawBorder(sRect, pal.borderSubtle, std::max(1.0f, std::round(1.0f * dpiScale_)));
+    }
     ctx.popClip();
+
+    if (hasKeyboardFocus() && isEnabled()) {
+        Widget::paintFocusRing(ctx, sRect, 0.0f);
+    }
+}
+
+void TreeView::cancelActiveInteraction() {
+    if (context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    bool wasActive = isDraggingVThumb_ || isDraggingHThumb_ || isHoveringVThumb_ ||
+                     isHoveringHThumb_ || hoveredVisibleRow_ >= 0 || hoveredColumn_ >= 0;
+    isDraggingVThumb_ = false;
+    isDraggingHThumb_ = false;
+    isHoveringVThumb_ = false;
+    isHoveringHThumb_ = false;
+    hoveredVisibleRow_ = -1;
+    hoveredColumn_ = -1;
+    if (wasActive) {
+        markPaintDirty();
+    }
 }
 
 void TreeView::onMouseMove(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        return;
+    }
     if (isDraggingVThumb_) {
         float maxScroll = maxScrollOffsetY();
         float headerH = header_ ? header_->layoutRect().size.height : 0.0f;
@@ -507,7 +575,10 @@ void TreeView::onMouseMove(WidgetMouseEvent& ev) {
 }
 
 void TreeView::onMouseDown(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left) {
+    if (!isEnabled()) {
+        return;
+    }
+    if (ev.isPrimaryButton()) {
         if (maxScrollOffsetY() > 0.0f) {
             float trackX = layoutRect().size.width - scrollbarThickness_ - 6.0f;
             if (ev.position().x >= trackX) {
@@ -583,7 +654,11 @@ void TreeView::onMouseDown(WidgetMouseEvent& ev) {
 }
 
 void TreeView::onMouseUp(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left && (isDraggingVThumb_ || isDraggingHThumb_)) {
+    if (!isEnabled()) {
+        cancelActiveInteraction();
+        return;
+    }
+    if (ev.isPrimaryButton() && (isDraggingVThumb_ || isDraggingHThumb_)) {
         isDraggingVThumb_ = false;
         isDraggingHThumb_ = false;
         if (context_) {
@@ -595,6 +670,9 @@ void TreeView::onMouseUp(WidgetMouseEvent& ev) {
 }
 
 void TreeView::onMouseWheel(WidgetMouseEvent& ev) {
+    if (!isEnabled()) {
+        return;
+    }
     if (maxScrollOffsetY() > 0.0f || maxScrollOffsetX() > 0.0f) {
         scrollBy(0.0f, -ev.wheelDelta().y * 24.0f);
         ev.accept();
@@ -610,7 +688,7 @@ void TreeView::onMouseLeave() {
 }
 
 void TreeView::onKeyDown(WidgetKeyEvent& ev) {
-    if (!model_ || visibleNodes_.empty()) {
+    if (!isEnabled() || !ev.isDown() || !model_ || visibleNodes_.empty()) {
         return;
     }
 

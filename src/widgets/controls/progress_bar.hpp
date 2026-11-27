@@ -71,6 +71,7 @@ public:
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
+    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
 
     void setDpiScale(float scale);
     [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
@@ -87,6 +88,10 @@ public:
     void advanceAnimation(float deltaSeconds) noexcept;
     [[nodiscard]] float indeterminateOffset() const noexcept { return indeterminateOffset_; }
 
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
+
     void updateAnimations(float deltaSeconds) override;
     [[nodiscard]] bool hasActiveAnimations() const noexcept override;
 
@@ -96,7 +101,8 @@ public:
     core::Signal<> onCompleted;
 
 private:
-    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
+    void applyDpiScale(float scale);
+    void syncLayoutHeight();
     void updateReservedLabelWidth() const;
     void ensureValueLayout(int percent) const;
 
@@ -104,6 +110,7 @@ private:
     float minimum_{0.0f};
     float maximum_{1.0f};
     bool isIndeterminate_{false};
+    float baseBarHeight_{4.0f};
     float barHeight_{4.0f};
     float indeterminateOffset_{0.0f};
 
@@ -112,6 +119,8 @@ private:
     std::shared_ptr<text::Font> font_{nullptr};
     mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
+    bool hasCustomBarHeight_{false};
 
     core::animation::PropertyAnimation<float> progressAnim_{0.0f};
 

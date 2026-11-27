@@ -21,6 +21,25 @@ public:
     [[nodiscard]] platform::KeyModifier modifiers() const noexcept { return modifiers_; }
     [[nodiscard]] core::Point wheelDelta() const noexcept { return wheelDelta_; }
 
+    [[nodiscard]] bool hasControl() const noexcept {
+        return platform::hasModifier(modifiers_, platform::KeyModifier::Control);
+    }
+    [[nodiscard]] bool hasShift() const noexcept {
+        return platform::hasModifier(modifiers_, platform::KeyModifier::Shift);
+    }
+    [[nodiscard]] bool hasAlt() const noexcept {
+        return platform::hasModifier(modifiers_, platform::KeyModifier::Alt);
+    }
+    [[nodiscard]] bool hasSuper() const noexcept {
+        return platform::hasModifier(modifiers_, platform::KeyModifier::Super);
+    }
+    [[nodiscard]] bool isPrimaryButton() const noexcept {
+        return button_ == platform::MouseButton::Left;
+    }
+    [[nodiscard]] bool isSecondaryButton() const noexcept {
+        return button_ == platform::MouseButton::Right;
+    }
+
     void accept() noexcept { accepted_ = true; }
     [[nodiscard]] bool isAccepted() const noexcept { return accepted_; }
 
@@ -42,6 +61,19 @@ public:
     [[nodiscard]] bool isDown() const noexcept { return isDown_; }
     [[nodiscard]] platform::KeyModifier modifiers() const noexcept { return modifiers_; }
     [[nodiscard]] uint32_t textCodepoint() const noexcept { return textCodepoint_; }
+
+    [[nodiscard]] bool hasControl() const noexcept {
+        return platform::hasModifier(modifiers_, platform::KeyModifier::Control);
+    }
+    [[nodiscard]] bool hasShift() const noexcept {
+        return platform::hasModifier(modifiers_, platform::KeyModifier::Shift);
+    }
+    [[nodiscard]] bool hasAlt() const noexcept {
+        return platform::hasModifier(modifiers_, platform::KeyModifier::Alt);
+    }
+    [[nodiscard]] bool hasSuper() const noexcept {
+        return platform::hasModifier(modifiers_, platform::KeyModifier::Super);
+    }
 
     void accept() noexcept { accepted_ = true; }
     [[nodiscard]] bool isAccepted() const noexcept { return accepted_; }
@@ -69,8 +101,8 @@ class WidgetFileDropEvent {
 public:
     WidgetFileDropEvent(core::Point localPosition, core::Point screenPosition,
                         std::vector<std::string> paths) noexcept
-        : localPosition_(localPosition), screenPosition_(screenPosition),
-          paths_(std::move(paths)) {}
+        : localPosition_(localPosition), screenPosition_(screenPosition), paths_(std::move(paths)) {
+    }
 
     [[nodiscard]] core::Point position() const noexcept { return localPosition_; }
     [[nodiscard]] core::Point screenPosition() const noexcept { return screenPosition_; }

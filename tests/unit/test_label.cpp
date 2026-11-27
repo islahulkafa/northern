@@ -145,3 +145,50 @@ TEST(LabelTest, ColumnContainerMaxWidthWrappingDoesNotOverlapSibling) {
     EXPECT_GE(siblingPtr->layoutRect().origin.y,
               wrappedPtr->layoutRect().origin.y + wrappedPtr->layoutRect().size.height + 11.5f);
 }
+
+TEST(LabelTest, ContextDpiAdoptionAndExplicitOverride) {
+    Label unscaled("Body");
+    ASSERT_NE(unscaled.effectiveFont(), nullptr);
+    float basePt = unscaled.effectiveFont()->pointSize();
+
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    auto lblUnique = std::make_unique<Label>("Scaled");
+    Label* lbl = lblUnique.get();
+    ctx.setRootWidget(std::move(lblUnique));
+
+    EXPECT_FLOAT_EQ(lbl->dpiScale(), 1.5f);
+    ASSERT_NE(lbl->effectiveFont(), nullptr);
+    EXPECT_FLOAT_EQ(lbl->effectiveFont()->pointSize(), basePt * 1.5f);
+
+    WidgetContext ctx2;
+    ctx2.setDpiScale(1.5f);
+    auto explicitUnique = std::make_unique<Label>("Explicit");
+    Label* explicitLbl = explicitUnique.get();
+    explicitLbl->setDpiScale(2.0f);
+    ctx2.setRootWidget(std::move(explicitUnique));
+    EXPECT_FLOAT_EQ(explicitLbl->dpiScale(), 2.0f);
+}
+
+TEST(LabelTest, ThemeEnabledAndFixedSizeTextPaintDirty) {
+    WidgetContext ctx;
+    auto lblUnique = std::make_unique<Label>("Initial");
+    Label* lbl = lblUnique.get();
+    ctx.setRootWidget(std::move(lblUnique));
+
+    lbl->clearPaintDirty();
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_TRUE(lbl->isPaintDirty());
+
+    lbl->clearPaintDirty();
+    lbl->setEnabled(false);
+    EXPECT_TRUE(lbl->isPaintDirty());
+
+    lbl->clearPaintDirty();
+    lbl->setText("Updated");
+    EXPECT_TRUE(lbl->isPaintDirty());
+
+    lbl->clearPaintDirty();
+    lbl->setTextStyle(theme::TypographyStyle::Title);
+    EXPECT_TRUE(lbl->isPaintDirty());
+}

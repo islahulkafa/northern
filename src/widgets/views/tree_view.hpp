@@ -50,11 +50,26 @@ public:
     void setRowHeight(float height) noexcept;
     [[nodiscard]] float rowHeight() const noexcept { return rowHeight_; }
 
-    void setIndentPerLevel(float indent) noexcept { indentPerLevel_ = std::max(8.0f, indent); }
+    void setIndentPerLevel(float indent) noexcept {
+        float clamped = std::max(8.0f, indent);
+        baseIndentPerLevel_ = clamped / dpiScale_;
+        if (indentPerLevel_ != clamped) {
+            indentPerLevel_ = clamped;
+            markPaintDirty();
+        }
+    }
     [[nodiscard]] float indentPerLevel() const noexcept { return indentPerLevel_; }
 
     void setAlternatingRowColors(bool alternate) noexcept { alternatingRowColors_ = alternate; }
     [[nodiscard]] bool alternatingRowColors() const noexcept { return alternatingRowColors_; }
+
+    void setShowBorder(bool show) noexcept {
+        if (showBorder_ != show) {
+            showBorder_ = show;
+            markPaintDirty();
+        }
+    }
+    [[nodiscard]] bool showBorder() const noexcept { return showBorder_; }
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
@@ -95,8 +110,15 @@ public:
     void onMouseWheel(WidgetMouseEvent& ev) override;
     void onMouseLeave() override;
     void onKeyDown(WidgetKeyEvent& ev) override;
+    void onFocusGained() override;
+    void onFocusLost() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
 private:
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
     void rebuildVisibleNodes();
     void buildNodesRecursive(const ModelIndex& parent, int depth);
     void syncHeaderFromModel();
@@ -112,16 +134,20 @@ private:
     std::shared_ptr<text::Font> font_{nullptr};
     mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
     float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
 
     std::vector<TreeVisibleNode> visibleNodes_{};
     std::unordered_set<ModelIndex, ModelIndexHash> expandedNodes_{};
 
+    float baseRowHeight_{kDefaultRowHeight};
     float rowHeight_{kDefaultRowHeight};
+    float baseIndentPerLevel_{kDefaultIndentPerLevel};
     float indentPerLevel_{kDefaultIndentPerLevel};
     float scrollOffsetX_{0.0f};
     float scrollOffsetY_{0.0f};
     float scrollbarThickness_{6.0f};
     bool alternatingRowColors_{false};
+    bool showBorder_{true};
 
     int hoveredVisibleRow_{-1};
     int hoveredColumn_{-1};

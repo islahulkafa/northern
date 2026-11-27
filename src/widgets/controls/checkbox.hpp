@@ -4,6 +4,7 @@
 #include "core/math/color.hpp"
 #include "core/signal/signal.hpp"
 #include "text/font.hpp"
+#include "text/text_layout.hpp"
 #include "widgets/base/widget.hpp"
 
 #include <memory>
@@ -44,6 +45,10 @@ public:
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
+    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
+
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
 
     void setBoxSize(float size) noexcept;
     [[nodiscard]] float boxSize() const noexcept { return boxSize_; }
@@ -69,6 +74,11 @@ public:
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onMouseUp(WidgetMouseEvent& ev) override;
     void onKeyDown(WidgetKeyEvent& ev) override;
+    void onFocusGained() override;
+    void onFocusLost() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
     void updateAnimations(float deltaSeconds) override;
     [[nodiscard]] bool hasActiveAnimations() const noexcept override;
@@ -76,6 +86,8 @@ public:
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
     void drawCheckmark(renderer::PaintContext& ctx, const core::Rect& inner, float progress,
                        const core::Color& color) const;
     void drawIndeterminate(renderer::PaintContext& ctx, const core::Rect& inner, float progress,
@@ -83,6 +95,9 @@ private:
 
     std::string text_{};
     std::shared_ptr<text::Font> font_{nullptr};
+    mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
+    mutable std::optional<text::TextLayout> cachedTextLayout_{};
+    mutable bool isTextLayoutDirty_{true};
     CheckState checkState_{CheckState::Unchecked};
     CheckState displayedGlyphState_{CheckState::Checked};
     bool tristate_{false};
@@ -92,6 +107,10 @@ private:
     core::animation::PropertyAnimation<float> checkAnim_{0.0f};
     core::animation::PropertyAnimation<float> hoverAnim_{0.0f};
 
+    float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
+    bool hasCustomBoxSize_{false};
+    bool hasCustomCornerRadius_{false};
     float boxSize_{16.0f};
     float boxCornerRadius_{4.0f};
     float gap_{8.0f};

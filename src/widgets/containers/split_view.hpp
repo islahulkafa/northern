@@ -16,6 +16,8 @@ enum class SplitSizeMode : uint8_t { Proportional, FixedFirst, FixedSecond };
 
 enum class SplitCollapseState : uint8_t { None, FirstCollapsed, SecondCollapsed };
 
+enum class SplitStyle : uint8_t { Hairline, Classic };
+
 class SplitView : public Widget {
 public:
     explicit SplitView(SplitOrientation orientation = SplitOrientation::Horizontal,
@@ -24,6 +26,12 @@ public:
 
     void setOrientation(SplitOrientation orientation);
     [[nodiscard]] SplitOrientation orientation() const noexcept { return orientation_; }
+
+    void setSplitStyle(SplitStyle style);
+    [[nodiscard]] SplitStyle splitStyle() const noexcept { return splitStyle_; }
+
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
 
     void setSizeMode(SplitSizeMode mode);
     [[nodiscard]] SplitSizeMode sizeMode() const noexcept { return sizeMode_; }
@@ -98,6 +106,9 @@ public:
     core::Signal<float, float> onPaneResized;
     core::Signal<bool, bool> onCollapseChanged;
 
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
     void onMouseMove(WidgetMouseEvent& ev) override;
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onMouseUp(WidgetMouseEvent& ev) override;
@@ -112,6 +123,7 @@ public:
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    void applyDpiMetrics(float scale);
     void updatePaneStyles();
     void applyCollapseState(SplitCollapseState newState, bool animated);
     void nudgeSplit(float deltaPixels);
@@ -123,6 +135,11 @@ private:
     SplitOrientation orientation_{SplitOrientation::Horizontal};
     SplitSizeMode sizeMode_{SplitSizeMode::Proportional};
     SplitCollapseState collapseState_{SplitCollapseState::None};
+    SplitStyle splitStyle_{SplitStyle::Hairline};
+    float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
+    bool hasCustomSashThickness_{false};
+    bool hasCustomGrabMargin_{false};
 
     float splitRatio_{0.5f};
     float firstPaneSize_{240.0f};
@@ -137,8 +154,8 @@ private:
     float maxSecondPaneSize_{std::numeric_limits<float>::infinity()};
 
     float snapThreshold_{24.0f};
-    float sashThickness_{6.0f};
-    float grabMargin_{2.0f};
+    float sashThickness_{1.0f};
+    float grabMargin_{4.0f};
 
     bool firstCollapsible_{true};
     bool secondCollapsible_{true};

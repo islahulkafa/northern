@@ -50,6 +50,10 @@ public:
 
     void setFont(std::shared_ptr<text::Font> font);
     [[nodiscard]] std::shared_ptr<text::Font> font() const noexcept { return font_; }
+    [[nodiscard]] std::shared_ptr<text::Font> effectiveFont() const;
+
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
 
     void setTextColor(const core::Color& color) noexcept;
     [[nodiscard]] core::Color textColor() const noexcept { return effectiveTextColor(); }
@@ -60,16 +64,25 @@ public:
     [[nodiscard]] core::Color effectiveColor() const noexcept;
     [[nodiscard]] core::Color effectiveTextColor() const noexcept;
 
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
+
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    void applyDpiScale(float scale);
     void updateMeasureAndStyle();
     void ensureTextLayout() const;
-    [[nodiscard]] std::shared_ptr<text::Font> resolveFont() const;
 
     DividerOrientation orientation_{DividerOrientation::Horizontal};
     DividerVariant variant_{DividerVariant::Subtle};
     DividerAlignment labelAlignment_{DividerAlignment::Center};
+    float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
+    bool hasCustomThickness_{false};
+    bool hasCustomGap_{false};
+    bool hasCustomLabelOffset_{false};
     float thickness_{1.0f};
     float gap_{8.0f};
     float labelOffset_{24.0f};
@@ -78,6 +91,7 @@ private:
 
     std::string label_{};
     std::shared_ptr<text::Font> font_{nullptr};
+    mutable std::shared_ptr<text::Font> resolvedDefaultFont_{nullptr};
 
     std::optional<core::Color> overrideColor_{};
     std::optional<core::Color> overrideTextColor_{};

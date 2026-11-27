@@ -219,3 +219,79 @@ TEST(CheckboxTest, PaintGeneratesDrawCommands) {
     // Box and checkmark lines must be emitted
     EXPECT_FALSE(paintCtx.commands().empty());
 }
+
+TEST(CheckboxTest, DefaultFontFallbackAndTextMeasure) {
+    Checkbox cb("Accept terms");
+    auto font = cb.effectiveFont();
+    ASSERT_NE(font, nullptr);
+    EXPECT_FLOAT_EQ(font->pointSize(), 10.5f);
+
+    core::Size measured = cb.layoutNode().measure(400.0f, 100.0f);
+    EXPECT_GT(measured.width, cb.boxSize() + 10.0f);
+}
+
+TEST(CheckboxTest, ContextDpiAdoptionAndCustomOverridePreservation) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    auto cbUnique = std::make_unique<Checkbox>("Scaled");
+    Checkbox* cb = cbUnique.get();
+    ctx.setRootWidget(std::move(cbUnique));
+
+    EXPECT_FLOAT_EQ(cb->dpiScale(), 1.5f);
+    EXPECT_FLOAT_EQ(cb->boxSize(), 24.0f);
+    EXPECT_FLOAT_EQ(cb->boxCornerRadius(), 6.0f);
+
+    // Explicit box size and corner radius survive DPI changes
+    Checkbox custom("Custom");
+    custom.setBoxSize(20.0f);
+    custom.setBoxCornerRadius(3.0f);
+    custom.setDpiScale(2.0f);
+    EXPECT_FLOAT_EQ(custom.boxSize(), 20.0f);
+    EXPECT_FLOAT_EQ(custom.boxCornerRadius(), 3.0f);
+
+    // Explicit setDpiScale survives context attachment
+    WidgetContext ctx2;
+    ctx2.setDpiScale(1.5f);
+    auto explicitUnique = std::make_unique<Checkbox>("ExplicitDPI");
+    Checkbox* explicitCb = explicitUnique.get();
+    explicitCb->setDpiScale(2.0f);
+    ctx2.setRootWidget(std::move(explicitUnique));
+    EXPECT_FLOAT_EQ(explicitCb->dpiScale(), 2.0f);
+}
+
+TEST(CheckboxTest, MouseGrabBoundsReleaseAndDisableCleanup) {
+    WidgetContext ctx;
+    auto cbUnique = std::make_unique<Checkbox>("Grab", false);
+    Checkbox* cb = cbUnique.get();
+    ctx.setRootWidget(std::move(cbUnique));
+    ctx.handleResize(core::Size{160.0f, 32.0f});
+
+    WidgetMouseEvent pressIn{core::Point{12.0f, 16.0f}, platform::MouseButton::Left,
+                             platform::KeyModifier::None};
+    cb->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), cb);
+
+    // Release outside bounds cancels toggle and releases grab
+    WidgetMouseEvent releaseOut{core::Point{240.0f, 16.0f}, platform::MouseButton::Left,
+                                platform::KeyModifier::None};
+    cb->onMouseUp(releaseOut);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_FALSE(cb->isChecked());
+
+    // Disabling mid-press releases grab and sets Arrow cursor
+    cb->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), cb);
+    cb->setEnabled(false);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+    EXPECT_EQ(cb->cursorShape(), platform::CursorShape::Arrow);
+    EXPECT_FALSE(cb->isChecked());
+
+    cb->setEnabled(true);
+    EXPECT_EQ(cb->cursorShape(), platform::CursorShape::PointingHand);
+
+    // Focus lost mid-press releases grab
+    cb->onMouseDown(pressIn);
+    EXPECT_EQ(ctx.mouseGrabWidget(), cb);
+    cb->onFocusLost();
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+}

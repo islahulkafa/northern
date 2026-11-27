@@ -3,6 +3,7 @@
 #include "widgets/containers/container.hpp"
 #include "widgets/containers/tab_view.hpp"
 #include <gtest/gtest.h>
+#include <variant>
 
 using namespace northern;
 using namespace northern::widgets;
@@ -140,14 +141,38 @@ TEST(TabBarTest, VisualStylesAndSlidingIndicatorAnimation) {
     bar->updateAnimations(0.10f);
     EXPECT_FALSE(bar->hasActiveAnimations());
 
-    // Render all 3 styles
-    for (auto s : {TabBarStyle::Underline, TabBarStyle::Pill, TabBarStyle::EditorCard}) {
+    // Render all 4 styles
+    for (auto s : {TabBarStyle::Underline, TabBarStyle::Pill, TabBarStyle::EditorCard,
+                   TabBarStyle::Segmented}) {
         bar->setTabBarStyle(s);
         EXPECT_EQ(bar->tabBarStyle(), s);
         renderer::PaintContext paintCtx;
         bar->paint(paintCtx);
         EXPECT_FALSE(paintCtx.commands().empty());
     }
+}
+
+TEST(TabBarTest, SegmentedStyleEqualWidthGeometry) {
+    WidgetContext ctx;
+    auto barUnique = std::make_unique<TabBar>();
+    TabBar* bar = barUnique.get();
+    bar->setTabBarStyle(TabBarStyle::Segmented);
+    bar->addTab("Auto");
+    bar->addTab("Dark");
+    bar->addTab("Light");
+
+    ctx.setRootWidget(std::move(barUnique));
+    ctx.handleResize(core::Size{300.0f, 32.0f});
+
+    ASSERT_EQ(bar->tabCount(), 3u);
+    renderer::PaintContext paintCtx;
+    bar->paint(paintCtx);
+    EXPECT_FALSE(paintCtx.commands().empty());
+
+    // Equal-width 100px segments across 300px viewport
+    EXPECT_NEAR(bar->tab(0)->tabRect.size.width, 100.0f, 0.5f);
+    EXPECT_NEAR(bar->tab(1)->tabRect.size.width, 100.0f, 0.5f);
+    EXPECT_NEAR(bar->tab(2)->tabRect.size.width, 100.0f, 0.5f);
 }
 
 TEST(TabBarTest, IconsModifiedDotAndMiddleClickClose) {
@@ -323,4 +348,153 @@ TEST(TabBarTest, KeyboardShortcutsAndSkipDisabled) {
     bar.onKeyDown(ctrlW);
     EXPECT_TRUE(ctrlW.isAccepted());
     EXPECT_EQ(closedIdx, 2);
+}
+
+TEST(TabBarTest, SegmentedThumbTracksLayoutWidthWhenSelectedBeforeLayout) {
+    WidgetContext ctx;
+    auto barUnique = std::make_unique<TabBar>();
+    TabBar* bar = barUnique.get();
+    bar->setTabBarStyle(TabBarStyle::Segmented);
+    bar->style().width = layout::Length::points(180.0f);
+    bar->addTab("Dark");
+    bar->addTab("Light");
+    bar->setSelectedIndex(0);
+
+    ctx.setRootWidget(std::move(barUnique));
+    ctx.handleResize(core::Size{180.0f, 32.0f});
+
+    renderer::PaintContext paintCtx;
+    bar->paint(paintCtx);
+
+    int boxCount = 0;
+    float thumbWidth = 0.0f;
+    for (const auto& cmd : paintCtx.commands()) {
+        if (std::holds_alternative<renderer::DrawBoxCommand>(cmd)) {
+            ++boxCount;
+            if (boxCount == 3) {
+                thumbWidth = std::get<renderer::DrawBoxCommand>(cmd).rect.size.width;
+                break;
+            }
+        }
+    }
+    ASSERT_GE(boxCount, 3);
+    // 180 / 2 = 90px segment minus 3px*2 horizontal inset = 84px
+    EXPECT_NEAR(thumbWidth, 84.0f, 0.5f);
+}
+
+TEST(TabBarTest, DisabledRejectsInputAndReleasesMouseGrab) {
+    WidgetContext ctx;
+    auto barUnique = std::make_unique<TabBar>();
+    TabBar* bar = barUnique.get();
+    bar->addTab("One");
+    bar->addTab("Two");
+    bar->setSelectedIndex(0);
+
+    ctx.setRootWidget(std::move(barUnique));
+    ctx.handleResize(core::Size{240.0f, 32.0f});
+
+    bar->setEnabled(false);
+
+    WidgetMouseEvent clickTwo{core::Point{140.0f, 16.0f}, platform::MouseButton::Left,
+                              platform::KeyModifier::None};
+    bar->onMouseDown(clickTwo);
+    EXPECT_EQ(bar->selectedIndex(), 0);
+
+    WidgetKeyEvent rightKey{platform::Key::Right, true, platform::KeyModifier::None};
+    bar->onKeyDown(rightKey);
+    EXPECT_FALSE(rightKey.isAccepted());
+    EXPECT_EQ(bar->selectedIndex(), 0);
+
+    WidgetMouseEvent wheelEvt{core::Point{40.0f, 16.0f}, platform::MouseButton::None,
+                              platform::KeyModifier::None, core::Point{0.0f, -1.0f}};
+    bar->onMouseWheel(wheelEvt);
+    EXPECT_FALSE(wheelEvt.isAccepted());
+
+    // Start drag while enabled, then verify disabling releases mouse grab
+    bar->setReorderable(true);
+    bar->setEnabled(true);
+    WidgetMouseEvent downOne{core::Point{20.0f, 16.0f}, platform::MouseButton::Left,
+                             platform::KeyModifier::None};
+    bar->onMouseDown(downOne);
+    WidgetMouseEvent dragMove{core::Point{35.0f, 16.0f}, platform::MouseButton::Left,
+                              platform::KeyModifier::None};
+    bar->onMouseMove(dragMove);
+    EXPECT_EQ(ctx.mouseGrabWidget(), bar);
+
+    bar->setEnabled(false);
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+
+    // Start drag again, then verify onFocusLost releases mouse grab
+    bar->setEnabled(true);
+    bar->onMouseDown(downOne);
+    bar->onMouseMove(dragMove);
+    EXPECT_EQ(ctx.mouseGrabWidget(), bar);
+
+    bar->onFocusLost();
+    EXPECT_EQ(ctx.mouseGrabWidget(), nullptr);
+}
+
+TEST(TabBarTest, StandaloneDpiScalingAndContextAdoption) {
+    TabBar bar;
+    EXPECT_FLOAT_EQ(bar.tabHeight(), 32.0f);
+    bar.setDpiScale(2.0f);
+    EXPECT_FLOAT_EQ(bar.tabHeight(), 64.0f);
+
+    TabBar customBar;
+    customBar.setTabHeight(40.0f);
+    customBar.setDpiScale(1.5f);
+    EXPECT_FLOAT_EQ(customBar.tabHeight(), 40.0f);
+
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    auto attachedUnique = std::make_unique<TabBar>();
+    TabBar* attached = attachedUnique.get();
+    ctx.setRootWidget(std::move(attachedUnique));
+    EXPECT_FLOAT_EQ(attached->tabHeight(), 48.0f);
+}
+
+TEST(TabBarTest, RemoveAndDisableSelectedTabFallbackToNearestEnabled) {
+    TabBar bar;
+    bar.addTab("A");
+    bar.addTab("B");
+    bar.addTab("C");
+    bar.addTab("D");
+
+    bar.setTabEnabled(1, false);
+    bar.setTabEnabled(3, false);
+    bar.setSelectedIndex(2);
+    EXPECT_EQ(bar.selectedIndex(), 2);
+
+    // Disabling active tab C falls back to nearest enabled tab A (index 0)
+    bar.setTabEnabled(2, false);
+    EXPECT_EQ(bar.selectedIndex(), 0);
+
+    // Re-enable B and C, select A, then remove A -> selects next enabled B (now index 0)
+    bar.setTabEnabled(1, true);
+    bar.setTabEnabled(2, true);
+    bar.setSelectedIndex(0);
+    bar.removeTab(0);
+    EXPECT_EQ(bar.selectedIndex(), 0);
+    EXPECT_EQ(bar.tabTitle(0), "B");
+
+    // Disabling all remaining tabs clears selection to -1
+    bar.setTabEnabled(0, false);
+    bar.setTabEnabled(1, false);
+    EXPECT_EQ(bar.selectedIndex(), -1);
+}
+
+TEST(TabViewTest, InsertTabWithIconAndSetFont) {
+    TabView view;
+    view.setFont(nullptr);
+    view.insertTab(0, "Home", IconId::Folder, std::make_unique<Container>(), false);
+    EXPECT_EQ(view.tabBar()->tabCount(), 1u);
+    EXPECT_EQ(view.currentIndex(), 0);
+    EXPECT_NE(view.pageAt(0), nullptr);
+    EXPECT_TRUE(view.pageAt(0)->isVisible());
+
+    view.insertTab(1, "Settings", IconId::Settings, std::make_unique<Container>(), true);
+    view.setTabEnabled(0, false);
+    EXPECT_EQ(view.currentIndex(), 1);
+    EXPECT_FALSE(view.pageAt(0)->isVisible());
+    EXPECT_TRUE(view.pageAt(1)->isVisible());
 }

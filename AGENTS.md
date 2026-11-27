@@ -7,7 +7,7 @@ Operational engineering guidelines for autonomous agents working in `northern`, 
 - **Language & Standard**: Pure C++20 (`-std=c++20` / `/std:c++20`), `#pragma once`, no Qt MOC/codegen.
 - **Compiler & Build**: MSYS2 UCRT64 `clang++` 16+ (or GCC 12+ / MSVC 19.30+), CMake 3.25+, Ninja.
 - **Dependencies**: Vulkan SDK 1.3+, `harfbuzz`, `freetype`, `gtest` (pinned in [vcpkg.json](vcpkg.json); isolated behind internal wrappers).
-- **Test Suite**: GoogleTest (`unit_tests.exe`) with 324 tests across 54 suites using headless `MockDevice`.
+- **Test Suite**: GoogleTest (`unit_tests.exe`) with 403 tests across 56 suites using headless `MockDevice`.
 
 ### Directory Landmarks
 
@@ -19,7 +19,7 @@ Operational engineering guidelines for autonomous agents working in `northern`, 
 | `Text` | `src/text/` | `FontManager`, `TextShaper` (HarfBuzz), `TextLayout`, `GlyphAtlas` (FreeType), `VectorRasterizer` |
 | `Renderer` | `src/renderer/` | `BatchRenderer`, `PaintContext`, `SvgDocument`, 2D SDF shaders (`shaders/`) |
 | `Layout` | `src/layout/` | `Style`, `LayoutNode`, zero-heap `FlexSolver` with `ArenaAllocator` and `aspectRatio` |
-| `Widgets` | `src/widgets/` | `base/` (`Widget`, `WidgetContext`, `theme`), `containers/` (`MenuBar`, `TabView`, `SplitView`, `Dropdown`, `ContextMenu`, `ScrollView`, `Accordion`), `controls/`, `dialogs/` (`TitleBar`), `views/` (`ListView`, `TableView`, `TreeView`, `HeaderView`, `ItemModel`, `ItemDelegate`) |
+| `Widgets` | `src/widgets/` | `base/` (`Widget`, `WidgetContext`, `theme`), `containers/` (`MenuBar`, `TabView`, `SplitView`, `Dropdown`, `ContextMenu`, `ScrollView`, `Accordion`/`DisclosureGroup`), `controls/`, `dialogs/` (`TitleBar`, `Dialog`, `MessageBox`), `views/` (`ListView`, `TableView`, `TreeView`, `HeaderView`, `ItemModel`, `ItemDelegate`) |
 | `Tests` | `tests/` | `unit/` and `integration/` GoogleTest suites |
 | `Docs` | `docs/` | [architecture.md](docs/architecture.md), [widgets.md](docs/widgets.md), [design-languages.md](docs/design-languages.md), [getting-started.md](docs/getting-started.md) |
 
@@ -43,8 +43,8 @@ Operational engineering guidelines for autonomous agents working in `northern`, 
 - Write a failing test in `tests/unit/` or `tests/integration/` before implementing features or bugfixes.
 - Run `ninja -C build`, `.\build\tests\unit_tests.exe`, and `clang-format --dry-run --Werror` on modified files before claiming completion.
 - Use `northern::core::Result<T, Error>` for recoverable runtime errors; reserve `NORTHERN_ASSERT` for programmer invariants.
-- Implement `setDpiScale(float)` and `effectiveFont()` (falling back to `FontManager::instance().defaultFont(pt * dpiScale_)`) on text-rendering widgets.
-- Adhere strictly to [docs/design-languages.md](docs/design-languages.md) and `northern::theme`: Optical Zinc surfaces, Cobalt `#2563EB` accent, `theme::computeCenteredTextY()` optical centering, and continuous `PaintContext::drawLine` strokes.
+- Implement `setDpiScale(float)` (or adopt `contextDpiScale()` via `onContextAttached()` when not explicitly overridden) and `effectiveFont()` (falling back to `FontManager::instance().defaultFont(pt * dpiScale_)`) on text-rendering widgets; implement `onThemeChanged()` to invalidate cached text layouts on dynamic theme changes; keep control/row labels at `10pt–12pt * dpiScale_` with `height = percent(100.0f)` inside fixed-height rows so `Label::paint` engages `theme::computeCenteredTextY()`.
+- Adhere strictly to [docs/design-languages.md](docs/design-languages.md) (**Northern Zinc**) and `northern::theme`: Optical Zinc surfaces, Cobalt `#2563EB` accent, `theme::resolveConcentricRadius()` for nested pills, `Widget::paintFocusRing()` for keyboard focus rings, `theme::computeCenteredTextY()` optical centering, and continuous `PaintContext::drawLine` strokes. Reserve icons for semantic emphasis rather than adding them to every menu item, tab, or message box.
 
 ### Ask First
 - Adding new external dependencies to `CMakeLists.txt` or `vcpkg.json`.

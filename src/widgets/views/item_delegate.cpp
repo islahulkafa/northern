@@ -14,21 +14,51 @@ void ItemDelegate::paint(renderer::PaintContext& ctx, const StyleOptionViewItem&
     }
 
     float scale = option.dpiScale > 0.0f ? option.dpiScale : 1.0f;
+    const auto& pal = option.palette ? *option.palette : theme::ColorPalette::dark();
+
+    core::Rect bgRect = option.bounds;
+    if (option.rowInsetX > 0.0f || option.rowInsetY > 0.0f) {
+        bgRect.origin.x += option.rowInsetX;
+        bgRect.origin.y += option.rowInsetY;
+        bgRect.size.width = std::max(0.0f, bgRect.size.width - 2.0f * option.rowInsetX);
+        bgRect.size.height = std::max(0.0f, bgRect.size.height - 2.0f * option.rowInsetY);
+    }
+
+    auto fillBg = [&](const core::Color& color) {
+        if (option.cornerRadius > 0.0f) {
+            float r[4] = {option.cornerRadius, option.cornerRadius, option.cornerRadius,
+                          option.cornerRadius};
+            ctx.drawRoundedRect(bgRect, color, r);
+        } else {
+            ctx.drawRect(bgRect, color);
+        }
+    };
 
     if (option.isSelected) {
-        core::Color bg = option.isHovered ? theme::ColorTokens::AccentDefault.withAlpha(0.25f)
-                                          : theme::ColorTokens::AccentDefault.withAlpha(0.16f);
-        ctx.drawRect(option.bounds, bg);
+        core::Color bg = option.isHovered ? pal.accentDefault.withAlpha(0.24f)
+                                          : pal.accentDefault.withAlpha(0.17f);
+        fillBg(bg);
     } else if (option.isHovered) {
-        ctx.drawRect(option.bounds, theme::ColorTokens::SurfaceRaised);
+        fillBg(pal.surfaceRaised);
     } else if (option.isAlternate) {
-        ctx.drawRect(option.bounds, theme::ColorTokens::SurfaceBase);
+        fillBg(pal.surfaceBase.withAlpha(0.55f));
     } else if (option.backgroundColor.a > 0.0f) {
-        ctx.drawRect(option.bounds, option.backgroundColor);
+        fillBg(option.backgroundColor);
+    }
+
+    if (option.drawSeparator && !option.isSelected && !option.isHovered) {
+        float divInset = option.rowInsetX > 0.0f ? option.rowInsetX + 8.0f * scale : 12.0f * scale;
+        float divY = option.bounds.origin.y + option.bounds.size.height - 0.5f * scale;
+        if (option.bounds.size.width > 2.0f * divInset) {
+            ctx.drawLine(
+                core::Point{option.bounds.origin.x + divInset, divY},
+                core::Point{option.bounds.origin.x + option.bounds.size.width - divInset, divY},
+                pal.borderSubtle, theme::Metrics::BorderWidthHairline * scale);
+        }
     }
 
     if (option.hasFocus) {
-        theme::paintFocusRing(ctx, option.bounds, 0.0f, -1.0f);
+        theme::paintFocusRing(ctx, bgRect, option.cornerRadius, -1.0f);
     }
 
     float centerY = option.bounds.origin.y + option.bounds.size.height * 0.5f;
@@ -43,15 +73,15 @@ void ItemDelegate::paint(renderer::PaintContext& ctx, const StyleOptionViewItem&
         float r[4] = {3.0f * scale, 3.0f * scale, 3.0f * scale, 3.0f * scale};
 
         if (option.checkboxChecked) {
-            ctx.drawRoundedRect(cbRect, theme::ColorTokens::AccentDefault, r);
+            ctx.drawRoundedRect(cbRect, pal.accentDefault, r);
+            core::Color checkCol{1.0f, 1.0f, 1.0f, 1.0f};
             core::Point p0{cbRect.origin.x + 3.5f * scale, centerY};
             core::Point p1{cbRect.origin.x + 6.5f * scale, centerY + 3.0f * scale};
             core::Point p2{cbRect.origin.x + 12.5f * scale, centerY - 3.5f * scale};
-            ctx.drawLine(p0, p1, theme::ColorTokens::TextPrimary, 1.5f * scale);
-            ctx.drawLine(p1, p2, theme::ColorTokens::TextPrimary, 1.5f * scale);
+            ctx.drawLine(p0, p1, checkCol, 1.5f * scale);
+            ctx.drawLine(p1, p2, checkCol, 1.5f * scale);
         } else {
-            ctx.drawBox(cbRect, theme::ColorTokens::SurfaceRaised,
-                        theme::ColorTokens::BorderDefault, 1.0f * scale, r);
+            ctx.drawBox(cbRect, pal.surfaceRaised, pal.borderDefault, 1.0f * scale, r);
         }
         contentLeft += cbSize + 8.0f * scale;
     }
@@ -65,26 +95,33 @@ void ItemDelegate::paint(renderer::PaintContext& ctx, const StyleOptionViewItem&
         contentLeft += iSize + 8.0f * scale;
     }
 
-    // Optional Status Badge/Chip on Right
-    if (!option.badgeText.empty() && option.font) {
-        auto bLayout = text::TextLayout::create(option.badgeText, option.font);
+    // Optional Status Badge/Chip
+    if (!option.badgeText.empty() && option.font && contentRight > contentLeft) {
+        float availW = contentRight - contentLeft;
         float bPad = 6.0f * scale;
-        float bW = bLayout.size().width + bPad * 2.0f;
+        text::TextLayoutOptions bOpts{};
+        bOpts.maxWidth = std::max(0.0f, availW - bPad * 2.0f);
+        bOpts.wrapMode = text::WordWrap::None;
+        bOpts.overflow = text::TextOverflow::Ellipsis;
+        bOpts.maxLines = 1;
+        auto bLayout = text::TextLayout::create(option.badgeText, option.font, bOpts);
+        float bW = std::min(availW, bLayout.size().width + bPad * 2.0f);
         float bH = 18.0f * scale;
-        float bX = contentRight - bW;
+        float bX = option.text.empty() ? contentLeft : (contentRight - bW);
         float bY = std::round(centerY - bH * 0.5f);
         core::Rect bRect{core::Point{bX, bY}, core::Size{bW, bH}};
         float radius = 3.0f * scale;
         float br[4] = {radius, radius, radius, radius};
 
-        core::Color bgCol =
-            option.badgeColor.a > 0.0f ? option.badgeColor : theme::ColorTokens::SurfaceOverlay;
+        core::Color bgCol = option.badgeColor.a > 0.0f ? option.badgeColor : pal.surfaceOverlay;
+        ctx.pushClip(bRect);
         ctx.drawRoundedRect(bRect, bgCol, br);
-        ctx.drawBorder(bRect, theme::ColorTokens::BorderDefault, 1.0f);
+        ctx.drawBorder(bRect, pal.borderDefault, 1.0f);
         float bTextY = theme::computeCenteredTextY(centerY, *option.font);
-        core::Color textCol = option.badgeTextColor.a > 0.0f ? option.badgeTextColor
-                                                             : theme::ColorTokens::TextPrimary;
+        core::Color textCol =
+            option.badgeTextColor.a > 0.0f ? option.badgeTextColor : pal.textPrimary;
         ctx.drawTextLayout(core::Point{bX + bPad, bTextY}, bLayout, textCol);
+        ctx.popClip();
 
         contentRight = bX - 8.0f * scale;
     }

@@ -13,7 +13,6 @@ enum class IconId {
     WindowMaximize,
     WindowRestore,
     WindowClose,
-    AppLogo,
 
     // Navigation & Chevrons
     ChevronDown,

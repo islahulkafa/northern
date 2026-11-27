@@ -1,8 +1,8 @@
+#include "text/font_manager.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
 #include "widgets/containers/container.hpp"
 #include "widgets/containers/context_menu.hpp"
-#include "text/font_manager.hpp"
 
 #include <gtest/gtest.h>
 
@@ -102,8 +102,8 @@ TEST(ContextMenuTest, ClickItemExecutesAndDismissesDisabledDoesNot) {
     EXPECT_LT(menuRect.size.width, 500.0f);
     EXPECT_LT(menuRect.size.height, 400.0f);
 
-    // Click disabled first item (y ~ origin.y + 4 + 14)
-    core::Point disabledPos{menuRect.origin.x + 20.0f, menuRect.origin.y + 18.0f};
+    // Click disabled first item (y ~ origin.y + 4 + 16 = +20)
+    core::Point disabledPos{menuRect.origin.x + 20.0f, menuRect.origin.y + 20.0f};
     ctx.handleMouseDown(makeMouseEvent(platform::MouseEventType::ButtonDown,
                                        platform::MouseButton::Left, disabledPos));
     ctx.handleMouseUp(makeMouseEvent(platform::MouseEventType::ButtonUp,
@@ -111,8 +111,8 @@ TEST(ContextMenuTest, ClickItemExecutesAndDismissesDisabledDoesNot) {
     EXPECT_EQ(triggered, 0);
     EXPECT_TRUE(ctx.hasOverlays());
 
-    // Click enabled third item (y ~ origin.y + 4 + 28 + 9 + 14 = +55)
-    core::Point enabledPos{menuRect.origin.x + 20.0f, menuRect.origin.y + 55.0f};
+    // Click enabled third item (y ~ origin.y + 4 + 32 + 8 + 16 = +60)
+    core::Point enabledPos{menuRect.origin.x + 20.0f, menuRect.origin.y + 60.0f};
     ctx.handleMouseDown(makeMouseEvent(platform::MouseEventType::ButtonDown,
                                        platform::MouseButton::Left, enabledPos));
     ctx.handleMouseUp(makeMouseEvent(platform::MouseEventType::ButtonUp,
@@ -155,7 +155,8 @@ TEST(ContextMenuTest, RichItemTypesAndGutter) {
     float plainWidth = plainMenu.preferredSize().width;
 
     ContextMenu richMenu;
-    richMenu.addItem(IconId::Search, "A Very Long Label That Easily Exceeds Minimum Menu Width", nullptr);
+    richMenu.addItem(IconId::Search, "A Very Long Label That Easily Exceeds Minimum Menu Width",
+                     nullptr);
     richMenu.addCheckItem("Show Grid", true, nullptr);
     richMenu.addRadioItem("Option A", false, nullptr);
     richMenu.addDestructiveItem("Delete", nullptr);
@@ -194,8 +195,8 @@ TEST(ContextMenuTest, CheckboxToggleAndRadioActivation) {
     core::Point checkPos{r.origin.x + 20.0f, r.origin.y + 14.0f};
     ctx.handleMouseDown(makeMouseEvent(platform::MouseEventType::ButtonDown,
                                        platform::MouseButton::Left, checkPos));
-    ctx.handleMouseUp(makeMouseEvent(platform::MouseEventType::ButtonUp,
-                                     platform::MouseButton::Left, checkPos));
+    ctx.handleMouseUp(
+        makeMouseEvent(platform::MouseEventType::ButtonUp, platform::MouseButton::Left, checkPos));
 
     EXPECT_TRUE(toggledVal);
     EXPECT_FALSE(ctx.hasOverlays());
@@ -211,8 +212,8 @@ TEST(ContextMenuTest, CheckboxToggleAndRadioActivation) {
     core::Point radioPos{r2.origin.x + 20.0f, r2.origin.y + 14.0f};
     ctx.handleMouseDown(makeMouseEvent(platform::MouseEventType::ButtonDown,
                                        platform::MouseButton::Left, radioPos));
-    ctx.handleMouseUp(makeMouseEvent(platform::MouseEventType::ButtonUp,
-                                     platform::MouseButton::Left, radioPos));
+    ctx.handleMouseUp(
+        makeMouseEvent(platform::MouseEventType::ButtonUp, platform::MouseButton::Left, radioPos));
 
     EXPECT_EQ(radioSelected, 1);
     EXPECT_FALSE(ctx.hasOverlays());
@@ -320,9 +321,9 @@ TEST(ContextMenuTest, SubmenuOpenOnHoverAndRetract) {
     ASSERT_NE(rawMenu, nullptr);
     EXPECT_EQ(ctx.overlayStack().size(), 1u);
 
-    // Hover submenu item (second item: local y ~ 4 + 28 + 14 = 46.0f)
-    WidgetMouseEvent hoverSubEv{core::Point{60.0f, 46.0f}, platform::MouseButton::None,
-                               platform::KeyModifier::None};
+    // Hover submenu item (second item: local y ~ 4 + 32 + 16 = 52.0f)
+    WidgetMouseEvent hoverSubEv{core::Point{60.0f, 52.0f}, platform::MouseButton::None,
+                                platform::KeyModifier::None};
     rawMenu->onMouseMove(hoverSubEv);
     EXPECT_EQ(ctx.overlayStack().size(), 1u); // Not opened immediately (debounce)
 
@@ -334,9 +335,10 @@ TEST(ContextMenuTest, SubmenuOpenOnHoverAndRetract) {
     rawMenu->updateAnimations(0.08f);
     EXPECT_EQ(ctx.overlayStack().size(), 2u);
 
-    // Hovering a different item (third item: local y ~ 4 + 28 + 28 + 14 = 74.0f) retracts child submenu
-    WidgetMouseEvent hoverOtherEv{core::Point{60.0f, 74.0f}, platform::MouseButton::None,
-                                 platform::KeyModifier::None};
+    // Hovering a different item (third item: local y ~ 4 + 32 + 32 + 16 = 84.0f) retracts child
+    // submenu
+    WidgetMouseEvent hoverOtherEv{core::Point{60.0f, 84.0f}, platform::MouseButton::None,
+                                  platform::KeyModifier::None};
     rawMenu->onMouseMove(hoverOtherEv);
     EXPECT_EQ(ctx.overlayStack().size(), 1u);
 }
@@ -389,4 +391,154 @@ TEST(ContextMenuTest, SubmenuKeyboardNavigationAndActionDismissAll) {
 
     EXPECT_EQ(executedAction, 2);
     EXPECT_FALSE(ctx.hasOverlays());
+}
+
+TEST(ContextMenuTest, SubtitledItemsTrailingIconsAndDpiScaling) {
+    ContextMenu menu;
+    EXPECT_EQ(menu.iconPlacement(), MenuIconPlacement::Trailing);
+
+    menu.addItem("Button 1", nullptr);
+    menu.addItem(IconId::Copy, "Button 2", nullptr);
+    menu.addSubtitledItem("Button 3", "Description 3", nullptr);
+    menu.addSeparator();
+    menu.addDestructiveItem("Delete", nullptr);
+
+    // Trailing icon does not force leading checkbox/radio gutter
+    EXPECT_FALSE(menu.hasLeadingGutter());
+
+    core::Size basePref = menu.preferredSize();
+    EXPECT_GE(basePref.width, 200.0f);
+    // 3 standard (32*3 = 96) + 1 subtitled (48) + 1 separator (8) + padding (10) = 162
+    EXPECT_NEAR(basePref.height, 32.0f * 3.0f + 48.0f + 8.0f + 10.0f, 1.0f);
+
+    menu.setIconPlacement(MenuIconPlacement::Leading);
+    EXPECT_EQ(menu.iconPlacement(), MenuIconPlacement::Leading);
+    EXPECT_TRUE(menu.hasLeadingGutter());
+
+    menu.setDpiScale(1.5f);
+    EXPECT_FLOAT_EQ(menu.dpiScale(), 1.5f);
+    core::Size scaledPref = menu.preferredSize();
+    EXPECT_NEAR(scaledPref.height, basePref.height * 1.5f, 2.0f);
+
+    menu.layoutNode().setLayoutRect(core::Rect{{0.0f, 0.0f}, scaledPref});
+    renderer::PaintContext paintCtx;
+    menu.paint(paintCtx);
+    EXPECT_FALSE(paintCtx.commands().empty());
+}
+
+TEST(ContextMenuTest, ShowAtAdoptsContextDpiScaleAndThemeDirtySync) {
+    WidgetContext ctx;
+    ctx.setDpiScale(1.5f);
+    ctx.setRootWidget(std::make_unique<Container>());
+    ctx.handleResize(core::Size{800.0f, 600.0f});
+
+    auto menu = std::make_unique<ContextMenu>();
+    menu->addItem("Inspect", nullptr);
+    ContextMenu* rawMenu = ContextMenu::showAt(ctx, std::move(menu), core::Point{40.0f, 40.0f});
+    ASSERT_NE(rawMenu, nullptr);
+
+    EXPECT_FLOAT_EQ(rawMenu->dpiScale(), 1.5f);
+    EXPECT_GE(rawMenu->screenRect().size.width, 200.0f * 1.5f);
+
+    renderer::PaintContext pctx;
+    ctx.render(pctx, {800.0f, 600.0f});
+    EXPECT_FALSE(rawMenu->isPaintDirty());
+
+    ctx.setTheme(theme::Theme::light());
+    EXPECT_TRUE(rawMenu->isPaintDirty());
+}
+
+TEST(ContextMenuTest, RadioGroupExclusivityBetweenSeparators) {
+    ContextMenu menu;
+    menu.addRadioItem("Mode A", true, nullptr);
+    menu.addRadioItem("Mode B", false, nullptr);
+    menu.addSeparator();
+    menu.addRadioItem("Mode X", true, nullptr);
+
+    // Click Mode B (y ~ 5 + 32 + 16 = 53)
+    WidgetMouseEvent downB{core::Point{20.0f, 53.0f}, platform::MouseButton::Left,
+                           platform::KeyModifier::None};
+    menu.onMouseDown(downB);
+    WidgetMouseEvent upB{core::Point{20.0f, 53.0f}, platform::MouseButton::Left,
+                         platform::KeyModifier::None};
+    menu.onMouseUp(upB);
+
+    EXPECT_FALSE(menu.items()[0].checked);
+    EXPECT_TRUE(menu.items()[1].checked);
+    EXPECT_TRUE(menu.items()[3].checked);
+}
+
+TEST(ContextMenuTest, PressReleaseMismatchCancelsAndEmptyEnterIgnored) {
+    ContextMenu menu;
+    int firedA = 0;
+    int firedB = 0;
+    menu.addItem("First", [&]() { ++firedA; });
+    menu.addItem("Second", [&]() { ++firedB; });
+
+    WidgetKeyEvent enterIdle{platform::Key::Enter, true, platform::KeyModifier::None};
+    menu.onKeyDown(enterIdle);
+    EXPECT_FALSE(enterIdle.isAccepted());
+
+    WidgetMouseEvent downA{core::Point{20.0f, 20.0f}, platform::MouseButton::Left,
+                           platform::KeyModifier::None};
+    menu.onMouseDown(downA);
+    WidgetMouseEvent upB{core::Point{20.0f, 50.0f}, platform::MouseButton::Left,
+                         platform::KeyModifier::None};
+    menu.onMouseUp(upB);
+    EXPECT_EQ(firedA, 0);
+    EXPECT_EQ(firedB, 0);
+}
+
+TEST(ContextMenuTest, PerItemHoverAndPressPillMatchesAccordionGrammar) {
+    ContextMenu menu;
+    menu.addItem("First", nullptr);
+    menu.addItem("Second", nullptr);
+    menu.layoutNode().setLayoutRect(core::Rect{{0.0f, 0.0f}, menu.preferredSize()});
+
+    // Move across rows starts independent OutCubic hover animations
+    WidgetMouseEvent moveRow0{core::Point{20.0f, 20.0f}, platform::MouseButton::None,
+                              platform::KeyModifier::None};
+    menu.onMouseMove(moveRow0);
+    EXPECT_TRUE(menu.hasActiveAnimations());
+    menu.updateAnimations(0.15f);
+    EXPECT_FALSE(menu.hasActiveAnimations());
+
+    WidgetMouseEvent moveRow1{core::Point{20.0f, 50.0f}, platform::MouseButton::None,
+                              platform::KeyModifier::None};
+    menu.onMouseMove(moveRow1);
+    EXPECT_TRUE(menu.hasActiveAnimations());
+    menu.updateAnimations(0.15f);
+
+    renderer::PaintContext hoverPaint;
+    menu.paint(hoverPaint);
+    // Find row highlight pill fill alpha (~0.55f matching Accordion rest hover)
+    float hoverAlpha = 0.0f;
+    for (const auto& cmd : hoverPaint.commands()) {
+        if (std::holds_alternative<renderer::DrawBoxCommand>(cmd)) {
+            const auto& box = std::get<renderer::DrawBoxCommand>(cmd);
+            if (box.borderWidth == 0.0f && box.fillColor.a > 0.0f) {
+                hoverAlpha = box.fillColor.a;
+                break;
+            }
+        }
+    }
+    EXPECT_NEAR(hoverAlpha, 0.55f, 0.02f);
+
+    // Press raises pill alpha to 0.85f matching Accordion press feedback
+    WidgetMouseEvent pressRow1{core::Point{20.0f, 50.0f}, platform::MouseButton::Left,
+                               platform::KeyModifier::None};
+    menu.onMouseDown(pressRow1);
+    renderer::PaintContext pressPaint;
+    menu.paint(pressPaint);
+    float pressAlpha = 0.0f;
+    for (const auto& cmd : pressPaint.commands()) {
+        if (std::holds_alternative<renderer::DrawBoxCommand>(cmd)) {
+            const auto& box = std::get<renderer::DrawBoxCommand>(cmd);
+            if (box.borderWidth == 0.0f && box.fillColor.a > 0.0f) {
+                pressAlpha = box.fillColor.a;
+                break;
+            }
+        }
+    }
+    EXPECT_NEAR(pressAlpha, 0.85f, 0.02f);
 }

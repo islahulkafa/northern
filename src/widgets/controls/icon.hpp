@@ -68,6 +68,9 @@ public:
     void setIconSize(float size);
     void setIconSize(IconSize size) { setIconSize(toPoints(size)); }
 
+    void setDpiScale(float scale);
+    [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
+
     void setInteractive(bool interactive) noexcept;
     [[nodiscard]] bool isInteractive() const noexcept { return isInteractive_; }
 
@@ -78,6 +81,11 @@ public:
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onMouseUp(WidgetMouseEvent& ev) override;
     void onKeyDown(WidgetKeyEvent& ev) override;
+    void onFocusGained() override;
+    void onFocusLost() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
     void updateAnimations(float deltaSeconds) override;
     [[nodiscard]] bool hasActiveAnimations() const noexcept override;
@@ -85,11 +93,18 @@ public:
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
+
     std::optional<IconId> iconId_{};
     std::shared_ptr<renderer::SvgDocument> doc_{};
     IconRole role_{IconRole::Primary};
     std::optional<core::Color> overrideColor_{};
+    float baseIconSize_{16.0f};
     float iconSize_{16.0f};
+    float dpiScale_{1.0f};
+    bool hasCustomDpiScale_{false};
+    bool hasCustomSize_{false};
 
     bool isInteractive_{false};
     bool isHovered_{false};

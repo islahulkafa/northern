@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/animation/property_animation.hpp"
 #include "core/math/geometry.hpp"
 
 #include <algorithm>
@@ -35,6 +36,7 @@ struct OverlayEntry {
     Widget* owner{nullptr}; // Non-owning pointer to trigger/spawning widget
     core::Point computedPosition{0.0f, 0.0f};
     bool isOwned{true};
+    core::animation::PropertyAnimation<float> scrimAnim{0.55f};
 };
 
 [[nodiscard]] inline core::Point computeOverlayPosition(const core::Size& viewportSize,

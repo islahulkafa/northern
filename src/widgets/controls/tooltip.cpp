@@ -14,11 +14,15 @@ constexpr float kPrimaryDefaultPt = 10.5f;
 constexpr float kSecondaryDefaultPt = 9.5f;
 } // namespace
 
+Tooltip::Tooltip() : Tooltip("", "", nullptr, "") {}
+
 Tooltip::Tooltip(std::string text, std::string shortcut, std::shared_ptr<text::Font> font,
                  std::string description)
     : text_(std::move(text)), shortcut_(std::move(shortcut)), description_(std::move(description)),
       font_(std::move(font)) {
     setFocusable(false);
+    layoutNode_.setMeasureFunc(
+        [this](const layout::LayoutNode&, float, float) -> core::Size { return preferredSize(); });
 }
 
 void Tooltip::invalidateLayoutCache() noexcept {
@@ -38,6 +42,25 @@ void Tooltip::setContent(std::string text, std::string shortcut, std::string des
         shortcut_ = std::move(shortcut);
         description_ = std::move(description);
         invalidateLayoutCache();
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+void Tooltip::setText(std::string text) {
+    if (text_ != text) {
+        text_ = std::move(text);
+        invalidateLayoutCache();
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+void Tooltip::setShortcut(std::string shortcut) {
+    if (shortcut_ != shortcut) {
+        shortcut_ = std::move(shortcut);
+        invalidateLayoutCache();
+        markLayoutDirty();
         markPaintDirty();
     }
 }
@@ -46,6 +69,7 @@ void Tooltip::setDescription(std::string description) {
     if (description_ != description) {
         description_ = std::move(description);
         invalidateLayoutCache();
+        markLayoutDirty();
         markPaintDirty();
     }
 }
@@ -94,6 +118,11 @@ std::shared_ptr<text::Font> Tooltip::effectiveShortcutFont() const {
 }
 
 void Tooltip::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiScale(scale);
+}
+
+void Tooltip::applyDpiScale(float scale) {
     float clamped = scale > 0.0f ? scale : 1.0f;
     if (dpiScale_ != clamped) {
         dpiScale_ = clamped;
@@ -101,8 +130,24 @@ void Tooltip::setDpiScale(float scale) {
         resolvedDescFont_.reset();
         resolvedShortcutFont_.reset();
         invalidateLayoutCache();
+        markLayoutDirty();
         markPaintDirty();
     }
+}
+
+void Tooltip::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        applyDpiScale(contextDpiScale());
+    }
+}
+
+void Tooltip::onThemeChanged() {
+    resolvedPrimaryFont_.reset();
+    resolvedDescFont_.reset();
+    resolvedShortcutFont_.reset();
+    invalidateLayoutCache();
+    markLayoutDirty();
+    markPaintDirty();
 }
 
 void Tooltip::setMaxWidth(float maxWidth) {
@@ -294,6 +339,31 @@ core::Size Tooltip::preferredSize() const {
     return cachedPreferredSize_;
 }
 
+void Tooltip::drawShortcutBadge(renderer::PaintContext& ctx, float badgeX, float badgeY,
+                                float scale, float borderW, float outerRadius) const {
+    auto scFont = effectiveShortcutFont();
+    if (!cachedShortcutLayout_ || !scFont || cachedBadgeWidth_ <= 0.0f) {
+        return;
+    }
+
+    float badgeRadius = theme::resolveConcentricRadius(outerRadius, 2.0f * scale, 3.0f * scale);
+    float badgeRadii[4] = {badgeRadius, badgeRadius, badgeRadius, badgeRadius};
+
+    core::Color scBg = effectiveShortcutBackgroundColor();
+    scBg = scBg.withAlpha(scBg.a * alpha_);
+    core::Color scBorder = effectiveShortcutBorderColor();
+    scBorder = scBorder.withAlpha(scBorder.a * alpha_);
+    ctx.drawBox(core::Rect{{badgeX, badgeY}, {cachedBadgeWidth_, cachedBadgeHeight_}}, scBg,
+                scBorder, borderW, badgeRadii);
+
+    float badgePadX = 5.0f * scale;
+    float badgeCenterY = badgeY + cachedBadgeHeight_ * 0.5f;
+    float scTextY = theme::computeCenteredTextY(badgeCenterY, *scFont);
+    core::Color scCol = effectiveShortcutColor();
+    scCol = scCol.withAlpha(scCol.a * alpha_);
+    ctx.drawTextLayout(core::Point{badgeX + badgePadX, scTextY}, *cachedShortcutLayout_, scCol);
+}
+
 void Tooltip::paint(renderer::PaintContext& ctx) {
     if (alpha_ <= 0.01f) {
         return;
@@ -324,7 +394,6 @@ void Tooltip::paint(renderer::PaintContext& ctx) {
     float padY = multiLineOrDesc ? 8.0f * scale : 6.0f * scale;
 
     auto primaryFont = effectiveFont();
-    auto scFont = effectiveShortcutFont();
 
     if (!multiLineOrDesc) {
         float centerY = rect.origin.y + rect.size.height * 0.5f;
@@ -336,25 +405,10 @@ void Tooltip::paint(renderer::PaintContext& ctx) {
                                textCol);
         }
 
-        if (cachedShortcutLayout_ && scFont && cachedBadgeWidth_ > 0.0f) {
+        if (cachedBadgeWidth_ > 0.0f) {
             float badgeX = rect.origin.x + rect.size.width - padX - cachedBadgeWidth_;
             float badgeY = centerY - cachedBadgeHeight_ * 0.5f;
-            float badgeRadius = 4.0f * scale;
-            float badgeRadii[4] = {badgeRadius, badgeRadius, badgeRadius, badgeRadius};
-
-            core::Color scBg = effectiveShortcutBackgroundColor();
-            scBg = scBg.withAlpha(scBg.a * alpha_);
-            core::Color scBorder = effectiveShortcutBorderColor();
-            scBorder = scBorder.withAlpha(scBorder.a * alpha_);
-            ctx.drawBox(core::Rect{{badgeX, badgeY}, {cachedBadgeWidth_, cachedBadgeHeight_}}, scBg,
-                        scBorder, borderW, badgeRadii);
-
-            float badgePadX = 5.0f * scale;
-            float scTextY = theme::computeCenteredTextY(centerY, *scFont);
-            core::Color scCol = effectiveShortcutColor();
-            scCol = scCol.withAlpha(scCol.a * alpha_);
-            ctx.drawTextLayout(core::Point{badgeX + badgePadX, scTextY}, *cachedShortcutLayout_,
-                               scCol);
+            drawShortcutBadge(ctx, badgeX, badgeY, scale, borderW, radius);
         }
         return;
     }
@@ -366,25 +420,10 @@ void Tooltip::paint(renderer::PaintContext& ctx) {
         ctx.drawTextLayout(core::Point{rect.origin.x + padX, rowTop}, *cachedTextLayout_, textCol);
     }
 
-    if (cachedShortcutLayout_ && scFont && cachedBadgeWidth_ > 0.0f) {
+    if (cachedBadgeWidth_ > 0.0f) {
         float badgeX = rect.origin.x + rect.size.width - padX - cachedBadgeWidth_;
         float badgeY = rowTop + (cachedHeaderHeight_ - cachedBadgeHeight_) * 0.5f;
-        float badgeRadius = 4.0f * scale;
-        float badgeRadii[4] = {badgeRadius, badgeRadius, badgeRadius, badgeRadius};
-
-        core::Color scBg = effectiveShortcutBackgroundColor();
-        scBg = scBg.withAlpha(scBg.a * alpha_);
-        core::Color scBorder = effectiveShortcutBorderColor();
-        scBorder = scBorder.withAlpha(scBorder.a * alpha_);
-        ctx.drawBox(core::Rect{{badgeX, badgeY}, {cachedBadgeWidth_, cachedBadgeHeight_}}, scBg,
-                    scBorder, borderW, badgeRadii);
-
-        float badgePadX = 5.0f * scale;
-        float badgeCenterY = badgeY + cachedBadgeHeight_ * 0.5f;
-        float scTextY = theme::computeCenteredTextY(badgeCenterY, *scFont);
-        core::Color scCol = effectiveShortcutColor();
-        scCol = scCol.withAlpha(scCol.a * alpha_);
-        ctx.drawTextLayout(core::Point{badgeX + badgePadX, scTextY}, *cachedShortcutLayout_, scCol);
+        drawShortcutBadge(ctx, badgeX, badgeY, scale, borderW, radius);
     }
 
     if (cachedDescLayout_) {

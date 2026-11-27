@@ -11,13 +11,17 @@
 namespace northern::widgets {
 
 namespace {
-constexpr float kPaddingY = 4.0f;
-constexpr float kItemHeight = 28.0f;
-constexpr float kSeparatorHeight = 9.0f;
-constexpr float kMinWidth = 160.0f;
-constexpr float kPadX = 12.0f;
+constexpr float kPaddingY = 5.0f;
+constexpr float kItemHeight = 32.0f;
+constexpr float kSubtitledItemHeight = 48.0f;
+constexpr float kSeparatorHeight = 8.0f;
+constexpr float kMinWidth = 200.0f;
+constexpr float kPadX = 14.0f;
+constexpr float kPillInsetX = 4.0f;
+constexpr float kPillInsetY = 2.0f;
+constexpr float kHoverAnimDuration = 0.12f;
 constexpr float kGutterWidth = 24.0f;
-constexpr float kShortcutGap = 20.0f;
+constexpr float kTrailingGap = 20.0f;
 constexpr float kIconSize = 16.0f;
 } // namespace
 
@@ -68,6 +72,46 @@ void ContextMenu::addItem(IconId iconId, std::string label, std::function<void()
                           std::string shortcut, bool enabled) {
     addItem(getSvgDocument(iconId), std::move(label), std::move(onTriggered), std::move(shortcut),
             enabled);
+}
+
+void ContextMenu::addSubtitledItem(std::string label, std::string subtitle,
+                                   std::function<void()> onTriggered, std::string shortcut,
+                                   bool enabled) {
+    items_.push_back(ContextMenuItem{
+        .type = MenuItemType::Standard,
+        .isSeparator = false,
+        .label = std::move(label),
+        .subtitle = std::move(subtitle),
+        .shortcut = std::move(shortcut),
+        .enabled = enabled,
+        .checked = false,
+        .isDestructive = false,
+        .icon = nullptr,
+        .onTriggered = std::move(onTriggered),
+        .onToggled = nullptr,
+    });
+    markPaintDirty();
+    markLayoutDirty();
+}
+
+void ContextMenu::addSubtitledItem(IconId iconId, std::string label, std::string subtitle,
+                                   std::function<void()> onTriggered, std::string shortcut,
+                                   bool enabled) {
+    items_.push_back(ContextMenuItem{
+        .type = MenuItemType::Standard,
+        .isSeparator = false,
+        .label = std::move(label),
+        .subtitle = std::move(subtitle),
+        .shortcut = std::move(shortcut),
+        .enabled = enabled,
+        .checked = false,
+        .isDestructive = false,
+        .icon = getSvgDocument(iconId),
+        .onTriggered = std::move(onTriggered),
+        .onToggled = nullptr,
+    });
+    markPaintDirty();
+    markLayoutDirty();
 }
 
 void ContextMenu::addCheckItem(std::string label, bool checked, std::function<void(bool)> onToggled,
@@ -125,6 +169,26 @@ void ContextMenu::addDestructiveItem(std::string label, std::function<void()> on
     markLayoutDirty();
 }
 
+void ContextMenu::addDestructiveItem(IconId iconId, std::string label,
+                                     std::function<void()> onTriggered, std::string shortcut,
+                                     bool enabled) {
+    items_.push_back(ContextMenuItem{
+        .type = MenuItemType::Standard,
+        .isSeparator = false,
+        .label = std::move(label),
+        .shortcut = std::move(shortcut),
+        .enabled = enabled,
+        .checked = false,
+        .isDestructive = true,
+        .icon = getSvgDocument(iconId),
+        .onTriggered = std::move(onTriggered),
+        .onToggled = nullptr,
+        .submenuBuilder = nullptr,
+    });
+    markPaintDirty();
+    markLayoutDirty();
+}
+
 void ContextMenu::addSubmenu(std::string label,
                              std::function<std::unique_ptr<ContextMenu>()> builder,
                              std::shared_ptr<renderer::SvgDocument> icon, bool enabled) {
@@ -170,6 +234,7 @@ void ContextMenu::addSeparator() {
 void ContextMenu::clearItems() {
     items_.clear();
     highlightedIndex_ = -1;
+    pressedIndex_ = -1;
     markPaintDirty();
     markLayoutDirty();
 }
@@ -179,20 +244,65 @@ bool ContextMenu::hasLeadingGutter() const noexcept {
         if (item.isSeparator) {
             continue;
         }
-        if (item.icon != nullptr || item.type == MenuItemType::Checkbox ||
-            item.type == MenuItemType::Radio) {
+        if (item.type == MenuItemType::Checkbox || item.type == MenuItemType::Radio ||
+            (iconPlacement_ == MenuIconPlacement::Leading && item.icon != nullptr)) {
             return true;
         }
     }
     return false;
 }
 
+void ContextMenu::setIconPlacement(MenuIconPlacement placement) noexcept {
+    if (iconPlacement_ != placement) {
+        iconPlacement_ = placement;
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+void ContextMenu::setDpiScale(float scale) {
+    hasCustomDpiScale_ = true;
+    applyDpiMetrics(scale);
+}
+
+void ContextMenu::applyDpiMetrics(float scale) {
+    float clamped = scale > 0.0f ? scale : 1.0f;
+    if (dpiScale_ != clamped) {
+        dpiScale_ = clamped;
+        resolvedDefaultFont_.reset();
+        resolvedSubtitleFont_.reset();
+        for (auto& item : items_) {
+            item.cachedLabelLayout.reset();
+            item.cachedSubtitleLayout.reset();
+            item.cachedShortcutLayout.reset();
+        }
+        markLayoutDirty();
+        markPaintDirty();
+    }
+}
+
+void ContextMenu::onContextAttached() {
+    if (!hasCustomDpiScale_) {
+        float ctxDpi = contextDpiScale();
+        if (ctxDpi > 0.0f && ctxDpi != dpiScale_) {
+            applyDpiMetrics(ctxDpi);
+        }
+    }
+    markPaintDirty();
+}
+
+void ContextMenu::onThemeChanged() {
+    markPaintDirty();
+}
+
 void ContextMenu::setFont(std::shared_ptr<text::Font> font) {
     if (font_ != font) {
         font_ = std::move(font);
         resolvedDefaultFont_.reset();
+        resolvedSubtitleFont_.reset();
         for (auto& item : items_) {
             item.cachedLabelLayout.reset();
+            item.cachedSubtitleLayout.reset();
             item.cachedShortcutLayout.reset();
         }
         markPaintDirty();
@@ -205,9 +315,18 @@ std::shared_ptr<text::Font> ContextMenu::effectiveFont() const {
         return font_;
     }
     if (!resolvedDefaultFont_) {
-        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(10.5f).valueOr(nullptr);
+        resolvedDefaultFont_ =
+            text::FontManager::instance().defaultFont(11.0f * dpiScale_).valueOr(nullptr);
     }
     return resolvedDefaultFont_;
+}
+
+std::shared_ptr<text::Font> ContextMenu::subtitleFont() const {
+    if (!resolvedSubtitleFont_) {
+        float basePt = font_ ? std::max(8.0f, font_->pointSize() - 1.5f) : (9.5f * dpiScale_);
+        resolvedSubtitleFont_ = text::FontManager::instance().defaultFont(basePt).valueOr(nullptr);
+    }
+    return resolvedSubtitleFont_;
 }
 
 void ContextMenu::registerAccelerators(WidgetContext& ctx) {
@@ -237,25 +356,36 @@ void ContextMenu::registerAccelerators(WidgetContext& ctx) {
     }
 }
 
+float ContextMenu::itemHeightFor(const ContextMenuItem& item) const noexcept {
+    if (item.isSeparator) {
+        return kSeparatorHeight * dpiScale_;
+    }
+    return (item.subtitle.empty() ? kItemHeight : kSubtitledItemHeight) * dpiScale_;
+}
+
 core::Size ContextMenu::preferredSize() const {
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
     float maxLabelW = 0.0f;
-    float maxShortcutW = 0.0f;
-    float totalH = kPaddingY * 2.0f;
+    float maxTrailingW = 0.0f;
+    float totalH = (kPaddingY * 2.0f) * scale;
     bool gutter = hasLeadingGutter();
     auto f = effectiveFont();
+    auto sf = subtitleFont();
 
     for (const auto& item : items_) {
         if (item.isSeparator) {
-            totalH += kSeparatorHeight;
+            totalH += kSeparatorHeight * scale;
             continue;
         }
-        totalH += kItemHeight;
+        totalH += itemHeightFor(item);
 
-        float lw = static_cast<float>(item.label.size()) * 7.0f;
-        float sw = item.shortcut.empty() ? 0.0f : static_cast<float>(item.shortcut.size()) * 6.5f;
-        if (item.type == MenuItemType::Submenu) {
-            sw = std::max(sw, 16.0f);
+        float lw = static_cast<float>(item.label.size()) * 7.0f * scale;
+        float sw = 0.0f;
+        float tw = 0.0f;
+        if (!item.shortcut.empty()) {
+            tw += static_cast<float>(item.shortcut.size()) * 6.5f * scale;
         }
+
         if (f) {
             if (!item.label.empty()) {
                 if (!item.cachedLabelLayout) {
@@ -267,23 +397,42 @@ core::Size ContextMenu::preferredSize() const {
                 if (!item.cachedShortcutLayout) {
                     item.cachedShortcutLayout = text::TextLayout::create(item.shortcut, f);
                 }
-                sw = item.cachedShortcutLayout->size().width;
+                tw = item.cachedShortcutLayout->size().width;
             }
         }
-        maxLabelW = std::max(maxLabelW, lw);
-        maxShortcutW = std::max(maxShortcutW, sw);
+        if (!item.subtitle.empty()) {
+            if (sf) {
+                if (!item.cachedSubtitleLayout) {
+                    item.cachedSubtitleLayout = text::TextLayout::create(item.subtitle, sf);
+                }
+                sw = item.cachedSubtitleLayout->size().width;
+            } else {
+                sw = static_cast<float>(item.subtitle.size()) * 6.0f * scale;
+            }
+        }
+
+        if (item.type == MenuItemType::Submenu) {
+            tw = (tw > 0.0f) ? (tw + 20.0f * scale) : (16.0f * scale);
+        } else if (iconPlacement_ == MenuIconPlacement::Trailing && item.icon &&
+                   item.icon->isValid()) {
+            float iconW = kIconSize * scale;
+            tw = (tw > 0.0f) ? (tw + 10.0f * scale + iconW) : iconW;
+        }
+
+        maxLabelW = std::max({maxLabelW, lw, sw});
+        maxTrailingW = std::max(maxTrailingW, tw);
     }
 
-    float contentW = kPadX * 2.0f + maxLabelW;
+    float contentW = (kPadX * 2.0f) * scale + maxLabelW;
     if (gutter) {
-        contentW += kGutterWidth;
+        contentW += kGutterWidth * scale;
     }
-    if (maxShortcutW > 0.0f) {
-        contentW += kShortcutGap + maxShortcutW;
+    if (maxTrailingW > 0.0f) {
+        contentW += kTrailingGap * scale + maxTrailingW;
     }
 
-    return core::Size{std::max(kMinWidth, contentW),
-                      std::max(kItemHeight + kPaddingY * 2.0f, totalH)};
+    return core::Size{std::max(kMinWidth * scale, contentW),
+                      std::max((kItemHeight + kPaddingY * 2.0f) * scale, totalH)};
 }
 
 ContextMenu* ContextMenu::showAt(WidgetContext& ctx, std::unique_ptr<ContextMenu> menu,
@@ -293,6 +442,10 @@ ContextMenu* ContextMenu::showAt(WidgetContext& ctx, std::unique_ptr<ContextMenu
     }
 
     ctx.dismissAllOverlays();
+
+    if (!menu->hasCustomDpiScale_) {
+        menu->applyDpiMetrics(ctx.dpiScale());
+    }
 
     core::Size pref = menu->preferredSize();
     menu->style().width = layout::Length::points(pref.width);
@@ -334,6 +487,8 @@ void ContextMenu::openSubmenu(int index) {
         return;
     }
 
+    child->setDpiScale(dpiScale_);
+    child->setIconPlacement(iconPlacement_);
     if (!child->font() && font_) {
         child->setFont(font_);
     }
@@ -343,13 +498,14 @@ void ContextMenu::openSubmenu(int index) {
     child->style().height = layout::Length::points(pref.height);
     child->layoutNode().setLayoutRect(core::Rect{core::Point{0.0f, 0.0f}, pref});
 
-    float rowY = kPaddingY;
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    float rowY = kPaddingY * scale;
     for (int i = 0; i < index; ++i) {
-        rowY += items_[i].isSeparator ? kSeparatorHeight : kItemHeight;
+        rowY += itemHeightFor(items_[i]);
     }
     core::Rect sRect = screenRect();
     core::Rect itemScreenRect{core::Point{sRect.origin.x, sRect.origin.y + rowY},
-                              core::Size{sRect.size.width, kItemHeight}};
+                              core::Size{sRect.size.width, itemHeightFor(items_[index])}};
 
     OverlayDesc desc{};
     desc.anchorRect = itemScreenRect;
@@ -357,7 +513,7 @@ void ContextMenu::openSubmenu(int index) {
     desc.autoFlip = true;
     desc.dismissOnOutsideClick = true;
     desc.dismissOnEscape = true;
-    desc.gap = -2.0f;
+    desc.gap = -2.0f * scale;
 
     if (context_) {
         ContextMenu* rawChild = child.get();
@@ -385,15 +541,46 @@ void ContextMenu::closeSubmenu() {
 }
 
 int ContextMenu::itemIndexAtY(float localY) const noexcept {
-    float y = kPaddingY;
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    float y = kPaddingY * scale;
     for (size_t i = 0; i < items_.size(); ++i) {
-        float rowH = items_[i].isSeparator ? kSeparatorHeight : kItemHeight;
+        float rowH = itemHeightFor(items_[i]);
         if (localY >= y && localY < y + rowH) {
             return static_cast<int>(i);
         }
         y += rowH;
     }
     return -1;
+}
+
+void ContextMenu::setHighlightedIndex(int nextHighlight, bool animated) {
+    if (highlightedIndex_ == nextHighlight) {
+        return;
+    }
+    highlightedIndex_ = nextHighlight;
+    bool startedAny = false;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        auto& item = items_[i];
+        bool isTarget =
+            (static_cast<int>(i) == highlightedIndex_) && !item.isSeparator && item.enabled;
+        float target = isTarget ? 1.0f : 0.0f;
+        if (animated) {
+            if (std::abs(item.hoverAnim.targetValue() - target) > 0.001f ||
+                (!item.hoverAnim.isRunning() &&
+                 std::abs(item.hoverAnim.currentValue() - target) > 0.001f)) {
+                item.hoverAnim.start(item.hoverAnim.currentValue(), target, kHoverAnimDuration,
+                                     core::animation::EasingCurve::OutCubic);
+                startedAny = true;
+            }
+        } else {
+            item.hoverAnim.stop();
+            item.hoverAnim.setCurrentValue(target);
+        }
+    }
+    if (startedAny && context_) {
+        context_->registerAnimatedWidget(this);
+    }
+    markPaintDirty();
 }
 
 void ContextMenu::moveHighlight(int delta) noexcept {
@@ -405,8 +592,7 @@ void ContextMenu::moveHighlight(int delta) noexcept {
     for (int step = 0; step < count; ++step) {
         int next = (start == -1) ? (delta > 0 ? 0 : count - 1) : (start + delta + count) % count;
         if (!items_[next].isSeparator && items_[next].enabled) {
-            highlightedIndex_ = next;
-            markPaintDirty();
+            setHighlightedIndex(next, false);
             return;
         }
         start = next;
@@ -434,6 +620,15 @@ void ContextMenu::activateItem(int index) {
     if (item.type == MenuItemType::Checkbox) {
         item.checked = !item.checked;
     } else if (item.type == MenuItemType::Radio) {
+        for (int i = index - 1;
+             i >= 0 && !items_[i].isSeparator && items_[i].type == MenuItemType::Radio; --i) {
+            items_[i].checked = false;
+        }
+        for (size_t i = static_cast<size_t>(index) + 1;
+             i < items_.size() && !items_[i].isSeparator && items_[i].type == MenuItemType::Radio;
+             ++i) {
+            items_[i].checked = false;
+        }
         item.checked = true;
     }
 
@@ -460,8 +655,7 @@ void ContextMenu::onMouseMove(WidgetMouseEvent& ev) {
         nextHighlight = idx;
     }
     if (highlightedIndex_ != nextHighlight) {
-        highlightedIndex_ = nextHighlight;
-        markPaintDirty();
+        setHighlightedIndex(nextHighlight, true);
 
         if (nextHighlight >= 0 && items_[nextHighlight].type == MenuItemType::Submenu) {
             if (activeSubmenuIndex_ != nextHighlight) {
@@ -485,23 +679,43 @@ void ContextMenu::onMouseMove(WidgetMouseEvent& ev) {
 void ContextMenu::onMouseLeave() {
     pendingSubmenuIndex_ = -1;
     submenuHoverTimer_ = 0.0f;
-    if (activeSubmenuIndex_ == -1 && highlightedIndex_ != -1) {
-        highlightedIndex_ = -1;
+    if (pressedIndex_ != -1) {
+        pressedIndex_ = -1;
         markPaintDirty();
+    }
+    if (activeSubmenuIndex_ == -1 && highlightedIndex_ != -1) {
+        setHighlightedIndex(-1, true);
     }
 }
 
 void ContextMenu::onMouseDown(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left) {
+    if (ev.isPrimaryButton()) {
+        int idx = itemIndexAtY(ev.position().y);
+        int nextPressed = -1;
+        if (idx >= 0 && idx < static_cast<int>(items_.size()) && !items_[idx].isSeparator &&
+            items_[idx].enabled) {
+            nextPressed = idx;
+        }
+        if (pressedIndex_ != nextPressed) {
+            pressedIndex_ = nextPressed;
+            markPaintDirty();
+        }
         ev.accept();
     }
 }
 
 void ContextMenu::onMouseUp(WidgetMouseEvent& ev) {
-    if (ev.button() == platform::MouseButton::Left) {
+    if (ev.isPrimaryButton()) {
         ev.accept();
         int idx = itemIndexAtY(ev.position().y);
-        activateItem(idx);
+        int pressed = pressedIndex_;
+        if (pressedIndex_ != -1) {
+            pressedIndex_ = -1;
+            markPaintDirty();
+        }
+        if (pressed >= 0 && idx == pressed) {
+            activateItem(idx);
+        }
     }
 }
 
@@ -539,8 +753,7 @@ void ContextMenu::onKeyDown(WidgetKeyEvent& ev) {
             p->closeSubmenu();
             if (p->context_) {
                 p->context_->setFocusedWidget(p, FocusReason::Keyboard);
-                p->highlightedIndex_ = pIdx;
-                p->markPaintDirty();
+                p->setHighlightedIndex(pIdx, false);
             }
             ev.accept();
             return;
@@ -558,8 +771,7 @@ void ContextMenu::onKeyDown(WidgetKeyEvent& ev) {
             p->closeSubmenu();
             if (p->context_) {
                 p->context_->setFocusedWidget(p, FocusReason::Keyboard);
-                p->highlightedIndex_ = pIdx;
-                p->markPaintDirty();
+                p->setHighlightedIndex(pIdx, false);
             }
             ev.accept();
             return;
@@ -578,8 +790,8 @@ void ContextMenu::onKeyDown(WidgetKeyEvent& ev) {
         return;
     }
     if (ev.key() == platform::Key::Enter || ev.key() == platform::Key::Space) {
-        ev.accept();
         if (highlightedIndex_ >= 0) {
+            ev.accept();
             activateItem(highlightedIndex_);
         }
         return;
@@ -587,6 +799,13 @@ void ContextMenu::onKeyDown(WidgetKeyEvent& ev) {
 }
 
 void ContextMenu::updateAnimations(float deltaSeconds) {
+    bool needsPaint = false;
+    for (auto& item : items_) {
+        if (item.hoverAnim.isRunning()) {
+            item.hoverAnim.update(deltaSeconds);
+            needsPaint = true;
+        }
+    }
     if (pendingSubmenuIndex_ != -1) {
         submenuHoverTimer_ += deltaSeconds;
         if (submenuHoverTimer_ >= kSubmenuDelay) {
@@ -594,13 +813,24 @@ void ContextMenu::updateAnimations(float deltaSeconds) {
             pendingSubmenuIndex_ = -1;
             submenuHoverTimer_ = 0.0f;
             openSubmenu(idx);
+            needsPaint = true;
         }
     }
-    markPaintDirty();
+    if (needsPaint) {
+        markPaintDirty();
+    }
 }
 
 bool ContextMenu::hasActiveAnimations() const noexcept {
-    return pendingSubmenuIndex_ != -1;
+    if (pendingSubmenuIndex_ != -1) {
+        return true;
+    }
+    for (const auto& item : items_) {
+        if (item.hoverAnim.isRunning()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void ContextMenu::paint(renderer::PaintContext& ctx) {
@@ -609,41 +839,58 @@ void ContextMenu::paint(renderer::PaintContext& ctx) {
         return;
     }
 
-    constexpr float kRadius = theme::Metrics::CornerRadiusControl;
-    float radii[4] = {kRadius, kRadius, kRadius, kRadius};
+    float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
+    float radius = theme::Metrics::CornerRadiusOverlay * scale;
+    float radii[4] = {radius, radius, radius, radius};
 
     const auto& pal = colorPalette();
-    ctx.drawBox(rect, pal.surfaceOverlay, pal.borderSubtle, theme::Metrics::BorderWidthHairline,
-                radii);
+    ctx.drawBox(rect, pal.surfaceOverlay, pal.borderSubtle,
+                theme::Metrics::BorderWidthHairline * scale, radii);
     ctx.pushClip(rect);
 
     bool gutter = hasLeadingGutter();
-    float rowY = rect.origin.y + kPaddingY;
+    float padX = kPadX * scale;
+    float sepH = kSeparatorHeight * scale;
+    float rowY = rect.origin.y + kPaddingY * scale;
+
+    auto f = effectiveFont();
+    auto sf = subtitleFont();
 
     for (size_t i = 0; i < items_.size(); ++i) {
         const auto& item = items_[i];
         if (item.isSeparator) {
-            float lineY = rowY + kSeparatorHeight * 0.5f;
-            ctx.drawLine(core::Point{rect.origin.x + 6.0f, lineY},
-                         core::Point{rect.origin.x + rect.size.width - 6.0f, lineY},
-                         pal.borderSubtle, theme::Metrics::BorderWidthHairline);
-            rowY += kSeparatorHeight;
+            float sepY = rowY + sepH * 0.5f;
+            ctx.drawLine(core::Point{rect.origin.x + padX, sepY},
+                         core::Point{rect.origin.x + rect.size.width - padX, sepY},
+                         pal.borderDefault, theme::Metrics::BorderWidthHairline * scale);
+            rowY += sepH;
             continue;
         }
 
-        core::Rect itemRect{core::Point{rect.origin.x + 3.0f, rowY},
-                            core::Size{std::max(0.0f, rect.size.width - 6.0f), kItemHeight}};
+        float itemH = itemHeightFor(item);
+        float pillInsetX = kPillInsetX * scale;
+        float pillInsetY = kPillInsetY * scale;
+        core::Rect itemRect{core::Point{rect.origin.x + pillInsetX, rowY + pillInsetY},
+                            core::Size{std::max(0.0f, rect.size.width - pillInsetX * 2.0f),
+                                       std::max(0.0f, itemH - pillInsetY * 2.0f)}};
 
         bool isHighlighted = (static_cast<int>(i) == highlightedIndex_) && item.enabled;
-        if (isHighlighted) {
-            float itemRadii[4] = {4.0f, 4.0f, 4.0f, 4.0f};
-            core::Color highlightBg =
-                item.isDestructive ? pal.danger.withAlpha(0.12f) : pal.surfaceRaised;
-            ctx.drawRoundedRect(itemRect, highlightBg, itemRadii);
+        bool isPressed = isHighlighted && (static_cast<int>(i) == pressedIndex_);
+        float ht = std::clamp(item.hoverAnim.currentValue(), 0.0f, 1.0f);
+        if (item.enabled && (isPressed || ht > 0.001f)) {
+            float itemRadius =
+                theme::resolveConcentricRadius(theme::Metrics::CornerRadiusOverlay, kPillInsetX) *
+                scale;
+            float itemRadii[4] = {itemRadius, itemRadius, itemRadius, itemRadius};
+            float alpha = isPressed ? 0.85f : (0.55f * ht);
+            core::Color pillColor = item.isDestructive
+                                        ? pal.danger.withAlpha(isPressed ? 0.24f : (0.14f * ht))
+                                        : pal.surfaceRaised.withAlpha(alpha);
+            ctx.drawRoundedRect(itemRect, pillColor, itemRadii);
         }
 
-        float centerY = itemRect.origin.y + kItemHeight * 0.5f;
-        float contentStartX = rect.origin.x + kPadX;
+        float centerY = rowY + itemH * 0.5f;
+        float contentStartX = rect.origin.x + padX;
 
         core::Color itemCol;
         if (!item.enabled) {
@@ -653,68 +900,107 @@ void ContextMenu::paint(renderer::PaintContext& ctx) {
         } else {
             itemCol = pal.textPrimary;
         }
+        core::Color checkCol = item.enabled ? pal.accentDefault : pal.textDisabled;
 
-        // Gutter rendering (Checkbox checkmark, Radio dot, or Vector icon)
         if (gutter) {
-            float indicatorCenterX = contentStartX + 8.0f;
+            float indicatorCenterX = contentStartX + 8.0f * scale;
             float indicatorCenterY = centerY;
 
             if (item.type == MenuItemType::Checkbox && item.checked) {
-                core::Point p0{indicatorCenterX - 4.5f, indicatorCenterY};
-                core::Point p1{indicatorCenterX - 1.5f, indicatorCenterY + 3.5f};
-                core::Point p2{indicatorCenterX + 4.5f, indicatorCenterY - 3.5f};
-                ctx.drawLine(p0, p1, itemCol, 1.5f);
-                ctx.drawLine(p1, p2, itemCol, 1.5f);
+                core::Point p0{indicatorCenterX - 4.5f * scale, indicatorCenterY};
+                core::Point p1{indicatorCenterX - 1.5f * scale, indicatorCenterY + 3.5f * scale};
+                core::Point p2{indicatorCenterX + 4.5f * scale, indicatorCenterY - 3.5f * scale};
+                ctx.drawLine(p0, p1, checkCol, 1.5f * scale);
+                ctx.drawLine(p1, p2, checkCol, 1.5f * scale);
             } else if (item.type == MenuItemType::Radio && item.checked) {
-                float dotRadius = 3.0f;
+                float dotRadius = 3.0f * scale;
                 float dotRadii[4] = {dotRadius, dotRadius, dotRadius, dotRadius};
                 ctx.drawRoundedRect(
                     core::Rect{{indicatorCenterX - dotRadius, indicatorCenterY - dotRadius},
                                {dotRadius * 2.0f, dotRadius * 2.0f}},
-                    itemCol, dotRadii);
-            } else if (item.icon && item.icon->isValid()) {
-                float iconX = indicatorCenterX - kIconSize * 0.5f;
-                float iconY = indicatorCenterY - kIconSize * 0.5f;
-                ctx.drawSvg(*item.icon, core::Rect{{iconX, iconY}, {kIconSize, kIconSize}},
-                            itemCol);
+                    checkCol, dotRadii);
+            } else if (iconPlacement_ == MenuIconPlacement::Leading && item.icon &&
+                       item.icon->isValid()) {
+                float iconSize = kIconSize * scale;
+                float iconX = indicatorCenterX - iconSize * 0.5f;
+                float iconY = indicatorCenterY - iconSize * 0.5f;
+                ctx.drawSvg(*item.icon, core::Rect{{iconX, iconY}, {iconSize, iconSize}}, itemCol);
             }
 
-            contentStartX += kGutterWidth;
+            contentStartX += kGutterWidth * scale;
         }
 
-        auto f = effectiveFont();
-        if (f) {
-            float textY = theme::computeCenteredTextY(centerY, *f);
+        float rightEdgeX = rect.origin.x + rect.size.width - padX;
+        if (item.type == MenuItemType::Submenu) {
+            float chevX = rightEdgeX - 4.0f * scale;
+            float chevY = centerY;
+            ctx.drawLine(core::Point{chevX - 3.0f * scale, chevY - 4.0f * scale},
+                         core::Point{chevX + 1.0f * scale, chevY}, itemCol, 1.5f * scale);
+            ctx.drawLine(core::Point{chevX + 1.0f * scale, chevY},
+                         core::Point{chevX - 3.0f * scale, chevY + 4.0f * scale}, itemCol,
+                         1.5f * scale);
+            rightEdgeX -= 16.0f * scale;
+        } else if (iconPlacement_ == MenuIconPlacement::Trailing && item.icon &&
+                   item.icon->isValid()) {
+            float iconSize = kIconSize * scale;
+            float iconX = rightEdgeX - iconSize;
+            float iconY = centerY - iconSize * 0.5f;
+            ctx.drawSvg(*item.icon, core::Rect{{iconX, iconY}, {iconSize, iconSize}}, itemCol);
+            rightEdgeX -= (iconSize + 10.0f * scale);
+        }
 
+        if (f) {
             if (!item.label.empty()) {
                 if (!item.cachedLabelLayout) {
                     item.cachedLabelLayout = text::TextLayout::create(item.label, f);
                 }
-                ctx.drawTextLayout(core::Point{contentStartX, textY}, *item.cachedLabelLayout,
-                                   itemCol);
+
+                if (item.subtitle.empty()) {
+                    float textY = theme::computeCenteredTextY(centerY, *f);
+                    ctx.drawTextLayout(core::Point{contentStartX, textY}, *item.cachedLabelLayout,
+                                       itemCol);
+                } else {
+                    float labelH = item.cachedLabelLayout->size().height;
+                    float gap = 2.0f * scale;
+                    float subH = 0.0f;
+                    if (sf) {
+                        if (!item.cachedSubtitleLayout) {
+                            item.cachedSubtitleLayout = text::TextLayout::create(item.subtitle, sf);
+                        }
+                        subH = item.cachedSubtitleLayout->size().height;
+                    }
+                    float stackTop = rowY + (itemH - (labelH + gap + subH)) * 0.5f;
+                    ctx.drawTextLayout(core::Point{contentStartX, stackTop},
+                                       *item.cachedLabelLayout, itemCol);
+                    if (sf && item.cachedSubtitleLayout) {
+                        core::Color subCol = item.enabled ? pal.textSecondary : pal.textDisabled;
+                        ctx.drawTextLayout(core::Point{contentStartX, stackTop + labelH + gap},
+                                           *item.cachedSubtitleLayout, subCol);
+                    }
+                }
             }
 
             if (!item.shortcut.empty()) {
                 if (!item.cachedShortcutLayout) {
                     item.cachedShortcutLayout = text::TextLayout::create(item.shortcut, f);
                 }
-                float scX = rect.origin.x + rect.size.width - kPadX -
-                            item.cachedShortcutLayout->size().width;
+                float scX = rightEdgeX - item.cachedShortcutLayout->size().width;
+                float scY = theme::computeCenteredTextY(centerY, *f);
                 core::Color scCol = (item.enabled ? pal.textTertiary : pal.textDisabled);
-                ctx.drawTextLayout(core::Point{scX, textY}, *item.cachedShortcutLayout, scCol);
+                ctx.drawTextLayout(core::Point{scX, scY}, *item.cachedShortcutLayout, scCol);
             }
         }
 
-        if (item.type == MenuItemType::Submenu) {
-            float chevX = rect.origin.x + rect.size.width - kPadX - 4.0f;
-            float chevY = centerY;
-            ctx.drawLine(core::Point{chevX - 3.0f, chevY - 4.0f}, core::Point{chevX + 1.0f, chevY},
-                         itemCol, 1.5f);
-            ctx.drawLine(core::Point{chevX + 1.0f, chevY}, core::Point{chevX - 3.0f, chevY + 4.0f},
-                         itemCol, 1.5f);
+        if (i + 1 < items_.size() && !items_[i + 1].isSeparator &&
+            static_cast<int>(i) != highlightedIndex_ &&
+            static_cast<int>(i + 1) != highlightedIndex_) {
+            float divY = rowY + itemH;
+            ctx.drawLine(core::Point{rect.origin.x + padX, divY},
+                         core::Point{rect.origin.x + rect.size.width - padX, divY},
+                         pal.borderSubtle, theme::Metrics::BorderWidthHairline * scale);
         }
 
-        rowY += kItemHeight;
+        rowY += itemH;
     }
 
     ctx.popClip();

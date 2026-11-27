@@ -74,6 +74,8 @@ core::Color Container::effectiveBorderColor() const noexcept {
         return pal.borderSubtle;
     case BorderRole::Default:
         return pal.borderDefault;
+    case BorderRole::Strong:
+        return pal.borderStrong;
     case BorderRole::None:
         return core::Color::transparent();
     }
@@ -91,7 +93,7 @@ float Container::effectiveBorderWidth() const noexcept {
         return borderWidth_;
     }
     if (borderRole_ != BorderRole::None) {
-        return theme::Metrics::BorderWidthHairline;
+        return theme::Metrics::BorderWidthHairline * contextDpiScale();
     }
     return 0.0f;
 }
@@ -220,9 +222,9 @@ core::Color Container::targetInteractiveBg() const noexcept {
 
     if (isPressed_) {
         if (hasCustomBg_) {
-            return baseBg.lerp(
-                pal.mode == theme::ThemeMode::Dark ? core::Color::white() : core::Color::black(),
-                0.12f);
+            return baseBg.lerp(pal.mode == theme::ThemeMode::Dark ? core::Color::white()
+                                                                  : core::Color::black(),
+                               0.12f);
         }
         switch (surfaceRole_) {
         case SurfaceRole::Canvas:
@@ -230,19 +232,17 @@ core::Color Container::targetInteractiveBg() const noexcept {
         case SurfaceRole::Default:
             return pal.surfaceOverlay;
         case SurfaceRole::Raised:
-            return pal.mode == theme::ThemeMode::Dark ? core::Color{0.24f, 0.24f, 0.27f, 1.0f}
-                                                      : core::Color{0.88f, 0.88f, 0.90f, 1.0f};
+            return pal.surfaceRaised.lerp(pal.textPrimary, 0.10f);
         case SurfaceRole::Overlay:
-            return pal.mode == theme::ThemeMode::Dark ? core::Color{0.27f, 0.27f, 0.30f, 1.0f}
-                                                      : core::Color{0.91f, 0.91f, 0.93f, 1.0f};
+            return pal.surfaceOverlay.lerp(pal.textPrimary, 0.10f);
         case SurfaceRole::None:
             return pal.surfaceRaised;
         }
     } else if (isHovered_) {
         if (hasCustomBg_) {
-            return baseBg.lerp(
-                pal.mode == theme::ThemeMode::Dark ? core::Color::white() : core::Color::black(),
-                0.06f);
+            return baseBg.lerp(pal.mode == theme::ThemeMode::Dark ? core::Color::white()
+                                                                  : core::Color::black(),
+                               0.06f);
         }
         switch (surfaceRole_) {
         case SurfaceRole::Canvas:
@@ -252,8 +252,7 @@ core::Color Container::targetInteractiveBg() const noexcept {
         case SurfaceRole::Raised:
             return pal.surfaceOverlay;
         case SurfaceRole::Overlay:
-            return pal.mode == theme::ThemeMode::Dark ? core::Color{0.24f, 0.24f, 0.27f, 1.0f}
-                                                      : core::Color{0.94f, 0.94f, 0.95f, 1.0f};
+            return pal.surfaceOverlay.lerp(pal.textPrimary, 0.05f);
         case SurfaceRole::None:
             return pal.surfaceDefault;
         }
@@ -272,27 +271,29 @@ core::Color Container::targetInteractiveBorder() const noexcept {
 
     if (isPressed_) {
         if (hasCustomBorder_) {
-            return baseBorder.lerp(
-                pal.mode == theme::ThemeMode::Dark ? core::Color::white() : core::Color::black(),
-                0.15f);
+            return baseBorder.lerp(pal.mode == theme::ThemeMode::Dark ? core::Color::white()
+                                                                      : core::Color::black(),
+                                   0.15f);
         }
         switch (borderRole_) {
         case BorderRole::Subtle:
         case BorderRole::Default:
+        case BorderRole::Strong:
             return pal.borderStrong;
         case BorderRole::None:
             return core::Color::transparent();
         }
     } else if (isHovered_) {
         if (hasCustomBorder_) {
-            return baseBorder.lerp(
-                pal.mode == theme::ThemeMode::Dark ? core::Color::white() : core::Color::black(),
-                0.10f);
+            return baseBorder.lerp(pal.mode == theme::ThemeMode::Dark ? core::Color::white()
+                                                                      : core::Color::black(),
+                                   0.10f);
         }
         switch (borderRole_) {
         case BorderRole::Subtle:
             return pal.borderDefault;
         case BorderRole::Default:
+        case BorderRole::Strong:
             return pal.borderStrong;
         case BorderRole::None:
             return core::Color::transparent();
@@ -325,6 +326,31 @@ void Container::updateInteractiveTargetColors(bool animated) {
     markPaintDirty();
 }
 
+void Container::onContextAttached() {
+    if (isInteractive_) {
+        updateInteractiveTargetColors(false);
+    }
+    markPaintDirty();
+}
+
+void Container::onThemeChanged() {
+    if (isInteractive_) {
+        updateInteractiveTargetColors(false);
+    }
+    markPaintDirty();
+}
+
+void Container::onFocusLost() {
+    if (context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    if (isInteractive_ && isPressed_) {
+        isPressed_ = false;
+        updateInteractiveTargetColors(isEnabled());
+    }
+    Widget::onFocusLost();
+}
+
 void Container::onMouseEnter() {
     if (!isInteractive_ || !isEnabled()) {
         return;
@@ -334,11 +360,17 @@ void Container::onMouseEnter() {
 }
 
 void Container::onMouseLeave() {
-    if (!isInteractive_ || !isEnabled()) {
+    if (context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
+    if (!isInteractive_) {
         return;
     }
-    isHovered_ = false;
-    updateInteractiveTargetColors(true);
+    if (isHovered_ || isPressed_) {
+        isHovered_ = false;
+        isPressed_ = false;
+        updateInteractiveTargetColors(isEnabled());
+    }
 }
 
 void Container::onMouseMove(WidgetMouseEvent& ev) {
@@ -361,19 +393,30 @@ void Container::onMouseDown(WidgetMouseEvent& ev) {
     if (!isInteractive_ || !isEnabled()) {
         return;
     }
-    if (ev.button() == platform::MouseButton::Left) {
+    if (ev.isPrimaryButton()) {
         isPressed_ = true;
         isHovered_ = true;
+        setFocus(FocusReason::Pointer);
+        if (context_) {
+            context_->setMouseGrabWidget(this);
+        }
         ev.accept();
         updateInteractiveTargetColors(true);
     }
 }
 
 void Container::onMouseUp(WidgetMouseEvent& ev) {
+    if (context_ && context_->mouseGrabWidget() == this) {
+        context_->releaseMouseGrab();
+    }
     if (!isInteractive_ || !isEnabled()) {
+        if (isPressed_) {
+            isPressed_ = false;
+            updateInteractiveTargetColors(false);
+        }
         return;
     }
-    if (ev.button() == platform::MouseButton::Left && isPressed_) {
+    if (ev.isPrimaryButton() && isPressed_) {
         core::Rect rect = layoutRect();
         bool inside = ev.position().x >= 0.0f && ev.position().x <= rect.size.width &&
                       ev.position().y >= 0.0f && ev.position().y <= rect.size.height;
@@ -428,11 +471,11 @@ void Container::paint(renderer::PaintContext& ctx) {
             ctx.drawRect(rect, bg);
         }
     } else if (hasBorder) {
-        ctx.drawBorder(rect, border, bWidth, cornerRadii_[0]);
+        ctx.drawBox(rect, core::Color::transparent(), border, bWidth, cornerRadii_);
     }
 
     if (isInteractive_ && hasKeyboardFocus() && isEnabled()) {
-        theme::paintFocusRing(ctx, rect, cornerRadii_[0]);
+        paintFocusRing(ctx, rect, cornerRadii_[0]);
     }
 }
 

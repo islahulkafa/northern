@@ -275,9 +275,13 @@ add_library(northern_widgets STATIC
     widgets/views/tree_view.hpp
     widgets/views/tree_view.cpp
 
-    # Window Shell
+    # Window Shell & Dialogs
     widgets/dialogs/title_bar.hpp
     widgets/dialogs/title_bar.cpp
+    widgets/dialogs/dialog.hpp
+    widgets/dialogs/dialog.cpp
+    widgets/dialogs/message_box.hpp
+    widgets/dialogs/message_box.cpp
 )
 target_include_directories(northern_widgets PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

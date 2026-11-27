@@ -58,6 +58,7 @@ public:
     [[nodiscard]] SwitchRole role() const noexcept { return role_; }
 
     void setSize(SwitchSize size) noexcept;
+    [[nodiscard]] SwitchSize size() const noexcept { return size_; }
     void setDpiScale(float scale);
     [[nodiscard]] float dpiScale() const noexcept { return dpiScale_; }
 
@@ -86,6 +87,11 @@ public:
     void onMouseDown(WidgetMouseEvent& ev) override;
     void onMouseUp(WidgetMouseEvent& ev) override;
     void onKeyDown(WidgetKeyEvent& ev) override;
+    void onFocusGained() override;
+    void onFocusLost() override;
+    void onContextAttached() override;
+    void onThemeChanged() override;
+    void onEnabledChanged() override;
 
     void updateAnimations(float deltaSeconds) override;
     [[nodiscard]] bool hasActiveAnimations() const noexcept override;
@@ -93,6 +99,8 @@ public:
     void paint(renderer::PaintContext& ctx) override;
 
 private:
+    void applyDpiScale(float scale);
+    void cancelActiveInteraction();
     void ensureTextLayout() const;
 
     std::string text_{};
@@ -101,16 +109,21 @@ private:
     float dpiScale_{1.0f};
 
     SwitchRole role_{SwitchRole::Accent};
+    SwitchSize size_{SwitchSize::Standard};
     SwitchLabelPlacement labelPlacement_{SwitchLabelPlacement::Trailing};
 
     bool isChecked_{false};
     bool isHovered_{false};
     bool isPressed_{false};
+    bool hasCustomDpiScale_{false};
+    bool hasCustomTrackSize_{false};
 
     core::animation::PropertyAnimation<float> thumbAnim_{0.0f};
     core::animation::PropertyAnimation<float> hoverAnim_{0.0f};
     core::animation::PropertyAnimation<float> pressAnim_{0.0f};
 
+    float baseTrackWidth_{36.0f};
+    float baseTrackHeight_{20.0f};
     float trackWidth_{36.0f};
     float trackHeight_{20.0f};
     float thumbDiameter_{16.0f};
