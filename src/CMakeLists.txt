@@ -184,6 +184,8 @@ add_library(northern_renderer STATIC
     renderer/dynamic_ring_buffer.cpp
     renderer/batch_renderer.hpp
     renderer/batch_renderer.cpp
+    renderer/image/image.hpp
+    renderer/image/image.cpp
     renderer/svg/nanosvg.h
     renderer/svg/svg_document.hpp
     renderer/svg/svg_document.cpp
@@ -201,6 +203,8 @@ target_link_libraries(northern_renderer
         northern_text
     PRIVATE
         northern_warnings
+        $<$<PLATFORM_ID:Windows>:windowscodecs>
+        $<$<PLATFORM_ID:Windows>:ole32>
 )
 
 add_library(northern_widgets STATIC
@@ -230,6 +234,8 @@ add_library(northern_widgets STATIC
     widgets/controls/slider.cpp
     widgets/controls/text_input.hpp
     widgets/controls/text_input.cpp
+    widgets/controls/text_area.hpp
+    widgets/controls/text_area.cpp
     widgets/controls/progress_bar.hpp
     widgets/controls/progress_bar.cpp
     widgets/controls/divider.hpp
@@ -240,6 +246,12 @@ add_library(northern_widgets STATIC
     widgets/controls/icons.cpp
     widgets/controls/tooltip.hpp
     widgets/controls/tooltip.cpp
+    widgets/controls/image_view.hpp
+    widgets/controls/image_view.cpp
+    widgets/controls/avatar.hpp
+    widgets/controls/avatar.cpp
+    widgets/controls/badge.hpp
+    widgets/controls/badge.cpp
 
     # Containers
     widgets/containers/container.hpp

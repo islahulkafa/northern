@@ -45,7 +45,7 @@ MessageBox::MessageBox(std::string title, std::string message, MessageBoxIcon ic
     iconWidget_ = static_cast<Icon*>(row->addChild(std::move(icon)));
 
     auto lbl = std::make_unique<Label>(
-        message_, text::FontManager::instance().defaultFont(10.5f * dpiScale()).valueOr(nullptr));
+        message_, text::FontManager::instance().defaultFont(14.0f * dpiScale()).valueOr(nullptr));
     lbl->setRole(theme::TextRole::Secondary);
     lbl->setWordWrap(text::WordWrap::Word);
     lbl->setVerticalAlignment(VerticalAlignment::Top);
@@ -100,7 +100,7 @@ void MessageBox::onDpiScaleChanged(float scale) {
         messageLabel_->setDpiScale(scale);
         if (!font()) {
             messageLabel_->setFont(
-                text::FontManager::instance().defaultFont(10.5f * scale).valueOr(nullptr));
+                text::FontManager::instance().defaultFont(14.0f * scale).valueOr(nullptr));
         }
     }
 }
@@ -111,7 +111,7 @@ void MessageBox::onFontChanged(const std::shared_ptr<text::Font>& newFont) {
             messageLabel_->setFont(newFont);
         } else {
             messageLabel_->setFont(
-                text::FontManager::instance().defaultFont(10.5f * dpiScale()).valueOr(nullptr));
+                text::FontManager::instance().defaultFont(14.0f * dpiScale()).valueOr(nullptr));
         }
     }
 }

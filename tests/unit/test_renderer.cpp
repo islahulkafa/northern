@@ -1,10 +1,14 @@
 #include "../../shaders/sdf_shaders.hpp"
 #include "graphics/device.hpp"
+#include "graphics/mock/mock_device.hpp"
 #include "renderer/batch_renderer.hpp"
 #include "renderer/draw_command.hpp"
 #include "renderer/dynamic_ring_buffer.hpp"
+#include "renderer/image/image.hpp"
 #include "renderer/paint_context.hpp"
+#include "renderer/svg/svg_document.hpp"
 #include "renderer/vertex_2d.hpp"
+#include "text/font_manager.hpp"
 #include <gtest/gtest.h>
 
 TEST(RendererTest, Vertex2DLayoutAndAlignment) {
@@ -288,4 +292,110 @@ TEST(RendererTest, SvgAnalyticalAtlasCachingAndBatchCoalescing) {
     cmd->end();
     renderer->end();
     device->destroyTexture(targetTex);
+}
+
+TEST(RendererTest, BatchRendererSeparateMaskAndDualSrcTextBatches) {
+    using namespace northern;
+    using namespace northern::graphics;
+    using namespace northern::renderer;
+    using namespace northern::text;
+
+    auto dev = MockDevice::create();
+    dev->setDualSourceBlendingSupported(true);
+
+    auto rendRes = BatchRenderer::create(*dev, Format::B8G8R8A8_Unorm);
+    ASSERT_TRUE(rendRes.isOk());
+    auto renderer = std::move(rendRes.value());
+    EXPECT_TRUE(renderer->isDualSourceTextEnabled());
+    ASSERT_NE(renderer->glyphAtlas(), nullptr);
+    ASSERT_NE(renderer->maskAtlas(), nullptr);
+    EXPECT_EQ(renderer->glyphAtlas()->renderMode(), GlyphRenderMode::LcdRgb);
+    EXPECT_EQ(renderer->maskAtlas()->renderMode(), GlyphRenderMode::Grayscale);
+
+    auto fontRes = FontManager::instance().defaultFont(13.0f);
+    ASSERT_TRUE(fontRes.isOk());
+    auto svgRes = SvgDocument::fromString(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" "
+        "stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"9\"/></svg>");
+    ASSERT_TRUE(svgRes.isOk());
+
+    PaintContext ctx;
+    ctx.drawText({10.0f, 20.0f}, "Hi", fontRes.value(), core::Color::white());
+    ctx.drawSvg(*svgRes.value(), {{40.0f, 10.0f}, {16.0f, 16.0f}}, core::Color::white());
+
+    auto cmdRes = dev->createCommandBuffer();
+    ASSERT_TRUE(cmdRes.isOk());
+    auto cmd = std::move(cmdRes.value());
+
+    renderer->begin({200.0f, 100.0f}, 0);
+    cmd->begin();
+    renderer->render(ctx, *cmd);
+    cmd->end();
+    renderer->end();
+
+    ASSERT_EQ(renderer->batchCount(), 2u);
+    EXPECT_EQ(renderer->batches()[0].type, BatchType::Text);
+    EXPECT_EQ(renderer->batches()[1].type, BatchType::Mask);
+    EXPECT_NE(renderer->batches()[0].texture, renderer->batches()[1].texture);
+}
+
+TEST(RendererTest, BatchRendererImageUploadBatchingAndWeakPtrEviction) {
+    using namespace northern;
+    using namespace northern::graphics;
+    using namespace northern::renderer;
+
+    auto dev = MockDevice::create();
+    auto rendRes = BatchRenderer::create(*dev, Format::B8G8R8A8_Unorm);
+    ASSERT_TRUE(rendRes.isOk());
+    auto renderer = std::move(rendRes.value());
+
+    std::vector<uint8_t> px1(16 * 16 * 4, 255); // 1024 bytes
+    std::vector<uint8_t> px2(16 * 16 * 4, 128); // 1024 bytes
+    auto img1 = Image::fromPixels(16, 16, px1).value();
+    auto img2 = Image::fromPixels(16, 16, px2).value();
+
+    // Limit cache budget to 1500 bytes so LRU evicts img1 when img2 is uploaded on next frame
+    renderer->setImageCacheBudgetBytes(1500);
+
+    auto cmdRes = dev->createCommandBuffer();
+    ASSERT_TRUE(cmdRes.isOk());
+    auto cmd = std::move(cmdRes.value());
+
+    PaintContext ctx1;
+    ctx1.drawImage(*img1, {{0.0f, 0.0f}, {32.0f, 32.0f}}, 6.0f);
+    ctx1.drawImage(*img1, {{40.0f, 0.0f}, {32.0f, 32.0f}}, 6.0f);
+
+    renderer->begin({200.0f, 100.0f}, 0);
+    cmd->begin();
+    renderer->render(ctx1, *cmd);
+    cmd->end();
+    renderer->end();
+
+    ASSERT_EQ(renderer->batchCount(), 1u);
+    EXPECT_EQ(renderer->batches()[0].type, BatchType::Image);
+    EXPECT_EQ(renderer->cachedImageCount(), 1u);
+    EXPECT_EQ(renderer->cachedImageBytes(), 1024u);
+
+    // Frame 2: draw img2, pushing cache over 1500 bytes, then frame 3 prunes LRU img1
+    PaintContext ctx2;
+    ctx2.drawImage(*img2, {{0.0f, 0.0f}, {32.0f, 32.0f}});
+    renderer->begin({200.0f, 100.0f}, 1);
+    cmd->begin();
+    renderer->render(ctx2, *cmd);
+    cmd->end();
+    renderer->end();
+    EXPECT_EQ(renderer->cachedImageCount(), 2u);
+
+    renderer->begin({200.0f, 100.0f}, 2);
+    EXPECT_EQ(renderer->cachedImageCount(), 1u);
+    EXPECT_EQ(renderer->cachedImageBytes(), 1024u);
+    renderer->end();
+
+    // Releasing img2 (and clearing ctx2) causes automatic weak_ptr eviction on next begin()
+    ctx2.clear();
+    img2.reset();
+    renderer->begin({200.0f, 100.0f}, 0);
+    EXPECT_EQ(renderer->cachedImageCount(), 0u);
+    EXPECT_EQ(renderer->cachedImageBytes(), 0u);
+    renderer->end();
 }

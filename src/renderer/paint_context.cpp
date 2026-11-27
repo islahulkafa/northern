@@ -1,4 +1,5 @@
 #include "renderer/paint_context.hpp"
+#include "renderer/image/image.hpp"
 #include "renderer/svg/svg_document.hpp"
 
 namespace northern::renderer {
@@ -84,6 +85,37 @@ void PaintContext::drawSvg(const SvgDocument& doc, const core::Rect& bounds,
     cmd.docImpl = doc.impl();
     cmd.bounds = bounds;
     cmd.tintColor = tintColor;
+    commands_.push_back(std::move(cmd));
+}
+
+void PaintContext::drawImage(const Image& image, const core::Rect& rect, float cornerRadius,
+                             const core::Color& tintColor, graphics::Filter filter) {
+    float radii[4]{cornerRadius, cornerRadius, cornerRadius, cornerRadius};
+    drawImage(image, rect, core::Rect{0.0f, 0.0f, 1.0f, 1.0f}, radii,
+              core::Color{0.0f, 0.0f, 0.0f, 0.0f}, 0.0f, tintColor, filter);
+}
+
+void PaintContext::drawImage(const Image& image, const core::Rect& rect, const core::Rect& uvRect,
+                             const float radii[4], const core::Color& borderColor,
+                             float borderWidth, const core::Color& tintColor,
+                             graphics::Filter filter) {
+    if (!image.isValid() || rect.size.width <= 0.0f || rect.size.height <= 0.0f) {
+        return;
+    }
+    DrawImageCommand cmd{};
+    cmd.imageImpl = image.sharedImpl();
+    cmd.rect = rect;
+    cmd.uvRect = uvRect;
+    cmd.tintColor = tintColor;
+    cmd.borderColor = borderColor;
+    cmd.borderWidth = borderWidth;
+    if (radii) {
+        cmd.cornerRadii[0] = radii[0];
+        cmd.cornerRadii[1] = radii[1];
+        cmd.cornerRadii[2] = radii[2];
+        cmd.cornerRadii[3] = radii[3];
+    }
+    cmd.filter = filter;
     commands_.push_back(std::move(cmd));
 }
 

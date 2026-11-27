@@ -155,7 +155,7 @@ TEST(ProgressBarTest, ContextDpiAdoptionAndCustomBarHeightPreservation) {
     EXPECT_FLOAT_EQ(bar->dpiScale(), 1.5f);
     EXPECT_FLOAT_EQ(bar->barHeight(), 9.0f);
     ASSERT_NE(bar->effectiveFont(), nullptr);
-    EXPECT_FLOAT_EQ(bar->effectiveFont()->pointSize(), 18.0f);
+    EXPECT_FLOAT_EQ(bar->effectiveFont()->pixelSize(), 18.0f);
 
     // Explicit barHeight survives DPI changes
     ProgressBar custom(ProgressSize::Thin);

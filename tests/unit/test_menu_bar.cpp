@@ -385,7 +385,7 @@ TEST(MenuBarTest, HoverOpenPillAlphasFocusRingAndMenuFont) {
     ctx.advanceAnimations(0.20f);
     EXPECT_EQ(fileMenu->font(), nullptr);
     ASSERT_NE(fileMenu->effectiveFont(), nullptr);
-    EXPECT_FLOAT_EQ(fileMenu->effectiveFont()->pointSize(), 11.0f);
+    EXPECT_FLOAT_EQ(fileMenu->effectiveFont()->pixelSize(), 13.5f);
 
     renderer::PaintContext openPaint;
     barPtr->paint(openPaint);

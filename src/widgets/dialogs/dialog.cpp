@@ -74,7 +74,7 @@ Dialog::Dialog(std::string title, std::shared_ptr<text::Font> font)
     header->style().width = layout::Length::percent(100.0f);
 
     auto titleLbl = std::make_unique<Label>(
-        title_, text::FontManager::instance().boldFont(13.5f * dpiScale_).valueOr(nullptr));
+        title_, text::FontManager::instance().semiBoldFont(16.0f * dpiScale_).valueOr(nullptr));
     titleLbl->setRole(theme::TextRole::Primary);
     titleLbl->style().flexGrow = 1.0f;
     titleLbl->style().flexShrink = 1.0f;
@@ -224,8 +224,8 @@ std::shared_ptr<text::Font> Dialog::effectiveFont() const {
         return font_;
     }
     if (!resolvedDefaultFont_) {
-        float pt = 11.0f * dpiScale_;
-        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+        float px = 14.0f * dpiScale_;
+        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(px).valueOr(nullptr);
     }
     return resolvedDefaultFont_;
 }
@@ -398,7 +398,7 @@ void Dialog::applyMetrics() {
         titleLabel_->setDpiScale(scale);
         if (!font_) {
             titleLabel_->setFont(
-                text::FontManager::instance().boldFont(13.5f * scale).valueOr(nullptr));
+                text::FontManager::instance().semiBoldFont(16.0f * scale).valueOr(nullptr));
         }
     }
     if (closeButton_) {

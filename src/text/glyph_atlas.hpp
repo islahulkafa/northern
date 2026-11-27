@@ -24,7 +24,8 @@ struct CachedGlyph {
 class GlyphAtlas {
 public:
     static core::Result<std::unique_ptr<GlyphAtlas>, core::Error>
-    create(graphics::Device& device, uint32_t width = 1024, uint32_t height = 1024);
+    create(graphics::Device& device, uint32_t width = 1024, uint32_t height = 1024,
+           GlyphRenderMode mode = GlyphRenderMode::Grayscale);
 
     ~GlyphAtlas();
 
@@ -34,7 +35,7 @@ public:
     GlyphAtlas& operator=(GlyphAtlas&&) = delete;
 
     core::Result<CachedGlyph, core::Error> getOrInsert(const Font& font, uint32_t glyphId,
-                                                       uint8_t subpixelBin = 0);
+                                                       uint8_t subpixelBin = 0, bool useLcd = true);
 
     [[nodiscard]] std::optional<CachedGlyph> findCustomMask(uint64_t maskKey) const;
     core::Result<CachedGlyph, core::Error> insertCustomMask(uint64_t maskKey, uint32_t width,
@@ -47,15 +48,18 @@ public:
     [[nodiscard]] graphics::TextureHandle texture() const noexcept { return texture_; }
     [[nodiscard]] uint32_t width() const noexcept { return width_; }
     [[nodiscard]] uint32_t height() const noexcept { return height_; }
+    [[nodiscard]] GlyphRenderMode renderMode() const noexcept { return mode_; }
 
 private:
     GlyphAtlas(graphics::Device& device, graphics::TextureHandle texture, uint32_t width,
-               uint32_t height) noexcept;
+               uint32_t height, GlyphRenderMode mode) noexcept;
 
     graphics::Device& device_;
     graphics::TextureHandle texture_;
     uint32_t width_{0};
     uint32_t height_{0};
+    GlyphRenderMode mode_{GlyphRenderMode::Grayscale};
+    uint32_t bytesPerPixel_{1};
 
     uint32_t currentShelfX_{1};
     uint32_t currentShelfY_{1};

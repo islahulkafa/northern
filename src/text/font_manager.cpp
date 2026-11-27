@@ -1,4 +1,5 @@
 #include "text/font_manager.hpp"
+#include <cmath>
 #include <filesystem>
 #include <vector>
 
@@ -20,20 +21,31 @@ FontManager::FontManager() {
     };
 
 #ifdef _WIN32
+    variableFontPath_ = findFirstExisting({"C:/Windows/Fonts/SegUIVar.ttf"});
     defaultFontPath_ =
-        findFirstExisting({"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/segoeuib.ttf",
+        findFirstExisting({"C:/Windows/Fonts/SegUIVar.ttf", "C:/Windows/Fonts/segoeui.ttf",
                            "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/calibri.ttf"});
+    mediumFontPath_ =
+        findFirstExisting({"C:/Windows/Fonts/SegUIVar.ttf", "C:/Windows/Fonts/seguisb.ttf",
+                           "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf"});
+    semiBoldFontPath_ =
+        findFirstExisting({"C:/Windows/Fonts/SegUIVar.ttf", "C:/Windows/Fonts/seguisb.ttf",
+                           "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf"});
     boldFontPath_ =
-        findFirstExisting({"C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf",
-                           "C:/Windows/Fonts/calibrib.ttf"});
+        findFirstExisting({"C:/Windows/Fonts/SegUIVar.ttf", "C:/Windows/Fonts/segoeuib.ttf",
+                           "C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/calibrib.ttf"});
     monospaceFontPath_ =
-        findFirstExisting({"C:/Windows/Fonts/CascadiaMono.ttf", "C:/Windows/Fonts/consola.ttf",
-                           "C:/Windows/Fonts/lucon.ttf"});
+        findFirstExisting({"C:/Windows/Fonts/CascadiaMono.ttf", "C:/Windows/Fonts/CascadiaCode.ttf",
+                           "C:/Windows/Fonts/consola.ttf", "C:/Windows/Fonts/lucon.ttf"});
 #else
     defaultFontPath_ = findFirstExisting(
         {"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf",
          "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
          "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf"});
+    mediumFontPath_ = defaultFontPath_;
+    semiBoldFontPath_ = findFirstExisting({"/usr/share/fonts/truetype/ubuntu/Ubuntu-M.ttf",
+                                           "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                                           defaultFontPath_});
     boldFontPath_ =
         findFirstExisting({"/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
                            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
@@ -72,49 +84,82 @@ std::string FontManager::resolveSystemFont(std::string_view familyName) const {
     return defaultFontPath_;
 }
 
-core::Result<std::shared_ptr<Font>, core::Error> FontManager::defaultFont(float pointSize) {
-    if (defaultFontPath_.empty()) {
-        return core::Error(core::ErrorCode::NotFound, "No default system font found on platform");
+std::string FontManager::resolvePathForWeight(FontWeight weight) const {
+    if (!variableFontPath_.empty()) {
+        return variableFontPath_;
     }
-    return loadFont(defaultFontPath_, pointSize);
+    switch (weight) {
+    case FontWeight::Medium:
+        return !mediumFontPath_.empty() ? mediumFontPath_ : defaultFontPath_;
+    case FontWeight::SemiBold:
+        return !semiBoldFontPath_.empty() ? semiBoldFontPath_ : boldFontPath_;
+    case FontWeight::Bold:
+        return !boldFontPath_.empty() ? boldFontPath_ : defaultFontPath_;
+    case FontWeight::Regular:
+    default:
+        return defaultFontPath_;
+    }
 }
 
-core::Result<std::shared_ptr<Font>, core::Error> FontManager::boldFont(float pointSize) {
-    if (!boldFontPath_.empty()) {
-        return loadFont(boldFontPath_, pointSize);
-    }
-    return defaultFont(pointSize);
+core::Result<std::shared_ptr<Font>, core::Error> FontManager::defaultFont(float pixelSize) {
+    return font(FontWeight::Regular, pixelSize);
 }
 
-core::Result<std::shared_ptr<Font>, core::Error> FontManager::monospaceFont(float pointSize) {
+core::Result<std::shared_ptr<Font>, core::Error> FontManager::mediumFont(float pixelSize) {
+    return font(FontWeight::Medium, pixelSize);
+}
+
+core::Result<std::shared_ptr<Font>, core::Error> FontManager::semiBoldFont(float pixelSize) {
+    return font(FontWeight::SemiBold, pixelSize);
+}
+
+core::Result<std::shared_ptr<Font>, core::Error> FontManager::boldFont(float pixelSize) {
+    return font(FontWeight::Bold, pixelSize);
+}
+
+core::Result<std::shared_ptr<Font>, core::Error> FontManager::monospaceFont(float pixelSize) {
     if (!monospaceFontPath_.empty()) {
-        return loadFont(monospaceFontPath_, pointSize);
+        return loadFont(monospaceFontPath_, pixelSize, FontWeight::Regular);
     }
-    return defaultFont(pointSize);
+    return defaultFont(pixelSize);
 }
 
 core::Result<std::shared_ptr<Font>, core::Error>
-FontManager::loadFont(std::string_view familyOrPath, float pointSize) {
+FontManager::font(FontWeight weight, float pixelSize, float opticalSizePt) {
+    std::string path = resolvePathForWeight(weight);
+    if (path.empty()) {
+        return core::Error(core::ErrorCode::NotFound, "No default system font found on platform");
+    }
+    return loadFont(path, pixelSize, weight, opticalSizePt);
+}
+
+core::Result<std::shared_ptr<Font>, core::Error>
+FontManager::loadFont(std::string_view familyOrPath, float pixelSize, FontWeight weight,
+                      float opticalSizePt) {
     std::string resolvedPath = resolveSystemFont(familyOrPath);
     if (resolvedPath.empty()) {
         return core::Error(core::ErrorCode::NotFound,
                            "Failed to resolve font: " + std::string(familyOrPath));
     }
 
-    std::string cacheKey = resolvedPath + ":" + std::to_string(pointSize);
+    long quantizedPx = std::lround(pixelSize * 4.0f);
+    long quantizedOpsz = std::lround(opticalSizePt * 4.0f);
+    std::string cacheKey = resolvedPath + ":" + std::to_string(quantizedPx) + ":" +
+                           std::to_string(static_cast<uint16_t>(weight)) + ":" +
+                           std::to_string(quantizedOpsz);
     auto it = fontCache_.find(cacheKey);
     if (it != fontCache_.end()) {
         return it->second;
     }
 
-    auto fontRes = Font::fromFile(resolvedPath, pointSize);
+    auto fontRes = Font::fromFile(resolvedPath, pixelSize, weight, opticalSizePt);
     if (fontRes.isErr()) {
         return fontRes.error();
     }
 
-    auto font = fontRes.value();
-    fontCache_[cacheKey] = font;
-    return font;
+    auto loaded = fontRes.value();
+    fontCache_[cacheKey] = loaded;
+    return loaded;
 }
 
 } // namespace northern::text

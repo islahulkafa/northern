@@ -285,7 +285,7 @@ TEST(RadioButtonTest, ContextDpiAdoptionAndMouseGrabCleanup) {
     EXPECT_FLOAT_EQ(rb->dpiScale(), 1.5f);
     EXPECT_FLOAT_EQ(rb->circleSize(), 24.0f);
     ASSERT_NE(rb->effectiveFont(), nullptr);
-    EXPECT_FLOAT_EQ(rb->effectiveFont()->pointSize(), 21.0f);
+    EXPECT_FLOAT_EQ(rb->effectiveFont()->pixelSize(), 21.0f);
 
     // Explicit setDpiScale is preserved on context attachment
     WidgetContext ctx2;

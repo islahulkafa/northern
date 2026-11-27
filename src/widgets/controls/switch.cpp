@@ -45,9 +45,7 @@ std::shared_ptr<text::Font> Switch::effectiveFont() const {
         return font_;
     }
     if (!resolvedDefaultFont_) {
-        float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
-        resolvedDefaultFont_ =
-            text::FontManager::instance().defaultFont(10.5f * scale).valueOr(nullptr);
+        resolvedDefaultFont_ = theme::resolveFont(theme::TypographyStyle::Body, dpiScale_);
     }
     return resolvedDefaultFont_;
 }

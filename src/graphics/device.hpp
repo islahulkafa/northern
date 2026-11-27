@@ -62,6 +62,8 @@ public:
 
     virtual void advanceFrame() = 0;
     virtual void waitIdle() = 0;
+
+    [[nodiscard]] virtual bool supportsDualSourceBlending() const noexcept { return false; }
 };
 
 } // namespace northern::graphics

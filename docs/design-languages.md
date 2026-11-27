@@ -103,16 +103,16 @@ Depth relies on a 5-level neutral luminance ramp framed by 1px alpha-blended hai
 
 ### Type Scale Matrix (`theme::resolveFont`)
 
-| Token                        | Size (pt)       | Resolved Font        | Line Height Guidance | Target Usage                                           |
-| :--------------------------- | :-------------- | :------------------- | :------------------- | :----------------------------------------------------- |
-| `TypographyStyle::Display`   | `24pt * dpi`    | `boldFont` (700)     | `~1.15x–1.25x`       | Hero headlines, empty-state headers, splash banners    |
-| `TypographyStyle::Title`     | `18pt * dpi`    | `boldFont` (700)     | `~1.20x–1.30x`       | Window headers, detail pane headings, top view titles  |
-| `TypographyStyle::Subtitle`  | `15pt * dpi`    | `defaultFont` (400)  | `~1.30x–1.35x`       | Secondary section headers, form group intros           |
-| `TypographyStyle::BodyStrong`| `14pt * dpi`    | `boldFont` (700)     | `~1.40x–1.45x`       | Dialog titles, card titles, sidebar headings, key KPIs |
-| `TypographyStyle::Body`      | `14pt * dpi`    | `defaultFont` (400)  | `~1.40x–1.50x`       | Multi-line prose, descriptions, table cells, dialogs   |
-| `TypographyStyle::Monospace` | `13pt * dpi`    | `monospaceFont`      | `~1.35x–1.45x`       | Technical readouts, memory/version badges, code, logs  |
-| `TypographyStyle::Caption`   | `12pt * dpi`    | `defaultFont` (400)  | `~1.40x–1.55x`       | Helper hints, status subtitles, badges, click counters |
-| **Dense Controls & Rows**    | `9.5–12pt * dpi`| Regular / Bold       | Single-line centered | `Button`/`TextInput` (`9.5/10.5/11.5pt`), `ContextMenu`/`Dropdown`/`Accordion` (`10.5–12pt`), `ListView`/`TableView` (`10–10.5pt`) |
+| Token                        | Size (px)       | Resolved Font          | Line Height Guidance | Target Usage                                           |
+| :--------------------------- | :-------------- | :--------------------- | :------------------- | :----------------------------------------------------- |
+| `TypographyStyle::Display`   | `24px * dpi`    | `semiBoldFont` (600)   | `~1.20x`             | Hero headlines, empty-state headers, splash banners    |
+| `TypographyStyle::Title`     | `18px * dpi`    | `semiBoldFont` (600)   | `~1.25x`             | Window headers, detail pane headings, top view titles  |
+| `TypographyStyle::Subtitle`  | `15px * dpi`    | `mediumFont` (500)     | `~1.30x`             | Secondary section headers, form group intros           |
+| `TypographyStyle::BodyStrong`| `14px * dpi`    | `semiBoldFont` (600)   | `~1.38x`             | Dialog titles, card titles, sidebar headings, key KPIs |
+| `TypographyStyle::Body`      | `14px * dpi`    | `defaultFont` (400)    | `~1.42x`             | Multi-line prose, descriptions, table cells, controls  |
+| `TypographyStyle::Monospace` | `13px * dpi`    | `monospaceFont`        | `~1.40x`             | Technical readouts, memory/version badges, code, logs  |
+| `TypographyStyle::Caption`   | `12px * dpi`    | `defaultFont` (400)    | `~1.36x`             | Helper hints, status subtitles, badges, click counters |
+| **Dense Controls & Rows**    | `12–14.5px * dpi` | Regular / Medium   | Single-line centered | `Button`/`TextInput` (`12.5–14.5px`), `ContextMenu`/`Dropdown`/`Accordion` (`12–14.5px`), `ListView`/`TableView` (`13.5px`) |
 
 ### Hierarchy, Weight, and Contrast Rules
 

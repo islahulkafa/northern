@@ -177,6 +177,14 @@ namespace northern::graphics {
         return VK_BLEND_FACTOR_DST_ALPHA;
     case BlendFactor::OneMinusDstAlpha:
         return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+    case BlendFactor::Src1Color:
+        return VK_BLEND_FACTOR_SRC1_COLOR;
+    case BlendFactor::OneMinusSrc1Color:
+        return VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;
+    case BlendFactor::Src1Alpha:
+        return VK_BLEND_FACTOR_SRC1_ALPHA;
+    case BlendFactor::OneMinusSrc1Alpha:
+        return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
     default:
         return VK_BLEND_FACTOR_ONE;
     }

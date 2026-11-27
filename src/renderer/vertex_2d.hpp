@@ -13,7 +13,8 @@ struct alignas(16) Vertex2D {
     float cornerRadii[4];    // Corner radii: [TL, TR, BR, BL]
     core::Color borderColor; // Border color (r, g, b, a)
     float borderWidth{0.0f}; // Border thickness in pixels
-    float padding[5]{0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    core::Point uv{0.0f, 0.0f};
+    float padding[3]{0.0f, 0.0f, 0.0f};
 };
 
 } // namespace northern::renderer

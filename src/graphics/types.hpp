@@ -126,6 +126,10 @@ enum class BlendFactor : uint32_t {
     OneMinusSrcAlpha,
     DstAlpha,
     OneMinusDstAlpha,
+    Src1Color,
+    OneMinusSrc1Color,
+    Src1Alpha,
+    OneMinusSrc1Alpha,
 };
 
 enum class BlendOp : uint32_t {

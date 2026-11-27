@@ -484,6 +484,16 @@ void FlexSolver::solveNode(LayoutNode& node, float availableWidth, float availab
                            !itm.node->style().width.isPercent()) {
                     itm.finalCross = clampDimension(m.width, itm.minCross, itm.maxCross);
                 }
+            } else if (itm.node->childCount() > 0) {
+                if (isRow && !cs.height.isPoints() && !cs.height.isPercent()) {
+                    solveNode(*itm.node, itm.finalMain, 0.0f, arena);
+                    itm.finalCross = clampDimension(itm.node->layoutRect().size.height,
+                                                    itm.minCross, itm.maxCross);
+                } else if (!isRow && !cs.width.isPoints() && !cs.width.isPercent()) {
+                    solveNode(*itm.node, 0.0f, itm.finalMain, arena);
+                    itm.finalCross = clampDimension(itm.node->layoutRect().size.width, itm.minCross,
+                                                    itm.maxCross);
+                }
             }
 
             // Cross size of line is max outer cross of items

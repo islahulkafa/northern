@@ -206,7 +206,7 @@ TEST(SliderTest, ContextDpiAdoptionCustomOverrideAndThemeRefresh) {
     EXPECT_FLOAT_EQ(s->trackHeight(), 6.0f);
     EXPECT_FLOAT_EQ(s->thumbRadius(), 10.5f);
     ASSERT_NE(s->effectiveFont(), nullptr);
-    EXPECT_FLOAT_EQ(s->effectiveFont()->pointSize(), 18.0f);
+    EXPECT_FLOAT_EQ(s->effectiveFont()->pixelSize(), 18.0f);
 
     // Explicit trackHeight/thumbRadius overrides survive DPI changes
     Slider custom(0.0f, 100.0f, 50.0f);

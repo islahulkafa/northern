@@ -270,14 +270,14 @@ core::Result<uint32_t, core::Error> VulkanSwapchain::acquireNextImage(uint64_t t
                                          imageAvailableSemaphores_[currentFrame_], VK_NULL_HANDLE,
                                          &currentImageIndex_);
 
-    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
+    if (res == VK_ERROR_OUT_OF_DATE_KHR) {
         auto recRes = recreate();
         if (recRes.isErr()) {
             return recRes.error();
         }
         return acquireNextImage(timeoutNs);
     }
-    if (res != VK_SUCCESS) {
+    if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) {
         return makeVkError(res, "Failed to acquire next swapchain image");
     }
 

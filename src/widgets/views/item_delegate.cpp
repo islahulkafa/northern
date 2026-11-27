@@ -1,6 +1,7 @@
 #include "widgets/views/item_delegate.hpp"
 
 #include "widgets/base/theme.hpp"
+#include "widgets/controls/badge.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -98,7 +99,7 @@ void ItemDelegate::paint(renderer::PaintContext& ctx, const StyleOptionViewItem&
     // Optional Status Badge/Chip
     if (!option.badgeText.empty() && option.font && contentRight > contentLeft) {
         float availW = contentRight - contentLeft;
-        float bPad = 6.0f * scale;
+        float bPad = 7.0f * scale;
         text::TextLayoutOptions bOpts{};
         bOpts.maxWidth = std::max(0.0f, availW - bPad * 2.0f);
         bOpts.wrapMode = text::WordWrap::None;
@@ -106,22 +107,21 @@ void ItemDelegate::paint(renderer::PaintContext& ctx, const StyleOptionViewItem&
         bOpts.maxLines = 1;
         auto bLayout = text::TextLayout::create(option.badgeText, option.font, bOpts);
         float bW = std::min(availW, bLayout.size().width + bPad * 2.0f);
-        float bH = 18.0f * scale;
+        float bH = 20.0f * scale;
         float bX = option.text.empty() ? contentLeft : (contentRight - bW);
         float bY = std::round(centerY - bH * 0.5f);
         core::Rect bRect{core::Point{bX, bY}, core::Size{bW, bH}};
-        float radius = 3.0f * scale;
-        float br[4] = {radius, radius, radius, radius};
 
-        core::Color bgCol = option.badgeColor.a > 0.0f ? option.badgeColor : pal.surfaceOverlay;
-        ctx.pushClip(bRect);
-        ctx.drawRoundedRect(bRect, bgCol, br);
-        ctx.drawBorder(bRect, pal.borderDefault, 1.0f);
-        float bTextY = theme::computeCenteredTextY(centerY, *option.font);
-        core::Color textCol =
-            option.badgeTextColor.a > 0.0f ? option.badgeTextColor : pal.textPrimary;
-        ctx.drawTextLayout(core::Point{bX + bPad, bTextY}, bLayout, textCol);
-        ctx.popClip();
+        std::optional<core::Color> customBg;
+        if (option.badgeColor.a > 0.0f) {
+            customBg = option.badgeColor;
+        }
+        std::optional<core::Color> customFg;
+        if (option.badgeTextColor.a > 0.0f) {
+            customFg = option.badgeTextColor;
+        }
+        Badge::paintInline(ctx, bRect, bLayout, *option.font, pal, scale, BadgeRole::Neutral,
+                           BadgeVariant::Subtle, BadgeSize::Compact, customBg, customFg);
 
         contentRight = bX - 8.0f * scale;
     }

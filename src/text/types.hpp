@@ -5,6 +5,18 @@
 
 namespace northern::text {
 
+enum class FontWeight : uint16_t {
+    Regular = 400,
+    Medium = 500,
+    SemiBold = 600,
+    Bold = 700,
+};
+
+enum class GlyphRenderMode : uint8_t {
+    Grayscale,
+    LcdRgb,
+};
+
 struct GlyphMetrics {
     float width{0.0f};
     float height{0.0f};

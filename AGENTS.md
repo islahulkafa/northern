@@ -7,7 +7,7 @@ Operational engineering guidelines for autonomous agents working in `northern`, 
 - **Language & Standard**: Pure C++20 (`-std=c++20` / `/std:c++20`), `#pragma once`, no Qt MOC/codegen.
 - **Compiler & Build**: MSYS2 UCRT64 `clang++` 16+ (or GCC 12+ / MSVC 19.30+), CMake 3.25+, Ninja.
 - **Dependencies**: Vulkan SDK 1.3+, `harfbuzz`, `freetype`, `gtest` (pinned in [vcpkg.json](vcpkg.json); isolated behind internal wrappers).
-- **Test Suite**: GoogleTest (`unit_tests.exe`) with 403 tests across 56 suites using headless `MockDevice`.
+- **Test Suite**: GoogleTest (`unit_tests.exe`) with 409 tests across 57 suites using headless `MockDevice`.
 
 ### Directory Landmarks
 

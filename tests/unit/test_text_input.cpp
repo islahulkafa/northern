@@ -18,14 +18,14 @@ TEST(TextInputTest, SizePresetsFontFallbackAndDynamicTheming) {
     ctx.setRootWidget(std::move(owned));
 
     ASSERT_NE(input->effectiveFont(), nullptr);
-    float comfortablePt = input->effectiveFont()->pointSize();
+    float comfortablePx = input->effectiveFont()->pixelSize();
     input->setSize(TextInputSize::Standard);
-    float standardPt = input->effectiveFont()->pointSize();
+    float standardPx = input->effectiveFont()->pixelSize();
     input->setSize(TextInputSize::Compact);
-    float compactPt = input->effectiveFont()->pointSize();
-    EXPECT_LT(compactPt, standardPt);
-    EXPECT_LT(standardPt, comfortablePt);
-    EXPECT_LT(comfortablePt, theme::typographyPointSize(theme::TypographyStyle::Body));
+    float compactPx = input->effectiveFont()->pixelSize();
+    EXPECT_LT(compactPx, standardPx);
+    EXPECT_LT(standardPx, comfortablePx);
+    EXPECT_LE(standardPx, theme::typographyPixelSize(theme::TypographyStyle::Body));
     input->setSize(TextInputSize::Comfortable);
 
     input->layoutNode().computeLayout(240.0f, 50.0f);

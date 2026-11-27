@@ -93,9 +93,9 @@ std::shared_ptr<text::Font> CollapsibleSection::effectiveFont() const {
         return font_;
     }
     if (!resolvedDefaultFont_) {
-        float basePt = (headerSize_ == SectionHeaderSize::Compact) ? 10.5f : 11.5f;
+        float basePx = (headerSize_ == SectionHeaderSize::Compact) ? 13.5f : 14.5f;
         resolvedDefaultFont_ =
-            text::FontManager::instance().defaultFont(basePt * dpiScale_).valueOr(nullptr);
+            text::FontManager::instance().semiBoldFont(basePx * dpiScale_).valueOr(nullptr);
     }
     return resolvedDefaultFont_;
 }
@@ -214,7 +214,7 @@ Container* CollapsibleSection::addRow(std::string label, std::unique_ptr<Widget>
 
     auto rowFont =
         font_ ? font_
-              : text::FontManager::instance().defaultFont(11.0f * dpiScale_).valueOr(nullptr);
+              : text::FontManager::instance().defaultFont(14.0f * dpiScale_).valueOr(nullptr);
     auto lbl = std::make_unique<Label>(std::move(label), rowFont);
     lbl->setDpiScale(dpiScale_);
     lbl->setVerticalAlignment(VerticalAlignment::Center);

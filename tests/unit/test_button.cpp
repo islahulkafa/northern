@@ -137,17 +137,17 @@ TEST_F(ButtonModernizationTest, AutomaticDefaultFontFallback) {
     Button compactBtn("Save", nullptr, ButtonVariant::Secondary, ButtonSize::Compact);
     auto compactFont = compactBtn.effectiveFont();
     ASSERT_NE(compactFont, nullptr);
-    EXPECT_FLOAT_EQ(compactFont->pointSize(), 9.5f);
+    EXPECT_FLOAT_EQ(compactFont->pixelSize(), 12.5f);
 
     Button standardBtn("Save", nullptr, ButtonVariant::Secondary, ButtonSize::Standard);
     auto standardFont = standardBtn.effectiveFont();
     ASSERT_NE(standardFont, nullptr);
-    EXPECT_FLOAT_EQ(standardFont->pointSize(), 10.5f);
+    EXPECT_FLOAT_EQ(standardFont->pixelSize(), 14.0f);
 
     Button comfortableBtn("Save", nullptr, ButtonVariant::Secondary, ButtonSize::Comfortable);
     auto comfortableFont = comfortableBtn.effectiveFont();
     ASSERT_NE(comfortableFont, nullptr);
-    EXPECT_FLOAT_EQ(comfortableFont->pointSize(), 11.5f);
+    EXPECT_FLOAT_EQ(comfortableFont->pixelSize(), 14.5f);
 }
 
 TEST_F(ButtonModernizationTest, KeyboardAndDisabledHandling) {

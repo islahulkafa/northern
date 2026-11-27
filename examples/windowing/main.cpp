@@ -8,6 +8,7 @@
 #include "platform/window.hpp"
 #include "platform/window_desc.hpp"
 #include "renderer/batch_renderer.hpp"
+#include "renderer/image/image.hpp"
 #include "renderer/paint_context.hpp"
 #include "widgets/base/theme.hpp"
 #include "widgets/base/widget_context.hpp"
@@ -18,14 +19,20 @@
 #include "widgets/containers/scroll_view.hpp"
 #include "widgets/containers/split_view.hpp"
 #include "widgets/containers/tab_view.hpp"
+#include "widgets/controls/avatar.hpp"
+#include "widgets/controls/badge.hpp"
 #include "widgets/controls/button.hpp"
 #include "widgets/controls/checkbox.hpp"
 #include "widgets/controls/divider.hpp"
 #include "widgets/controls/icons.hpp"
+#include "widgets/controls/image_view.hpp"
 #include "widgets/controls/label.hpp"
 #include "widgets/controls/progress_bar.hpp"
+#include "widgets/controls/radio_button.hpp"
+#include "widgets/controls/radio_group.hpp"
 #include "widgets/controls/slider.hpp"
 #include "widgets/controls/switch.hpp"
+#include "widgets/controls/text_area.hpp"
 #include "widgets/controls/text_input.hpp"
 #include "widgets/dialogs/dialog.hpp"
 #include "widgets/dialogs/message_box.hpp"
@@ -109,6 +116,7 @@ int main() {
     auto batchRenderer = std::move(rendRes.value());
 
     float dpi = window->dpiScale();
+    batchRenderer->setDpiScale(dpi);
 
     WidgetContext uiContext;
     uiContext.setTheme(app.isDarkMode() ? theme::Theme::dark() : theme::Theme::light());
@@ -128,8 +136,7 @@ int main() {
     bool running = true;
 
     auto titleBar =
-        std::make_unique<TitleBar>("Windowing", nullptr, window.get(), TitleBarSize::Standard);
-    titleBar->setDpiScale(dpi);
+        std::make_unique<TitleBar>("Studio Demo", nullptr, window.get(), TitleBarSize::Standard);
     TitleBar* titleBarPtr = static_cast<TitleBar*>(root->addChild(std::move(titleBar)));
 
     window->setHitTestCallback([titleBarPtr, dpi](core::Point logicalPos) {
@@ -137,7 +144,6 @@ int main() {
     });
 
     auto menuBar = std::make_unique<MenuBar>();
-    menuBar->setDpiScale(dpi);
 
     auto* fileMenu = menuBar->addMenu("File");
     fileMenu->addItem("New File", []() { std::cout << "File -> New File\n"; }, "Ctrl+N");
@@ -146,16 +152,15 @@ int main() {
     fileMenu->addSeparator();
     fileMenu->addItem(
         "Exit",
-        [&uiContext, &running, &app, dpi]() {
-            MessageBox::confirm(
-                uiContext, "Exit Application", "Are you sure you want to close Northern?",
-                [&running, &app](DialogResult res) {
-                    if (res == DialogResult::Accepted) {
-                        running = false;
-                        app.quit(0);
-                    }
-                },
-                dpi);
+        [&uiContext, &running, &app]() {
+            MessageBox::confirm(uiContext, "Exit Application",
+                                "Are you sure you want to close Studio Demo?",
+                                [&running, &app](DialogResult res) {
+                                    if (res == DialogResult::Accepted) {
+                                        running = false;
+                                        app.quit(0);
+                                    }
+                                });
         },
         "Alt+F4");
 
@@ -189,24 +194,24 @@ int main() {
 
     auto* helpMenu = menuBar->addMenu("Help");
     helpMenu->addItem("Documentation", []() { std::cout << "Help -> Docs\n"; }, "F1");
-    helpMenu->addItem("About Northern", [&uiContext, dpi]() {
-        MessageBox::info(uiContext, "About Northern",
-                         "Northern UI Framework v0.1.0\nVulkan 1.3+ / Modern C++20", nullptr, dpi);
+    helpMenu->addItem("About", [&uiContext]() {
+        MessageBox::info(uiContext, "About Studio Demo",
+                         "Sample Desktop Workspace v2.4\nCross-platform desktop demo.");
     });
 
     menuBar->registerAccelerators(uiContext);
     root->addChild(std::move(menuBar));
 
     StandardTableModel tableModel(
-        std::vector<std::string>{"Service", "Status", "Memory", "Latency"});
-    tableModel.appendRow({"Vulkan Graphics Pipeline", "Active", "128.4 MB", "1.2 ms"});
-    tableModel.appendRow({"Text Shaping (HarfBuzz)", "Active", "24.6 MB", "0.4 ms"});
-    tableModel.appendRow({"Display List Compositor", "Running", "16.2 MB", "0.8 ms"});
-    tableModel.appendRow({"Worker ThreadPool", "Idle", "8.1 MB", "0.0 ms"});
-    tableModel.appendRow({"TaskQueue Dispatcher", "Active", "4.0 MB", "0.1 ms"});
-    tableModel.appendRow({"Asset Cache & Staging", "Idle", "64.0 MB", "0.0 ms"});
-    tableModel.appendRow({"Win32 Platform Loop", "Active", "12.8 MB", "0.3 ms"});
-    tableModel.appendRow({"Arena Memory Allocator", "Active", "32.0 MB", "0.0 ms"});
+        std::vector<std::string>{"Customer", "Status", "Total", "Updated"});
+    tableModel.appendRow({"Maya Lin", "Shipped", "$148.00", "2m ago"});
+    tableModel.appendRow({"Liam Carter", "Active", "$64.50", "14m ago"});
+    tableModel.appendRow({"Sofia Rossi", "Running", "$312.90", "28m ago"});
+    tableModel.appendRow({"Noah Patel", "Idle", "$89.00", "1h ago"});
+    tableModel.appendRow({"Elena Vance", "Shipped", "$215.40", "2h ago"});
+    tableModel.appendRow({"Lucas Meyer", "Idle", "$42.00", "3h ago"});
+    tableModel.appendRow({"Chloe Kim", "Active", "$179.25", "5h ago"});
+    tableModel.appendRow({"Owen Brooks", "Shipped", "$96.80", "1d ago"});
 
     for (int r = 0; r < tableModel.rowCount(); ++r) {
         std::string status = tableModel.data(tableModel.index(r, 1));
@@ -215,7 +220,6 @@ int main() {
     }
 
     auto tableView = std::make_unique<TableView>(&tableModel);
-    tableView->setDpiScale(dpi);
     tableView->setAlternatingRowColors(true);
     tableView->setShowGridLines(true);
     tableView->horizontalHeader()->setSectionWidth(0, 240.0f * dpi);
@@ -223,55 +227,58 @@ int main() {
     tableView->horizontalHeader()->setSectionWidth(2, 130.0f * dpi);
     tableView->horizontalHeader()->setSectionWidth(3, 130.0f * dpi);
 
-    StandardTreeModel treeModel(std::vector<std::string>{"Project Structure", "Type", "Size"});
+    StandardTreeModel treeModel(std::vector<std::string>{"Personal Drive", "Kind", "Size"});
     auto* rootTree = treeModel.rootItem();
 
-    auto srcDir =
-        std::make_unique<StandardTreeItem>(std::vector<std::string>{"src", "Directory", ""});
-    auto coreDir = srcDir->appendChild(
-        std::make_unique<StandardTreeItem>(std::vector<std::string>{"core", "Directory", ""}));
-    coreDir->appendChild(std::make_unique<StandardTreeItem>(
-        std::vector<std::string>{"arena.hpp", "Header", "8.4 KB"}));
-    coreDir->appendChild(std::make_unique<StandardTreeItem>(
-        std::vector<std::string>{"thread_pool.hpp", "Header", "12.1 KB"}));
+    auto docsFolder =
+        std::make_unique<StandardTreeItem>(std::vector<std::string>{"Documents", "Folder", ""});
+    auto travelDir = docsFolder->appendChild(
+        std::make_unique<StandardTreeItem>(std::vector<std::string>{"Travel", "Folder", ""}));
+    travelDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"Kyoto_Itinerary.pdf", "PDF Document", "1.4 MB"}));
+    travelDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"Flight_Receipts.xlsx", "Spreadsheet", "420 KB"}));
 
-    auto widgetsDir = srcDir->appendChild(
-        std::make_unique<StandardTreeItem>(std::vector<std::string>{"widgets", "Directory", ""}));
-    widgetsDir->appendChild(std::make_unique<StandardTreeItem>(
-        std::vector<std::string>{"table_view.cpp", "Source", "24.5 KB"}));
-    widgetsDir->appendChild(std::make_unique<StandardTreeItem>(
-        std::vector<std::string>{"tree_view.cpp", "Source", "22.3 KB"}));
-    widgetsDir->appendChild(std::make_unique<StandardTreeItem>(
-        std::vector<std::string>{"list_view.cpp", "Source", "18.7 KB"}));
+    auto workDir = docsFolder->appendChild(
+        std::make_unique<StandardTreeItem>(std::vector<std::string>{"Projects", "Folder", ""}));
+    workDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"Q3_Budget.csv", "CSV Table", "86.5 KB"}));
+    workDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"Garden_Plan.sketch", "Sketch File", "4.8 MB"}));
+    workDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"Meeting_Notes.md", "Markdown", "18.7 KB"}));
 
-    rootTree->appendChild(std::move(srcDir));
+    rootTree->appendChild(std::move(docsFolder));
 
-    auto docsDir =
-        std::make_unique<StandardTreeItem>(std::vector<std::string>{"docs", "Directory", ""});
-    docsDir->appendChild(std::make_unique<StandardTreeItem>(
-        std::vector<std::string>{"design-languages.md", "Markdown", "14.2 KB"}));
-    rootTree->appendChild(std::move(docsDir));
+    auto photosDir =
+        std::make_unique<StandardTreeItem>(std::vector<std::string>{"Photos", "Folder", ""});
+    photosDir->appendChild(std::make_unique<StandardTreeItem>(
+        std::vector<std::string>{"Coastline_Sunset.jpg", "JPEG Image", "6.2 MB"}));
+    rootTree->appendChild(std::move(photosDir));
 
     auto treeView = std::make_unique<TreeView>(&treeModel);
-    treeView->setDpiScale(dpi);
     treeView->expandAll();
     treeView->header()->setSectionWidth(0, 280.0f * dpi);
     treeView->header()->setSectionWidth(1, 140.0f * dpi);
     treeView->header()->setSectionWidth(2, 140.0f * dpi);
 
     StringListModel listModel;
-    listModel.append("Hardware Graphics Acceleration (Vulkan 1.3)");
-    listModel.append("Retained Display List Compositor");
-    listModel.append("Bidirectional Zero-Heap Virtualized Scrolling");
-    listModel.append("HarfBuzz Text Shaping & FreeType Rasterization");
-    listModel.append("Optical Zinc Elevation Palette System");
-    listModel.append("Keyboard Accelerators & Cascading Menus");
-    listModel.append("Parent-Owned Retained Widget Lifecycle");
-    listModel.append("Asynchronous Timeline Semaphore Resource Staging");
+    listModel.append("Pick up espresso beans from roastery");
+    listModel.append("Review Q3 budget spreadsheet before Friday");
+    listModel.append("Book morning train tickets to Osaka");
+    listModel.append("Water balcony herbs and repot sweet basil");
+    listModel.append("Finish chapter 4 of Designing Data Systems");
+    listModel.append("Clean camera sensor and charge spare batteries");
+    listModel.append("Send birthday postcard to Hannah");
+    listModel.append("Organize weekend hiking pack and trail map");
 
     auto listView = std::make_unique<ListView>(&listModel);
-    listView->setDpiScale(dpi);
     listView->setRowHeight(32.0f * dpi);
+
+    auto accordionScroll = std::make_unique<ScrollView>();
+    accordionScroll->setSurface(SurfaceRole::Canvas);
+    accordionScroll->style().width = Length::percent(100.0f);
+    accordionScroll->style().height = Length::percent(100.0f);
 
     auto accordionPage = std::make_unique<Container>();
     accordionPage->setSurface(SurfaceRole::Canvas);
@@ -279,6 +286,7 @@ int main() {
     accordionPage->setAlignItems(AlignItems::FlexStart);
     accordionPage->setPadding(24.0f * dpi);
     accordionPage->setRowGap(16.0f * dpi);
+    accordionPage->style().width = Length::percent(100.0f);
 
     auto accordionTopRow = std::make_unique<Container>();
     accordionTopRow->setFlexDirection(FlexDirection::Row);
@@ -286,7 +294,6 @@ int main() {
     accordionTopRow->setColumnGap(12.0f * dpi);
 
     auto themeSegmented = std::make_unique<TabBar>();
-    themeSegmented->setDpiScale(dpi);
     themeSegmented->setTabBarStyle(TabBarStyle::Segmented);
     themeSegmented->setTabHeight(32.0f * dpi);
     themeSegmented->style().width = Length::points(180.0f * dpi);
@@ -299,10 +306,9 @@ int main() {
     accordionTopRow->addChild(std::move(themeSegmented));
 
     auto accordionStyleSegmented = std::make_unique<TabBar>();
-    accordionStyleSegmented->setDpiScale(dpi);
     accordionStyleSegmented->setTabBarStyle(TabBarStyle::Segmented);
     accordionStyleSegmented->setTabHeight(32.0f * dpi);
-    accordionStyleSegmented->style().width = Length::points(300.0f * dpi);
+    accordionStyleSegmented->style().width = Length::points(328.0f * dpi);
     accordionStyleSegmented->addTab("Grouped");
     accordionStyleSegmented->addTab("Separated");
     accordionStyleSegmented->addTab("Flush");
@@ -313,8 +319,7 @@ int main() {
 
     auto accordion =
         std::make_unique<Accordion>(false, SectionHeaderSize::Standard, AccordionStyle::Grouped);
-    accordion->setDpiScale(dpi);
-    accordion->style().maxWidth = Length::points(520.0f * dpi);
+    accordion->style().width = Length::points(520.0f * dpi);
     Accordion* accPtr = accordion.get();
 
     accordionStylePtr->onTabSelected.connect([accPtr](int idx) {
@@ -327,50 +332,43 @@ int main() {
         }
     });
 
-    auto* graphicsSec = accordion->addSection("Graphics & Rendering", nullptr, true);
-    auto badgeLbl = std::make_unique<Label>("v1.3", theme::TypographyStyle::Caption,
-                                            theme::TextRole::Secondary);
-    badgeLbl->setDpiScale(dpi);
-    graphicsSec->setHeaderAccessory(std::move(badgeLbl));
+    auto* generalSec = accordion->addSection("General & Sync", nullptr, true);
+    auto badgeLbl =
+        std::make_unique<Label>("Pro", theme::TypographyStyle::Caption, theme::TextRole::Secondary);
+    generalSec->setHeaderAccessory(std::move(badgeLbl));
 
-    auto backendVal = std::make_unique<Label>("Vulkan 1.3+", theme::TypographyStyle::Monospace,
-                                              theme::TextRole::Secondary);
-    backendVal->setDpiScale(dpi);
-    graphicsSec->addRow("Backend", std::move(backendVal));
+    auto regionVal = std::make_unique<Label>("US-West (Oregon)", theme::TypographyStyle::Monospace,
+                                             theme::TextRole::Secondary);
+    generalSec->addRow("Sync Region", std::move(regionVal));
 
-    auto aaDropdown = std::make_unique<Dropdown>(
+    auto freqDropdown = std::make_unique<Dropdown>(
         std::vector<DropdownItem>{
-            DropdownItem{.text = "4x MSAA"},
-            DropdownItem{.text = "8x MSAA"},
+            DropdownItem{.text = "Every 5 min"},
+            DropdownItem{.text = "Every 30 min"},
             DropdownItem::separator(),
-            DropdownItem{.text = "Disabled"},
+            DropdownItem{.text = "Manual Only"},
         },
         0, nullptr, DropdownSize::Compact);
-    aaDropdown->setDpiScale(dpi);
-    aaDropdown->style().width = Length::points(140.0f * dpi);
-    graphicsSec->addRow("Anti-Aliasing", std::move(aaDropdown));
+    freqDropdown->style().width = Length::points(140.0f * dpi);
+    generalSec->addRow("Backup Interval", std::move(freqDropdown));
 
-    auto vsyncSwitch = std::make_unique<Switch>("", true);
-    vsyncSwitch->setDpiScale(dpi);
-    graphicsSec->addRow("Vertical Sync", std::move(vsyncSwitch));
+    auto cloudSwitch = std::make_unique<Switch>("", true);
+    generalSec->addRow("Cloud Sync", std::move(cloudSwitch));
 
-    auto nestedGroup = std::make_unique<DisclosureGroup>("Pipeline Options", false, nullptr,
+    auto nestedGroup = std::make_unique<DisclosureGroup>("Notification Channels", false, nullptr,
                                                          SectionHeaderSize::Compact);
-    nestedGroup->setDpiScale(dpi);
-    nestedGroup->addRow("SDF Anti-Aliasing");
-    nestedGroup->addRow("Pipeline Cache");
-    graphicsSec->addContent(std::move(nestedGroup));
+    nestedGroup->addRow("Weekly Email Digest");
+    nestedGroup->addRow("Calendar Reminders");
+    generalSec->addContent(std::move(nestedGroup));
 
     auto* appearanceSec = accordion->addSection("Appearance", nullptr, true);
     auto compactSwitch = std::make_unique<Switch>("", false);
-    compactSwitch->setDpiScale(dpi);
     compactSwitch->onToggled.connect([accPtr](bool compact) {
         accPtr->setHeaderSize(compact ? SectionHeaderSize::Compact : SectionHeaderSize::Standard);
     });
     appearanceSec->addRow("Compact Headers", std::move(compactSwitch));
 
     auto dividersSwitch = std::make_unique<Switch>("", true);
-    dividersSwitch->setDpiScale(dpi);
     dividersSwitch->onToggled.connect([accPtr](bool show) {
         for (size_t i = 0; i < accPtr->sectionCount(); ++i) {
             if (auto* sec = accPtr->sectionAt(i)) {
@@ -380,16 +378,14 @@ int main() {
     });
     appearanceSec->addRow("Row Dividers", std::move(dividersSwitch));
 
-    auto* diagSec = accordion->addSection("Diagnostics", nullptr, false);
-    auto arenaVal = std::make_unique<Label>("64 KB Scratch", theme::TypographyStyle::Monospace,
+    auto* storageSec = accordion->addSection("Storage & Cache", nullptr, false);
+    auto cacheVal = std::make_unique<Label>("248 MB Used", theme::TypographyStyle::Monospace,
                                             theme::TextRole::Secondary);
-    arenaVal->setDpiScale(dpi);
-    diagSec->addRow("Layout Arena", std::move(arenaVal));
+    storageSec->addRow("Offline Cache", std::move(cacheVal));
 
     accordionPage->addChild(std::move(accordion));
-    accordionPage->setContextMenuBuilder([accPtr, &uiContext, dpi]() {
+    accordionPage->setContextMenuBuilder([accPtr, &uiContext]() {
         auto menu = std::make_unique<ContextMenu>();
-        menu->setDpiScale(dpi);
         menu->addItem("Expand All Sections", [accPtr]() {
             for (size_t i = 0; i < accPtr->sectionCount(); ++i) {
                 if (auto* s = accPtr->sectionAt(i)) {
@@ -397,26 +393,25 @@ int main() {
                 }
             }
         });
-        menu->addItem(IconId::Copy, "Copy Configuration",
-                      []() { std::cout << "ContextMenu -> Copy Configuration\n"; });
-        menu->addSubtitledItem("Reset Preferences", "Restore default pipeline settings",
-                               [accPtr]() {
-                                   for (size_t i = 0; i < accPtr->sectionCount(); ++i) {
-                                       if (auto* s = accPtr->sectionAt(i)) {
-                                           s->setExpanded(i < 2, true);
-                                       }
-                                   }
-                               });
+        menu->addItem(IconId::Copy, "Copy Summary",
+                      []() { std::cout << "ContextMenu -> Copy Summary\n"; });
+        menu->addSubtitledItem("Reset Preferences", "Restore default account settings", [accPtr]() {
+            for (size_t i = 0; i < accPtr->sectionCount(); ++i) {
+                if (auto* s = accPtr->sectionAt(i)) {
+                    s->setExpanded(i < 2, true);
+                }
+            }
+        });
         menu->addSeparator();
-        menu->addDestructiveItem(IconId::Trash, "Clear Cache", [&uiContext, dpi]() {
+        menu->addDestructiveItem(IconId::Trash, "Clear Offline Cache", [&uiContext]() {
             MessageBox::warning(uiContext, "Cache Cleared",
-                                "Pipeline and glyph caches have been flushed.", nullptr, dpi);
+                                "Offline media and thumbnail caches have been cleared.");
         });
         return menu;
     });
+    accordionScroll->addChild(std::move(accordionPage));
 
     auto tabView = std::make_unique<TabView>();
-    tabView->setDpiScale(dpi);
     tabView->setTabBarStyle(TabBarStyle::Underline);
     tabView->style().width = Length::percent(100.0f);
     tabView->style().flexGrow = 1.0f;
@@ -426,16 +421,15 @@ int main() {
     tabView->addTab("Table View", std::move(tableView));
     tabView->addTab("Tree View", std::move(treeView));
     tabView->addTab("List View", std::move(listView));
-    tabView->addTab("Accordion", std::move(accordionPage));
+    tabView->addTab("Accordion", std::move(accordionScroll));
 
     StringListModel sidebarModel;
-    sidebarModel.append("Overview");
-    sidebarModel.append("Shaders");
-    sidebarModel.append("Pipeline");
-    sidebarModel.append("Telemetry");
+    sidebarModel.append("Inbox");
+    sidebarModel.append("Travel Notes");
+    sidebarModel.append("Reading List");
+    sidebarModel.append("Archive");
 
     auto splitView = std::make_unique<SplitView>(SplitOrientation::Horizontal);
-    splitView->setDpiScale(dpi);
     splitView->setSizeMode(SplitSizeMode::FixedFirst);
     splitView->setFirstPaneSize(220.0f * dpi);
     splitView->setMinFirstPaneSize(150.0f * dpi);
@@ -445,16 +439,14 @@ int main() {
     sidebarPane->setClipsChildren(true);
     sidebarPane->setFlexDirection(FlexDirection::Column);
 
-    auto sidebarHeader = std::make_unique<Label>("Workspace", theme::TypographyStyle::BodyStrong,
+    auto sidebarHeader = std::make_unique<Label>("Notebooks", theme::TypographyStyle::BodyStrong,
                                                  theme::TextRole::Primary);
-    sidebarHeader->setDpiScale(dpi);
     sidebarHeader->style().margin =
         RectLength{Length::points(12.0f * dpi), Length::points(10.0f * dpi),
                    Length::points(12.0f * dpi), Length::points(8.0f * dpi)};
     sidebarPane->addChild(std::move(sidebarHeader));
 
     auto sidebarNav = std::make_unique<ListView>(&sidebarModel);
-    sidebarNav->setDpiScale(dpi);
     sidebarNav->setListStyle(ListStyle::Sidebar);
     sidebarNav->setRowHeight(32.0f * dpi);
     sidebarNav->style().flexGrow = 1.0f;
@@ -474,19 +466,19 @@ int main() {
     detailPane->setRowGap(10.0f * dpi);
     detailPane->style().width = Length::percent(100.0f);
 
-    auto detailTitle = std::make_unique<Label>("Workspace Overview", theme::TypographyStyle::Title,
+    auto detailTitle = std::make_unique<Label>("Weekly Inbox", theme::TypographyStyle::Title,
                                                theme::TextRole::Primary);
     Label* detailTitlePtr = static_cast<Label*>(detailPane->addChild(std::move(detailTitle)));
 
     auto detailBody = std::make_unique<Label>(
-        "Drag the 1px hairline divider to resize panes, or select a sidebar section to inspect "
-        "its runtime profile.",
+        "Drag the divider to resize the sidebar, or choose a notebook on the left to preview "
+        "recent notes and reminders.",
         theme::TypographyStyle::Body, theme::TextRole::Secondary);
-    detailBody->setLineHeightMultiplier(1.45f);
+    detailBody->setLineHeightMultiplier(1.08f);
     Label* detailBodyPtr = static_cast<Label*>(detailPane->addChild(std::move(detailBody)));
 
     auto detailMeta =
-        std::make_unique<Label>("Status: Active / Vulkan 1.3+ / Retained Display List",
+        std::make_unique<Label>("Updated Today at 4:15 PM - 4 Unread Items",
                                 theme::TypographyStyle::Monospace, theme::TextRole::Tertiary);
     Label* detailMetaPtr = static_cast<Label*>(detailPane->addChild(std::move(detailMeta)));
 
@@ -497,28 +489,28 @@ int main() {
                                           detailMetaPtr](const ModelIndex& idx) {
         switch (idx.row) {
         case 0:
-            detailTitlePtr->setText("Workspace Overview");
-            detailBodyPtr->setText("Drag the 1px hairline divider to resize panes, or select a "
-                                   "sidebar section to inspect its runtime profile.");
-            detailMetaPtr->setText("Status: Active / Vulkan 1.3+ / Retained Display List");
+            detailTitlePtr->setText("Weekly Inbox");
+            detailBodyPtr->setText("Drag the divider to resize the sidebar, or choose a notebook "
+                                   "on the left to preview recent notes and reminders.");
+            detailMetaPtr->setText("Updated Today at 4:15 PM - 4 Unread Items");
             break;
         case 1:
-            detailTitlePtr->setText("SDF Shader Pipeline");
-            detailBodyPtr->setText("Rounded rects, borders, and crisp hairlines rasterize in a "
-                                   "single analytic SDF pass with zero MSAA blur.");
-            detailMetaPtr->setText("Pass: BatchRenderer::drawBox / 0.12s OutCubic");
+            detailTitlePtr->setText("Coastal Road Trip");
+            detailBodyPtr->setText("Packed the camping stove, insulated thermos, and offline maps "
+                                   "for the highway scenic route along the northern coast.");
+            detailMetaPtr->setText("Tag: Travel - 3 Days, 2 Stops");
             break;
         case 2:
-            detailTitlePtr->setText("Zero-Heap Flexbox Layout");
-            detailBodyPtr->setText("Thread-local Scratch Arenas resolve flex constraints and "
-                                   "measure caches with deterministic per-frame rollback.");
-            detailMetaPtr->setText("Arena: 64 KB Scratch / FlexSolver v2");
+            detailTitlePtr->setText("Autumn Reading List");
+            detailBodyPtr->setText("Currently reading essays on urban architecture, botanical "
+                                   "illustration, and slow coffee brewing techniques.");
+            detailMetaPtr->setText("Progress: 142 / 280 Pages");
             break;
         case 3:
-            detailTitlePtr->setText("Idle Power Telemetry");
-            detailBodyPtr->setText("Frame ticking suspends cleanly when idle via OS event waits "
-                                   "and resumes on interaction or active springs.");
-            detailMetaPtr->setText("Mode: MsgWaitForMultipleObjectsEx / 0% Idle CPU");
+            detailTitlePtr->setText("Archived Projects");
+            detailBodyPtr->setText("Completed home renovation sketches, spring garden layout, and "
+                                   "last year's tax receipts stored for reference.");
+            detailMetaPtr->setText("Folder: Archive - 18 Files");
             break;
         default:
             break;
@@ -527,59 +519,40 @@ int main() {
 
     SplitView* splitPtr = splitView.get();
     auto toggleBtn = std::make_unique<Button>("Toggle Sidebar", nullptr, ButtonVariant::Secondary);
-    toggleBtn->setDpiScale(dpi);
     toggleBtn->onClicked.connect([splitPtr]() { splitPtr->toggleCollapse(true); });
     detailPane->addChild(std::move(toggleBtn));
 
-    auto typeDiv = std::make_unique<Divider>("Typography Hierarchy");
-    typeDiv->setLabelAlignment(DividerAlignment::Start);
-    typeDiv->setLabelOffset(0.0f);
-    typeDiv->style().width = Length::points(520.0f * dpi);
-    typeDiv->style().margin.top = Length::points(8.0f * dpi);
-    detailPane->addChild(std::move(typeDiv));
+    auto detailCard = std::make_unique<Container>();
+    detailCard->setSurface(SurfaceRole::Default);
+    detailCard->setBorderRole(BorderRole::Subtle);
+    detailCard->setCornerRadius(theme::Metrics::CornerRadiusCard * dpi);
+    detailCard->setFlexDirection(FlexDirection::Column);
+    detailCard->setAlignItems(AlignItems::FlexStart);
+    detailCard->setPadding(16.0f * dpi, 18.0f * dpi);
+    detailCard->setRowGap(6.0f * dpi);
+    detailCard->style().width = Length::percent(100.0f);
+    detailCard->style().maxWidth = Length::points(560.0f * dpi);
+    detailCard->style().margin.top = Length::points(8.0f * dpi);
 
-    auto typeCard = std::make_unique<Container>();
-    typeCard->setSurface(SurfaceRole::Default);
-    typeCard->setBorderRole(BorderRole::Subtle);
-    typeCard->setCornerRadius(theme::Metrics::CornerRadiusCard * dpi);
-    typeCard->setFlexDirection(FlexDirection::Column);
-    typeCard->setAlignItems(AlignItems::FlexStart);
-    typeCard->setPadding(16.0f * dpi, 18.0f * dpi);
-    typeCard->setRowGap(8.0f * dpi);
-    typeCard->style().width = Length::points(520.0f * dpi);
+    detailCard->addChild(std::make_unique<Label>(
+        "Weekend Summary", theme::TypographyStyle::BodyStrong, theme::TextRole::Primary));
+    auto cardCopy = std::make_unique<Label>(
+        "Farmers market opens at 8:00 AM on Saturday. Pick up sourdough, fresh basil, and "
+        "roasted hazelnuts before heading to the botanical gardens.",
+        theme::TypographyStyle::Body, theme::TextRole::Secondary);
+    cardCopy->setLineHeightMultiplier(1.08f);
+    detailCard->addChild(std::move(cardCopy));
+    detailCard->addChild(std::make_unique<Label>("Location: Portland, OR - 62 F Clear",
+                                                 theme::TypographyStyle::Monospace,
+                                                 theme::TextRole::Tertiary));
 
-    typeCard->addChild(std::make_unique<Label>("Display (24pt Bold) - Empty States",
-                                               theme::TypographyStyle::Display,
-                                               theme::TextRole::Primary));
-    typeCard->addChild(std::make_unique<Label>("Title (18pt Bold) - View Headers",
-                                               theme::TypographyStyle::Title,
-                                               theme::TextRole::Primary));
-    typeCard->addChild(std::make_unique<Label>("Subtitle (15pt Regular) - Section Headings",
-                                               theme::TypographyStyle::Subtitle,
-                                               theme::TextRole::Primary));
-    typeCard->addChild(std::make_unique<Label>("BodyStrong (14pt Bold) - Card Titles & Callouts",
-                                               theme::TypographyStyle::BodyStrong,
-                                               theme::TextRole::Primary));
-    auto bodySpec =
-        std::make_unique<Label>("Body (14pt Regular) - Primary reading copy and descriptions.",
-                                theme::TypographyStyle::Body, theme::TextRole::Secondary);
-    bodySpec->setLineHeightMultiplier(1.45f);
-    typeCard->addChild(std::move(bodySpec));
-    typeCard->addChild(std::make_unique<Label>("Monospace (13pt) - 0.12s OutCubic / 64 KB Scratch",
-                                               theme::TypographyStyle::Monospace,
-                                               theme::TextRole::Secondary));
-    typeCard->addChild(
-        std::make_unique<Label>("Caption (12pt Regular) - Metadata, hints, and secondary labels",
-                                theme::TypographyStyle::Caption, theme::TextRole::Tertiary));
-
-    detailPane->addChild(std::move(typeCard));
+    detailPane->addChild(std::move(detailCard));
     detailScroll->addChild(std::move(detailPane));
 
     splitView->setPanes(std::move(sidebarPane), std::move(detailScroll));
     tabView->addTab("Split View", std::move(splitView));
 
     auto controlsScroll = std::make_unique<ScrollView>();
-    controlsScroll->setDpiScale(dpi);
     controlsScroll->setSurface(SurfaceRole::Canvas);
     controlsScroll->style().width = Length::percent(100.0f);
     controlsScroll->style().height = Length::percent(100.0f);
@@ -593,81 +566,132 @@ int main() {
     controlsPage->style().width = Length::percent(100.0f);
 
     auto controlsTitle = std::make_unique<Label>(
-        "Controls & Density", theme::TypographyStyle::Title, theme::TextRole::Primary);
+        "Profile & Preferences", theme::TypographyStyle::Title, theme::TextRole::Primary);
     controlsPage->addChild(std::move(controlsTitle));
 
     auto controlsLead = std::make_unique<Label>(
-        "Compact desktop controls paired with Optical Zinc surfaces and Cobalt focus indicators.",
+        "Configure general account options, text notes, and interactive form controls.",
         theme::TypographyStyle::Body, theme::TextRole::Secondary);
-    controlsLead->setLineHeightMultiplier(1.45f);
     controlsPage->addChild(std::move(controlsLead));
 
-    auto searchInput = std::make_unique<TextInput>("Search settings...", TextInputSize::Standard);
-    searchInput->setDpiScale(dpi);
+    auto columnsRow = std::make_unique<Container>();
+    columnsRow->setFlexDirection(FlexDirection::Row);
+    columnsRow->setAlignItems(AlignItems::FlexStart);
+    columnsRow->setColumnGap(32.0f * dpi);
+    columnsRow->style().width = Length::percent(100.0f);
+
+    auto leftCol = std::make_unique<Container>();
+    leftCol->setFlexDirection(FlexDirection::Column);
+    leftCol->setAlignItems(AlignItems::FlexStart);
+    leftCol->setRowGap(14.0f * dpi);
+    leftCol->style().width = Length::points(380.0f * dpi);
+
+    auto inputDivider = std::make_unique<Divider>("Inputs & Actions");
+    inputDivider->setLabelAlignment(DividerAlignment::Start);
+    inputDivider->setLabelOffset(0.0f);
+    inputDivider->style().width = Length::percent(100.0f);
+    leftCol->addChild(std::move(inputDivider));
+
+    auto searchInput =
+        std::make_unique<TextInput>("Search contacts or tags...", TextInputSize::Standard);
     searchInput->setLeadingIcon(IconId::Search);
     searchInput->setClearButtonEnabled(true);
-    searchInput->style().width = Length::points(320.0f * dpi);
-    controlsPage->addChild(std::move(searchInput));
-
-    auto actionsDivider = std::make_unique<Divider>("Actions");
-    actionsDivider->setLabelAlignment(DividerAlignment::Start);
-    actionsDivider->setLabelOffset(0.0f);
-    actionsDivider->style().width = Length::points(360.0f * dpi);
-    controlsPage->addChild(std::move(actionsDivider));
+    searchInput->style().width = Length::percent(100.0f);
+    leftCol->addChild(std::move(searchInput));
 
     auto btnRow = std::make_unique<Container>();
     btnRow->setFlexDirection(FlexDirection::Row);
     btnRow->setAlignItems(AlignItems::Center);
     btnRow->setColumnGap(10.0f * dpi);
 
-    auto primaryBtn = std::make_unique<Button>("Continue", nullptr, ButtonVariant::Primary);
-    primaryBtn->setTooltip("Apply active settings", "Ctrl+Enter");
+    auto primaryBtn = std::make_unique<Button>("Save Changes", nullptr, ButtonVariant::Primary);
+    primaryBtn->setTooltip("Save active changes", "Ctrl+S");
     Button* primaryPtr = static_cast<Button*>(btnRow->addChild(std::move(primaryBtn)));
 
-    auto secondaryBtn = std::make_unique<Button>("Cancel", nullptr, ButtonVariant::Secondary);
+    auto secondaryBtn = std::make_unique<Button>("Reset", nullptr, ButtonVariant::Secondary);
     btnRow->addChild(std::move(secondaryBtn));
 
-    auto outlineBtn = std::make_unique<Button>("Loading", IconId::Settings, ButtonVariant::Outline);
+    auto outlineBtn = std::make_unique<Button>("Sync", IconId::Settings, ButtonVariant::Outline);
     Button* outlinePtr = static_cast<Button*>(btnRow->addChild(std::move(outlineBtn)));
     outlinePtr->onClicked.connect(
         [primaryPtr]() { primaryPtr->setLoading(!primaryPtr->isLoading()); });
+    leftCol->addChild(std::move(btnRow));
 
-    controlsPage->addChild(std::move(btnRow));
+    auto textArea = std::make_unique<TextArea>("Write a quick note or bio...");
+    textArea->setText(
+        "Morning coffee by the window, checking the weather forecast before heading out.\n"
+        "Remember to pick up fresh tomatoes and olive oil on the way home.");
+    textArea->style().width = Length::percent(100.0f);
+    textArea->style().height = Length::points(120.0f * dpi);
+    TextArea* textAreaPtr = textArea.get();
 
-    auto optionsDivider = std::make_unique<Divider>("Options");
+    auto editorOpts = std::make_unique<Container>();
+    editorOpts->setFlexDirection(FlexDirection::Row);
+    editorOpts->setAlignItems(AlignItems::Center);
+    editorOpts->setColumnGap(14.0f * dpi);
+    auto wrapCheck = std::make_unique<Checkbox>("Word Wrap", true);
+    wrapCheck->onCheckedChanged.connect([textAreaPtr](bool wrapped) {
+        textAreaPtr->setWordWrap(wrapped ? northern::text::WordWrap::Word
+                                         : northern::text::WordWrap::None);
+    });
+    auto lineNumCheck = std::make_unique<Checkbox>("Line Numbers", false);
+    lineNumCheck->onCheckedChanged.connect(
+        [textAreaPtr](bool show) { textAreaPtr->setShowLineNumbers(show); });
+    editorOpts->addChild(std::move(wrapCheck));
+    editorOpts->addChild(std::move(lineNumCheck));
+
+    leftCol->addChild(std::move(textArea));
+    leftCol->addChild(std::move(editorOpts));
+
+    auto rightCol = std::make_unique<Container>();
+    rightCol->setFlexDirection(FlexDirection::Column);
+    rightCol->setAlignItems(AlignItems::FlexStart);
+    rightCol->setRowGap(14.0f * dpi);
+    rightCol->style().width = Length::points(380.0f * dpi);
+
+    auto optionsDivider = std::make_unique<Divider>("Selection & Range");
     optionsDivider->setLabelAlignment(DividerAlignment::Start);
     optionsDivider->setLabelOffset(0.0f);
-    optionsDivider->style().width = Length::points(360.0f * dpi);
-    controlsPage->addChild(std::move(optionsDivider));
+    optionsDivider->style().width = Length::percent(100.0f);
+    rightCol->addChild(std::move(optionsDivider));
 
-    auto toggleSwitch = std::make_unique<Switch>("Hardware Acceleration", true);
-    toggleSwitch->setTooltip("GPU Acceleration", "Ctrl+Shift+H",
-                             "Uses the Vulkan 1.3+ hardware-accelerated rendering pipeline.");
-    controlsPage->addChild(std::move(toggleSwitch));
+    auto toggleSwitch = std::make_unique<Switch>("Desktop Notifications", true);
+    toggleSwitch->setTooltip("Notifications", "Ctrl+Shift+N",
+                             "Show desktop banners for new messages and calendar alerts.");
+    rightCol->addChild(std::move(toggleSwitch));
 
-    auto checkItem = std::make_unique<Checkbox>("Enable Optical Zinc Validation", true);
-    auto triCheck = std::make_unique<Checkbox>("Batch Sync (Tristate)", CheckState::Indeterminate);
+    auto checkItem = std::make_unique<Checkbox>("Enable Automatic Backups", true);
+    auto triCheck =
+        std::make_unique<Checkbox>("Include Media (Tristate)", CheckState::Indeterminate);
     triCheck->setTristate(true);
     Checkbox* triPtr = triCheck.get();
     checkItem->onCheckedChanged.connect([triPtr](bool enabled) { triPtr->setEnabled(enabled); });
-    controlsPage->addChild(std::move(checkItem));
-    controlsPage->addChild(std::move(triCheck));
+    rightCol->addChild(std::move(checkItem));
+    rightCol->addChild(std::move(triCheck));
+
+    auto radioGroup = std::make_unique<RadioGroup>(RadioGroupOrientation::Horizontal);
+    radioGroup->setGap(14.0f * dpi);
+    radioGroup->addRadioButton(std::make_unique<RadioButton>("Daily"));
+    radioGroup->addRadioButton(std::make_unique<RadioButton>("Weekly"));
+    radioGroup->addRadioButton(std::make_unique<RadioButton>("Monthly"));
+    radioGroup->setSelectedIndex(1);
+    rightCol->addChild(std::move(radioGroup));
 
     auto progressBar = std::make_unique<ProgressBar>(0.65f, false);
     progressBar->setShowValue(true);
-    progressBar->style().width = Length::points(320.0f * dpi);
+    progressBar->style().width = Length::percent(100.0f);
     ProgressBar* progressPtr = progressBar.get();
 
     auto slider = std::make_unique<Slider>(0.0f, 100.0f, 65.0f);
     slider->setStep(5.0f);
     slider->setShowValue(true);
-    slider->setTooltip("Adjust render quality scale", "Left/Right");
-    slider->style().width = Length::points(320.0f * dpi);
+    slider->setTooltip("Adjust volume level", "Left/Right");
+    slider->style().width = Length::percent(100.0f);
     slider->onValueChanged.connect(
         [progressPtr](float v) { progressPtr->setProgress(v / 100.0f); });
 
-    controlsPage->addChild(std::move(slider));
-    controlsPage->addChild(std::move(progressBar));
+    rightCol->addChild(std::move(slider));
+    rightCol->addChild(std::move(progressBar));
 
     auto interactiveCard = std::make_unique<Container>();
     interactiveCard->setSurface(SurfaceRole::Default);
@@ -678,17 +702,15 @@ int main() {
     interactiveCard->setPadding(12.0f * dpi, 16.0f * dpi);
     interactiveCard->setRowGap(4.0f * dpi);
     interactiveCard->setInteractive(true);
-    interactiveCard->style().width = Length::points(320.0f * dpi);
+    interactiveCard->style().width = Length::percent(100.0f);
 
-    auto cardTitle = std::make_unique<Label>("Interactive Card", theme::TypographyStyle::BodyStrong,
+    auto cardTitle = std::make_unique<Label>("Quick Counter", theme::TypographyStyle::BodyStrong,
                                              theme::TextRole::Primary);
-    cardTitle->setDpiScale(dpi);
     interactiveCard->addChild(std::move(cardTitle));
 
     auto cardSubtitle =
         std::make_unique<Label>("Click or press Enter/Space (0 clicks)",
                                 theme::TypographyStyle::Caption, theme::TextRole::Secondary);
-    cardSubtitle->setDpiScale(dpi);
     Label* cardSubPtr = static_cast<Label*>(interactiveCard->addChild(std::move(cardSubtitle)));
 
     auto cardClickCount = std::make_shared<int>(0);
@@ -697,15 +719,218 @@ int main() {
         cardSubPtr->setText("Click or press Enter/Space (" + std::to_string(*cardClickCount) +
                             (*cardClickCount == 1 ? " click)" : " clicks)"));
     });
-    controlsPage->addChild(std::move(interactiveCard));
+    rightCol->addChild(std::move(interactiveCard));
+
+    columnsRow->addChild(std::move(leftCol));
+    columnsRow->addChild(std::move(rightCol));
+    controlsPage->addChild(std::move(columnsRow));
 
     controlsScroll->addChild(std::move(controlsPage));
     tabView->addTab("Controls", std::move(controlsScroll));
 
+    // Media & Tags Tab
+    auto mediaScroll = std::make_unique<ScrollView>();
+    mediaScroll->setSurface(SurfaceRole::Canvas);
+    mediaScroll->style().width = Length::percent(100.0f);
+    mediaScroll->style().height = Length::percent(100.0f);
+
+    auto mediaPage = std::make_unique<Container>();
+    mediaPage->setSurface(SurfaceRole::Canvas);
+    mediaPage->setFlexDirection(FlexDirection::Column);
+    mediaPage->setAlignItems(AlignItems::FlexStart);
+    mediaPage->setPadding(24.0f * dpi);
+    mediaPage->setRowGap(16.0f * dpi);
+    mediaPage->style().width = Length::percent(100.0f);
+
+    mediaPage->addChild(std::make_unique<Label>("Media & Tags", theme::TypographyStyle::Title,
+                                                theme::TextRole::Primary));
+    mediaPage->addChild(std::make_unique<Label>(
+        "GPU-cached RGBA images with SDF rounded corners, user avatars, and semantic badges.",
+        theme::TypographyStyle::Body, theme::TextRole::Secondary));
+
+    auto makeSunsetImage = [](uint32_t w, uint32_t h) {
+        std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4u);
+        for (uint32_t y = 0; y < h; ++y) {
+            float fy = static_cast<float>(y) / static_cast<float>(h - 1);
+            for (uint32_t x = 0; x < w; ++x) {
+                float fx = static_cast<float>(x) / static_cast<float>(w - 1);
+                float dx = fx - 0.72f;
+                float dy = fy - 0.34f;
+                float sunDist = std::sqrt(dx * dx + dy * dy);
+                float sun = std::clamp(1.0f - (sunDist - 0.10f) * 14.0f, 0.0f, 1.0f);
+                float ridge = 0.62f + 0.07f * std::sin(fx * 7.5f) + 0.03f * std::cos(fx * 17.0f);
+                float r = (1.0f - fy) * 0.92f + fy * 0.16f;
+                float g = (1.0f - fy) * 0.45f + fy * 0.22f;
+                float b = (1.0f - fy) * 0.38f + fy * 0.48f;
+                if (fy > ridge) {
+                    r *= 0.28f;
+                    g *= 0.34f;
+                    b *= 0.46f;
+                } else if (sun > 0.0f) {
+                    r = r * (1.0f - sun) + 1.0f * sun;
+                    g = g * (1.0f - sun) + 0.88f * sun;
+                    b = b * (1.0f - sun) + 0.62f * sun;
+                }
+                size_t idx = (static_cast<size_t>(y) * w + x) * 4u;
+                px[idx + 0] = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
+                px[idx + 1] = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
+                px[idx + 2] = static_cast<uint8_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
+                px[idx + 3] = 255;
+            }
+        }
+        return Image::fromPixels(w, h, px).valueOr(nullptr);
+    };
+
+    auto makeAvatarImage = [](uint32_t s) {
+        std::vector<uint8_t> px(static_cast<size_t>(s) * s * 4u);
+        for (uint32_t y = 0; y < s; ++y) {
+            float fy = static_cast<float>(y) / static_cast<float>(s - 1);
+            for (uint32_t x = 0; x < s; ++x) {
+                float fx = static_cast<float>(x) / static_cast<float>(s - 1);
+                float r = 0.15f + 0.45f * fx;
+                float g = 0.42f + 0.35f * (1.0f - fy);
+                float b = 0.88f - 0.25f * fx;
+                size_t idx = (static_cast<size_t>(y) * s + x) * 4u;
+                px[idx + 0] = static_cast<uint8_t>(r * 255.0f);
+                px[idx + 1] = static_cast<uint8_t>(g * 255.0f);
+                px[idx + 2] = static_cast<uint8_t>(b * 255.0f);
+                px[idx + 3] = 255;
+            }
+        }
+        return Image::fromPixels(s, s, px).valueOr(nullptr);
+    };
+
+    auto samplePhoto = makeSunsetImage(320, 180);
+    auto samplePortrait = makeAvatarImage(96);
+
+    auto mediaColumns = std::make_unique<Container>();
+    mediaColumns->setFlexDirection(FlexDirection::Row);
+    mediaColumns->setAlignItems(AlignItems::FlexStart);
+    mediaColumns->setColumnGap(32.0f * dpi);
+    mediaColumns->style().width = Length::percent(100.0f);
+
+    auto imgCol = std::make_unique<Container>();
+    imgCol->setFlexDirection(FlexDirection::Column);
+    imgCol->setAlignItems(AlignItems::FlexStart);
+    imgCol->setRowGap(12.0f * dpi);
+    imgCol->style().width = Length::points(340.0f * dpi);
+
+    auto fitSegmented = std::make_unique<TabBar>();
+    fitSegmented->setTabBarStyle(TabBarStyle::Segmented);
+    fitSegmented->setTabHeight(30.0f * dpi);
+    fitSegmented->style().width = Length::points(240.0f * dpi);
+    fitSegmented->addTab("Cover");
+    fitSegmented->addTab("Contain");
+    fitSegmented->addTab("Fill");
+    fitSegmented->setSelectedIndex(0);
+    TabBar* fitPtr = fitSegmented.get();
+    imgCol->addChild(std::move(fitSegmented));
+
+    auto photoView = std::make_unique<ImageView>(samplePhoto, ImageFit::Cover);
+    photoView->setCornerRadius(theme::Metrics::CornerRadiusCard * dpi);
+    photoView->setShowBorder(true);
+    photoView->style().width = Length::points(340.0f * dpi);
+    photoView->style().height = Length::points(190.0f * dpi);
+    ImageView* photoPtr = photoView.get();
+    imgCol->addChild(std::move(photoView));
+
+    fitPtr->onTabSelected.connect([photoPtr](int idx) {
+        if (idx == 0) {
+            photoPtr->setFit(ImageFit::Cover);
+        } else if (idx == 1) {
+            photoPtr->setFit(ImageFit::Contain);
+        } else {
+            photoPtr->setFit(ImageFit::Fill);
+        }
+    });
+
+    auto metaCol = std::make_unique<Container>();
+    metaCol->setFlexDirection(FlexDirection::Column);
+    metaCol->setAlignItems(AlignItems::FlexStart);
+    metaCol->setRowGap(14.0f * dpi);
+    metaCol->style().width = Length::points(380.0f * dpi);
+
+    auto avDivider = std::make_unique<Divider>("Avatars & Presence");
+    avDivider->setLabelAlignment(DividerAlignment::Start);
+    avDivider->setLabelOffset(0.0f);
+    avDivider->style().width = Length::percent(100.0f);
+    metaCol->addChild(std::move(avDivider));
+
+    auto avatarRow = std::make_unique<Container>();
+    avatarRow->setFlexDirection(FlexDirection::Row);
+    avatarRow->setAlignItems(AlignItems::Center);
+    avatarRow->setColumnGap(14.0f * dpi);
+
+    auto av1 = std::make_unique<Avatar>(samplePortrait, "Maya Lin", AvatarSize::XLarge,
+                                        AvatarShape::Circle);
+    av1->setStatus(AvatarStatus::Online);
+    auto av2 = std::make_unique<Avatar>("Liam Carter", AvatarSize::Large, AvatarShape::Circle);
+    av2->setStatus(AvatarStatus::Busy);
+    auto av3 = std::make_unique<Avatar>("Sofia Rossi", AvatarSize::Medium, AvatarShape::Rounded);
+    av3->setStatus(AvatarStatus::Away);
+    auto av4 = std::make_unique<Avatar>("Noah Patel", AvatarSize::Small, AvatarShape::Circle);
+    av4->setStatus(AvatarStatus::Offline);
+    avatarRow->addChild(std::move(av1));
+    avatarRow->addChild(std::move(av2));
+    avatarRow->addChild(std::move(av3));
+    avatarRow->addChild(std::move(av4));
+    metaCol->addChild(std::move(avatarRow));
+
+    auto badgeDivider = std::make_unique<Divider>("Badges & Dismissible Tags");
+    badgeDivider->setLabelAlignment(DividerAlignment::Start);
+    badgeDivider->setLabelOffset(0.0f);
+    badgeDivider->style().width = Length::percent(100.0f);
+    metaCol->addChild(std::move(badgeDivider));
+
+    auto badgeRow1 = std::make_unique<Container>();
+    badgeRow1->setFlexDirection(FlexDirection::Row);
+    badgeRow1->setAlignItems(AlignItems::Center);
+    badgeRow1->setColumnGap(8.0f * dpi);
+    auto bLive = std::make_unique<Badge>("Online", BadgeRole::Success, BadgeVariant::Subtle);
+    bLive->setShowDot(true);
+    badgeRow1->addChild(std::move(bLive));
+    badgeRow1->addChild(
+        std::make_unique<Badge>("Featured", BadgeRole::Accent, BadgeVariant::Solid));
+    badgeRow1->addChild(
+        std::make_unique<Badge>("Review", BadgeRole::Warning, BadgeVariant::Outline));
+    badgeRow1->addChild(std::make_unique<Badge>("Draft", BadgeRole::Neutral, BadgeVariant::Subtle));
+    metaCol->addChild(std::move(badgeRow1));
+
+    auto tagRow = std::make_unique<Container>();
+    tagRow->setFlexDirection(FlexDirection::Row);
+    tagRow->setAlignItems(AlignItems::Center);
+    tagRow->setColumnGap(8.0f * dpi);
+    std::vector<Badge*> tagPtrs;
+    for (const char* tagName : {"Travel", "Photography", "Design"}) {
+        auto tag = std::make_unique<Badge>(tagName, BadgeRole::Info, BadgeVariant::Subtle);
+        tag->setDismissible(true);
+        Badge* rawTag = tag.get();
+        rawTag->onDismissed.connect([rawTag]() { rawTag->setVisible(false); });
+        tagPtrs.push_back(rawTag);
+        tagRow->addChild(std::move(tag));
+    }
+    metaCol->addChild(std::move(tagRow));
+
+    auto restoreTagsBtn = std::make_unique<Button>("Restore Tags", nullptr,
+                                                   ButtonVariant::Secondary, ButtonSize::Compact);
+    restoreTagsBtn->onClicked.connect([tagPtrs]() {
+        for (Badge* t : tagPtrs) {
+            t->setVisible(true);
+        }
+    });
+    metaCol->addChild(std::move(restoreTagsBtn));
+
+    mediaColumns->addChild(std::move(imgCol));
+    mediaColumns->addChild(std::move(metaCol));
+    mediaPage->addChild(std::move(mediaColumns));
+    mediaScroll->addChild(std::move(mediaPage));
+    tabView->addTab("Media & Tags", std::move(mediaScroll));
+
     root->addChild(std::move(tabView));
 
     uiContext.setRootWidget(std::move(root));
-    uiContext.handleResize(window->size());
+    uiContext.handleResize(core::Size{static_cast<float>(window->physicalSize().width),
+                                      static_cast<float>(window->physicalSize().height)});
 
     ClearColor clearColor{uiContext.theme().colors().surfaceCanvas.r,
                           uiContext.theme().colors().surfaceCanvas.g,
@@ -722,7 +947,8 @@ int main() {
             if (res.isErr()) {
                 std::cerr << "[Resize Error] " << res.error().message << std::endl;
             }
-            uiContext.handleResize(ev.size);
+            uiContext.handleResize(core::Size{static_cast<float>(ev.physicalSize.width),
+                                              static_cast<float>(ev.physicalSize.height)});
         }
     });
 

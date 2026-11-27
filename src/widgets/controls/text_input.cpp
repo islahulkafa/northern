@@ -168,22 +168,22 @@ std::shared_ptr<text::Font> TextInput::effectiveFont() const {
         return font_;
     }
     if (!resolvedDefaultFont_) {
-        float basePt = 10.5f;
+        float basePx = 14.0f;
         switch (size_) {
         case TextInputSize::Compact:
-            basePt = 9.5f;
+            basePx = 12.5f;
             break;
         case TextInputSize::Comfortable:
-            basePt = 11.5f;
+            basePx = 14.5f;
             break;
         case TextInputSize::Standard:
         default:
-            basePt = 10.5f;
+            basePx = 14.0f;
             break;
         }
         float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
         resolvedDefaultFont_ =
-            text::FontManager::instance().defaultFont(basePt * scale).valueOr(nullptr);
+            text::FontManager::instance().defaultFont(basePx * scale).valueOr(nullptr);
     }
     return resolvedDefaultFont_;
 }
@@ -1097,7 +1097,7 @@ void TextInput::paint(renderer::PaintContext& ctx) {
         auto f = effectiveFont();
         float textX = textClipRect.origin.x - scrollOffset_;
         float textY = f ? theme::computeCenteredTextY(targetCenterY, *f) : targetCenterY;
-        float cursorH = f ? std::min(textClipRect.size.height, f->pointSize() * 1.3f) : 16.0f;
+        float cursorH = f ? std::min(textClipRect.size.height, f->pixelSize() * 1.15f) : 15.0f;
         float cursorY = targetCenterY - cursorH * 0.5f;
 
         if (text_.empty() && !placeholder_.empty() && f) {

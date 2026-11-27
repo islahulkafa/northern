@@ -31,9 +31,11 @@ VulkanDevice::~VulkanDevice() {
 
     if (pipelineCache_ != VK_NULL_HANDLE) {
         size_t cacheSize = 0;
-        if (vkGetPipelineCacheData(device_, pipelineCache_, &cacheSize, nullptr) == VK_SUCCESS && cacheSize > 0) {
+        if (vkGetPipelineCacheData(device_, pipelineCache_, &cacheSize, nullptr) == VK_SUCCESS &&
+            cacheSize > 0) {
             std::vector<char> cacheBuf(cacheSize);
-            if (vkGetPipelineCacheData(device_, pipelineCache_, &cacheSize, cacheBuf.data()) == VK_SUCCESS) {
+            if (vkGetPipelineCacheData(device_, pipelineCache_, &cacheSize, cacheBuf.data()) ==
+                VK_SUCCESS) {
                 std::ofstream outFile("build/pipeline_cache.bin", std::ios::binary);
                 if (outFile.is_open()) {
                     outFile.write(cacheBuf.data(), static_cast<std::streamsize>(cacheSize));
@@ -49,6 +51,9 @@ VulkanDevice::~VulkanDevice() {
     for (auto& r : retiredResources_) {
         if (r.cmdBuffer != VK_NULL_HANDLE && commandPool_ != VK_NULL_HANDLE) {
             vkFreeCommandBuffers(device_, commandPool_, 1, &r.cmdBuffer);
+        }
+        if (r.descriptorSet != VK_NULL_HANDLE && descriptorPool_ != VK_NULL_HANDLE) {
+            vkFreeDescriptorSets(device_, descriptorPool_, 1, &r.descriptorSet);
         }
     }
     retiredResources_.clear();
@@ -132,7 +137,8 @@ VulkanDevice::create(const DeviceDesc& desc) {
         return res.error();
     }
 
-    device->stagingPool_ = std::make_unique<VulkanStagingPool>(device->device_, *device->allocator_);
+    device->stagingPool_ =
+        std::make_unique<VulkanStagingPool>(device->device_, *device->allocator_);
 
     return device;
 }
@@ -302,9 +308,16 @@ core::Result<void, core::Error> VulkanDevice::createLogicalDevice() {
     features12.pNext = &features13;
     features12.timelineSemaphore = VK_TRUE;
 
+    VkPhysicalDeviceFeatures supportedFeatures{};
+    vkGetPhysicalDeviceFeatures(physicalDevice_, &supportedFeatures);
+    dualSrcBlendSupported_ = (supportedFeatures.dualSrcBlend == VK_TRUE);
+
     VkPhysicalDeviceFeatures2 features2{};
     features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     features2.pNext = &features12;
+    if (dualSrcBlendSupported_) {
+        features2.features.dualSrcBlend = VK_TRUE;
+    }
 
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -342,12 +355,12 @@ core::Result<void, core::Error> VulkanDevice::createCommandPool() {
 
 core::Result<void, core::Error> VulkanDevice::createDescriptorPool() {
     VkDescriptorPoolSize poolSizes[] = {
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 512},
     };
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    poolInfo.maxSets = 128;
+    poolInfo.maxSets = 512;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = poolSizes;
 
@@ -447,7 +460,7 @@ void* VulkanDevice::mapBuffer(BufferHandle handle) {
 
 core::Result<TextureHandle, core::Error> VulkanDevice::createTexture(const TextureDesc& desc,
                                                                      const void* initialData) {
-    auto texRes = VulkanTexture::create(device_, *allocator_, desc);
+    auto texRes = VulkanTexture::create(device_, *allocator_, desc, &desc.sampler);
     if (texRes.isErr()) {
         return texRes.error();
     }
@@ -562,8 +575,8 @@ core::Result<void, core::Error> VulkanDevice::writeTexture(TextureHandle handle,
     region.imageOffset = {static_cast<int32_t>(x), static_cast<int32_t>(y), 0};
     region.imageExtent = {width, height, 1};
 
-    vkCmdCopyBufferToImage(cmd, slice.buffer, tex->image(),
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    vkCmdCopyBufferToImage(cmd, slice.buffer, tex->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                           &region);
 
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -627,6 +640,10 @@ void VulkanDevice::destroyBuffer(BufferHandle handle) {
 void VulkanDevice::destroyTexture(TextureHandle handle) {
     for (auto it = descriptorSetCache_.begin(); it != descriptorSetCache_.end();) {
         if ((it->first & 0xFFFFFFFF) == handle.index) {
+            RetiredResource retiredSet{};
+            retiredSet.timelineValue = currentTimelineValue_;
+            retiredSet.descriptorSet = it->second;
+            retiredResources_.push_back(std::move(retiredSet));
             it = descriptorSetCache_.erase(it);
         } else {
             ++it;
@@ -646,6 +663,10 @@ void VulkanDevice::destroyTexture(TextureHandle handle) {
 void VulkanDevice::destroyPipeline(PipelineHandle handle) {
     for (auto it = descriptorSetCache_.begin(); it != descriptorSetCache_.end();) {
         if ((it->first >> 32) == handle.index) {
+            RetiredResource retiredSet{};
+            retiredSet.timelineValue = currentTimelineValue_;
+            retiredSet.descriptorSet = it->second;
+            retiredResources_.push_back(std::move(retiredSet));
             it = descriptorSetCache_.erase(it);
         } else {
             ++it;
@@ -801,15 +822,21 @@ void VulkanDevice::retireResources() {
 
     if (!retiredResources_.empty()) {
         for (auto& r : retiredResources_) {
-            if (r.timelineValue <= completedValue && r.cmdBuffer != VK_NULL_HANDLE &&
-                commandPool_ != VK_NULL_HANDLE) {
-                vkFreeCommandBuffers(device_, commandPool_, 1, &r.cmdBuffer);
-                r.cmdBuffer = VK_NULL_HANDLE;
+            if (r.timelineValue <= completedValue) {
+                if (r.cmdBuffer != VK_NULL_HANDLE && commandPool_ != VK_NULL_HANDLE) {
+                    vkFreeCommandBuffers(device_, commandPool_, 1, &r.cmdBuffer);
+                    r.cmdBuffer = VK_NULL_HANDLE;
+                }
+                if (r.descriptorSet != VK_NULL_HANDLE && descriptorPool_ != VK_NULL_HANDLE) {
+                    vkFreeDescriptorSets(device_, descriptorPool_, 1, &r.descriptorSet);
+                    r.descriptorSet = VK_NULL_HANDLE;
+                }
             }
         }
-        auto it = std::remove_if(
-            retiredResources_.begin(), retiredResources_.end(),
-            [completedValue](const RetiredResource& r) { return r.timelineValue <= completedValue; });
+        auto it = std::remove_if(retiredResources_.begin(), retiredResources_.end(),
+                                 [completedValue](const RetiredResource& r) {
+                                     return r.timelineValue <= completedValue;
+                                 });
         retiredResources_.erase(it, retiredResources_.end());
     }
 }

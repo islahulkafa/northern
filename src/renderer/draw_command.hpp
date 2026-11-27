@@ -2,6 +2,8 @@
 
 #include "core/math/color.hpp"
 #include "core/math/geometry.hpp"
+#include "graphics/types.hpp"
+#include "renderer/image/image.hpp"
 #include "renderer/svg/svg_document.hpp"
 #include "text/font.hpp"
 #include "text/types.hpp"
@@ -39,6 +41,17 @@ struct DrawSvgCommand {
     core::Color tintColor{1.0f, 1.0f, 1.0f, 1.0f};
 };
 
+struct DrawImageCommand {
+    std::shared_ptr<const Image::Impl> imageImpl;
+    core::Rect rect;
+    core::Rect uvRect{0.0f, 0.0f, 1.0f, 1.0f};
+    core::Color tintColor{1.0f, 1.0f, 1.0f, 1.0f};
+    core::Color borderColor{0.0f, 0.0f, 0.0f, 0.0f};
+    float borderWidth{0.0f};
+    float cornerRadii[4]{0.0f, 0.0f, 0.0f, 0.0f};
+    graphics::Filter filter{graphics::Filter::Linear};
+};
+
 struct PushClipCommand {
     core::Rect clipRect;
 };
@@ -46,6 +59,6 @@ struct PushClipCommand {
 struct PopClipCommand {};
 
 using DrawCommand = std::variant<DrawBoxCommand, DrawLineCommand, DrawGlyphsCommand, DrawSvgCommand,
-                                 PushClipCommand, PopClipCommand>;
+                                 DrawImageCommand, PushClipCommand, PopClipCommand>;
 
 } // namespace northern::renderer

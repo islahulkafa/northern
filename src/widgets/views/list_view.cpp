@@ -103,8 +103,8 @@ std::shared_ptr<text::Font> ListView::effectiveFont() const {
         return font_;
     }
     if (!resolvedDefaultFont_) {
-        float pt = 10.5f * dpiScale_;
-        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+        float px = 13.5f * dpiScale_;
+        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(px).valueOr(nullptr);
     }
     return resolvedDefaultFont_;
 }

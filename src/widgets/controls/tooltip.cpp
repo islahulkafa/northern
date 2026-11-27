@@ -10,8 +10,8 @@
 namespace northern::widgets {
 
 namespace {
-constexpr float kPrimaryDefaultPt = 10.5f;
-constexpr float kSecondaryDefaultPt = 9.5f;
+constexpr float kPrimaryDefaultPt = 13.0f;
+constexpr float kSecondaryDefaultPt = 12.0f;
 } // namespace
 
 Tooltip::Tooltip() : Tooltip("", "", nullptr, "") {}
@@ -100,9 +100,9 @@ std::shared_ptr<text::Font> Tooltip::effectiveFont() const {
 std::shared_ptr<text::Font> Tooltip::effectiveDescriptionFont() const {
     if (!resolvedDescFont_) {
         float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
-        float pt =
-            font_ ? std::max(8.0f, font_->pointSize() - 1.0f) : (kSecondaryDefaultPt * scale);
-        resolvedDescFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+        float px =
+            font_ ? std::max(10.0f, font_->pixelSize() - 1.5f) : (kSecondaryDefaultPt * scale);
+        resolvedDescFont_ = text::FontManager::instance().defaultFont(px).valueOr(nullptr);
     }
     return resolvedDescFont_;
 }
@@ -110,9 +110,9 @@ std::shared_ptr<text::Font> Tooltip::effectiveDescriptionFont() const {
 std::shared_ptr<text::Font> Tooltip::effectiveShortcutFont() const {
     if (!resolvedShortcutFont_) {
         float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
-        float pt =
-            font_ ? std::max(8.0f, font_->pointSize() - 1.0f) : (kSecondaryDefaultPt * scale);
-        resolvedShortcutFont_ = text::FontManager::instance().monospaceFont(pt).valueOr(nullptr);
+        float px =
+            font_ ? std::max(10.0f, font_->pixelSize() - 1.5f) : (kSecondaryDefaultPt * scale);
+        resolvedShortcutFont_ = text::FontManager::instance().monospaceFont(px).valueOr(nullptr);
     }
     return resolvedShortcutFont_;
 }

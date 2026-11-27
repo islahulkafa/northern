@@ -316,15 +316,15 @@ std::shared_ptr<text::Font> ContextMenu::effectiveFont() const {
     }
     if (!resolvedDefaultFont_) {
         resolvedDefaultFont_ =
-            text::FontManager::instance().defaultFont(11.0f * dpiScale_).valueOr(nullptr);
+            text::FontManager::instance().defaultFont(13.5f * dpiScale_).valueOr(nullptr);
     }
     return resolvedDefaultFont_;
 }
 
 std::shared_ptr<text::Font> ContextMenu::subtitleFont() const {
     if (!resolvedSubtitleFont_) {
-        float basePt = font_ ? std::max(8.0f, font_->pointSize() - 1.5f) : (9.5f * dpiScale_);
-        resolvedSubtitleFont_ = text::FontManager::instance().defaultFont(basePt).valueOr(nullptr);
+        float basePx = font_ ? std::max(10.0f, font_->pixelSize() - 2.0f) : (12.0f * dpiScale_);
+        resolvedSubtitleFont_ = text::FontManager::instance().defaultFont(basePx).valueOr(nullptr);
     }
     return resolvedSubtitleFont_;
 }

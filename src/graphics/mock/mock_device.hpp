@@ -36,8 +36,8 @@ public:
     void bindTexture(uint32_t set, uint32_t binding, TextureHandle texture) override;
     void bindVertexBuffer(uint32_t binding, BufferHandle buffer, uint64_t offset) override;
     void bindIndexBuffer(BufferHandle buffer, uint64_t offset, IndexType indexType) override;
-    void pushConstants(PipelineHandle pipeline, ShaderStage stage, uint32_t offset,
-                       uint32_t size, const void* data) override;
+    void pushConstants(PipelineHandle pipeline, ShaderStage stage, uint32_t offset, uint32_t size,
+                       const void* data) override;
     void draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
               uint32_t firstInstance) override;
     void drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
@@ -111,9 +111,10 @@ public:
     [[nodiscard]] core::Result<TextureHandle, core::Error>
     createTexture(const TextureDesc& desc, const void* initialData = nullptr) override;
 
-    [[nodiscard]] core::Result<void, core::Error>
-    writeTexture(TextureHandle handle, uint32_t x, uint32_t y, uint32_t width,
-                 uint32_t height, const void* data) override;
+    [[nodiscard]] core::Result<void, core::Error> writeTexture(TextureHandle handle, uint32_t x,
+                                                               uint32_t y, uint32_t width,
+                                                               uint32_t height,
+                                                               const void* data) override;
 
     [[nodiscard]] core::Result<PipelineHandle, core::Error>
     createPipeline(const PipelineDesc& desc) override;
@@ -122,11 +123,18 @@ public:
     void destroyTexture(TextureHandle handle) override;
     void destroyPipeline(PipelineHandle handle) override;
 
-    [[nodiscard]] core::Result<void, core::Error>
-    submit(CommandBuffer* cmdBuffer, Swapchain* swapchain = nullptr) override;
+    [[nodiscard]] core::Result<void, core::Error> submit(CommandBuffer* cmdBuffer,
+                                                         Swapchain* swapchain = nullptr) override;
 
     void advanceFrame() override;
     void waitIdle() override;
+
+    [[nodiscard]] bool supportsDualSourceBlending() const noexcept override {
+        return dualSrcBlendSupported_;
+    }
+    void setDualSourceBlendingSupported(bool supported) noexcept {
+        dualSrcBlendSupported_ = supported;
+    }
 
     [[nodiscard]] MockBufferData* getBuffer(BufferHandle handle);
     [[nodiscard]] MockTextureData* getTexture(TextureHandle handle);
@@ -139,6 +147,7 @@ private:
     core::HandlePool<PipelineDesc, PipelineTag> pipelinePool_{};
     uint64_t frameCount_{0};
     uint64_t submitCount_{0};
+    bool dualSrcBlendSupported_{false};
 };
 
 } // namespace northern::graphics

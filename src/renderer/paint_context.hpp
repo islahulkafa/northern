@@ -11,6 +11,7 @@
 namespace northern::renderer {
 
 class SvgDocument;
+class Image;
 
 class PaintContext {
 public:
@@ -26,6 +27,15 @@ public:
 
     void drawSvg(const SvgDocument& doc, const core::Rect& bounds,
                  const core::Color& tintColor = core::Color::white());
+
+    void drawImage(const Image& image, const core::Rect& rect, float cornerRadius = 0.0f,
+                   const core::Color& tintColor = core::Color::white(),
+                   graphics::Filter filter = graphics::Filter::Linear);
+
+    void drawImage(const Image& image, const core::Rect& rect, const core::Rect& uvRect,
+                   const float radii[4], const core::Color& borderColor, float borderWidth,
+                   const core::Color& tintColor = core::Color::white(),
+                   graphics::Filter filter = graphics::Filter::Linear);
 
     void drawText(const core::Point& pos, std::string_view text,
                   const std::shared_ptr<text::Font>& font,

@@ -157,7 +157,7 @@ std::shared_ptr<text::Font> Divider::effectiveFont() const {
     if (!resolvedDefaultFont_) {
         float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
         resolvedDefaultFont_ =
-            text::FontManager::instance().defaultFont(11.0f * scale).valueOr(nullptr);
+            text::FontManager::instance().mediumFont(12.0f * scale).valueOr(nullptr);
     }
     return resolvedDefaultFont_;
 }

@@ -9,9 +9,11 @@ set(UNIT_TEST_SOURCES
     unit/test_platform.cpp
     unit/test_graphics.cpp
     unit/test_renderer.cpp
+    unit/test_image.cpp
     unit/test_text.cpp
     unit/test_layout.cpp
     unit/test_widgets.cpp
+    unit/test_media_widgets.cpp
     unit/test_button.cpp
     unit/test_label.cpp
     unit/test_checkbox.cpp
@@ -20,6 +22,7 @@ set(UNIT_TEST_SOURCES
     unit/test_slider.cpp
     unit/test_progress_bar.cpp
     unit/test_text_input.cpp
+    unit/test_text_area.cpp
     unit/test_animation.cpp
     unit/test_overlay.cpp
     unit/test_dropdown.cpp

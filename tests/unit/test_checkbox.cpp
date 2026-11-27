@@ -224,7 +224,7 @@ TEST(CheckboxTest, DefaultFontFallbackAndTextMeasure) {
     Checkbox cb("Accept terms");
     auto font = cb.effectiveFont();
     ASSERT_NE(font, nullptr);
-    EXPECT_FLOAT_EQ(font->pointSize(), 10.5f);
+    EXPECT_FLOAT_EQ(font->pixelSize(), 14.0f);
 
     core::Size measured = cb.layoutNode().measure(400.0f, 100.0f);
     EXPECT_GT(measured.width, cb.boxSize() + 10.0f);

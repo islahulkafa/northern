@@ -10,6 +10,7 @@ This reference documents Northern's retained widget catalog, keyboard focus trav
 | `Label`              | [label.hpp](../src/widgets/controls/label.hpp)                 | Shaped text display using `TextLayout`, optical vertical centering (`theme::computeCenteredTextY`), `contextDpiScale()` adoption, and theme/enabled invalidation |
 | `Button`             | [button.hpp](../src/widgets/controls/button.hpp)               | `Secondary`, `Primary`, `Outline`, `Ghost`, and `Destructive` variants; `0.12s OutCubic` hover/press color fades paired with `0.97` spring press scale; mouse-grab release safety; loading spinner; `onThemeChanged`/`contextDpiScale()` sync; `Space`/`Enter` activation |
 | `TextInput`          | [text_input.hpp](../src/widgets/controls/text_input.hpp)       | Single-line input with caret blinking, rounded selection highlight, leading icon, trailing clear button, synchronized border/ring fade, `IBeam` cursor, and always-on focus ring |
+| `TextArea`           | [text_area.hpp](../src/widgets/controls/text_area.hpp)         | Multi-line text editor with word-wrap toggle, virtualized line rendering, scrollbars, undo/redo, clipboard, line-number gutter, and always-on focus ring |
 | `Checkbox`           | [checkbox.hpp](../src/widgets/controls/checkbox.hpp)           | Animated vector checkmark/indeterminate stroke reveal (`checkAnim_`), `10.5pt * dpi` default font fallback with cached `TextLayout`, `contextDpiScale()` adoption, mouse-grab release safety, and `Space`/`Enter` toggling |
 | `Switch`             | [switch.hpp](../src/widgets/controls/switch.hpp)               | Pure white thumb (Light-mode hairline border), soft capsule track, `0.16s OutCubic` slide, mouse-grab press stretch, `contextDpiScale()`, and `Widget::paintFocusRing` |
 | `RadioButton`        | [radio_button.hpp](../src/widgets/controls/radio_button.hpp)   | Animated inner dot scale/fade and outer ring interpolation (`checkAnim_`), `contextDpiScale()` adoption, mouse-grab safety, and `Widget::paintFocusRing` |
@@ -42,7 +43,7 @@ This reference documents Northern's retained widget catalog, keyboard focus trav
 [WidgetContext](../src/widgets/base/widget_context.hpp) tracks both the active `focusedWidget()` and the `FocusReason` (`Pointer`, `Keyboard`, or `Programmatic`) that granted focus:
 
 - **Tab order**: Pressing `Tab` or `Shift+Tab` invokes `WidgetContext::focusNext(reverse)`, performing depth-first pre-order traversal across visible, enabled, focusable widgets and wrapping around cleanly.
-- **Focus-visible rings**: Interactive controls (`Button`, `Checkbox`, `Switch`, `RadioButton`, `Slider`, `Dropdown`, `Accordion`) paint the 2px Cobalt ring (`Widget::paintFocusRing`) only when `hasKeyboardFocus()` is `true` (`FocusReason::Keyboard`). `TextInput` renders its focus ring whenever `hasFocus()` is `true`.
+- **Focus-visible rings**: Interactive controls (`Button`, `Checkbox`, `Switch`, `RadioButton`, `Slider`, `Dropdown`, `Accordion`) paint the 2px Cobalt ring (`Widget::paintFocusRing`) only when `hasKeyboardFocus()` is `true` (`FocusReason::Keyboard`). `TextInput` and `TextArea` render their focus ring whenever `hasFocus()` is `true`.
 - **Context lifecycle & DPI hooks**: Attached widgets receive `onContextAttached()` (allowing default DPI sync via `contextDpiScale()`) and `onThemeChanged()` for live palette/layout updates.
 
 ## Retained display lists and viewport culling
@@ -55,7 +56,7 @@ This reference documents Northern's retained widget catalog, keyboard focus trav
 
 Each [Widget](../src/widgets/base/widget.hpp) exposes `setCursorShape(platform::CursorShape)` and `cursorShape()`:
 
-- `TextInput` defaults to `CursorShape::IBeam`.
+- `TextInput` and `TextArea` default to `CursorShape::IBeam`.
 - `Button`, `Checkbox`, `Switch`, `RadioButton`, `Slider`, and `Dropdown` default to `CursorShape::PointingHand`.
 - Non-interactive containers, labels, and disabled widgets resolve to `CursorShape::Arrow`.
 - `WidgetContext` emits `onCursorShapeChanged` whenever hover, mouse grab, or widget removal changes the effective cursor shape.
@@ -358,3 +359,27 @@ if (res.isOk() && !res.value().empty()) {
 - `Spring` ([spring.hpp](../src/core/animation/spring.hpp)): Closed-form analytical damped harmonic oscillator for under-damped, critically damped, and over-damped motion.
 - `PropertyAnimation<T>` ([property_animation.hpp](../src/core/animation/property_animation.hpp)): Dual-mode easing/spring interpolator for `float`, `core::Color`, and `core::Point`.
 - `AnimationManager` ([animation_manager.hpp](../src/core/animation/animation_manager.hpp)): Advances active animations and prunes settled instances automatically.
+
+## Media & status widgets
+
+### ImageView
+
+[ImageView](../src/widgets/controls/image_view.hpp) displays decoded `renderer::Image` assets ([image.hpp](../src/renderer/image/image.hpp)) with SDF rounded corners, optional hairline borders, and automatic GPU texture caching:
+
+- **Fit modes (`ImageFit`)**: `Contain`, `Cover` (centered UV crop), `Fill`, `ScaleDown`, and `None`.
+- **Sampling (`graphics::Filter`)**: `Linear` (photos) or `Nearest` (pixel art / crisp UI sprites).
+- **Empty placeholder**: Renders a `SurfaceDefault` rounded frame with centered `placeholderIcon_` when no image is assigned.
+
+### Avatar
+
+[Avatar](../src/widgets/controls/avatar.hpp) renders circular or rounded-square user portraits (`Small = 24px`, `Medium = 32px`, `Large = 40px`, `XLarge = 56px`):
+
+- **Image & initials fallback**: Crops `renderer::Image` via `ImageFit::Cover` or extracts 1–2 uppercase initials centered with `theme::computeCenteredTextY()`.
+- **Presence status**: Optional `AvatarStatus` (`Online`, `Busy`, `Away`, `Offline`) indicator dot with a surface-matched cutout ring.
+
+### Badge
+
+[Badge](../src/widgets/controls/badge.hpp) renders pill labels and interactive tags (`Compact = 20px`, `Standard = 24px`):
+
+- **Variants & roles**: `Subtle`, `Solid`, and `Outline` across `Neutral`, `Accent`, `Success`, `Warning`, `Danger`, and `Info` semantic roles.
+- **Leading indicators & dismissible tags**: Supports optional status dots (`setShowDot`), leading `IconId` glyphs (`setIcon`), and interactive close buttons (`setDismissible`, emitting `onDismissed` on click or `Delete`/`Backspace`/`Enter`).

@@ -53,12 +53,12 @@ constexpr float kTypeAheadTimeoutSeconds = 0.60f;
 [[nodiscard]] float defaultPointSizeForSize(DropdownSize size) noexcept {
     switch (size) {
     case DropdownSize::Compact:
-        return 9.5f;
+        return 12.5f;
     case DropdownSize::Comfortable:
-        return 11.5f;
+        return 14.5f;
     case DropdownSize::Standard:
     default:
-        return 10.5f;
+        return 14.0f;
     }
 }
 

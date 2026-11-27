@@ -12,7 +12,7 @@
 namespace northern::widgets {
 
 namespace {
-constexpr float kTitleDefaultPt = 10.5f;
+constexpr float kTitleDefaultPt = 13.5f;
 constexpr float kDoubleClickMaxMs = 400.0f;
 } // namespace
 

@@ -4,6 +4,10 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
+#include FT_LCD_FILTER_H
+#include FT_MODULE_H
+#include FT_DRIVER_H
+#include FT_MULTIPLE_MASTERS_H
 #include <hb-ft.h>
 #include <hb.h>
 #include <vector>
@@ -14,8 +18,9 @@ struct Font::Impl {
     uint32_t id{0};
     FT_Face ftFace{nullptr};
     hb_font_t* hbFont{nullptr};
-    float pointSize{14.0f};
-    float pixelSize{14.0f};
+    float pointSize{9.75f};
+    float pixelSize{13.0f};
+    FontWeight weight{FontWeight::Regular};
     float ascender{0.0f};
     float descender{0.0f};
     float lineHeight{0.0f};

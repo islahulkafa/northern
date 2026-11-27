@@ -40,7 +40,8 @@ TEST(TextTest, FontManagerDefaultFont) {
     auto fontRes = mgr.defaultFont(14.0f);
     ASSERT_TRUE(fontRes.isOk());
     auto font = fontRes.value();
-    EXPECT_EQ(font->pointSize(), 14.0f);
+    EXPECT_FLOAT_EQ(font->pixelSize(), 14.0f);
+    EXPECT_NEAR(font->pointSize(), 10.5f, 0.01f);
 }
 
 TEST(TextTest, TextLayoutMeasurementAndWrapping) {
@@ -299,4 +300,67 @@ TEST(TextTest, TextLayoutOptionsEllipsisAndMaxLines) {
     lineHeightOpts.lineHeightMultiplier = 1.5f;
     auto spaced = TextLayout::create("Hello", font, lineHeightOpts);
     EXPECT_NEAR(spaced.size().height, font->lineHeight() * 1.5f, 0.01f);
+}
+
+TEST(TextTest, FontPixelSizingAndPointConversion) {
+    using namespace northern::text;
+    auto fontRes = Font::fromFile("C:/Windows/Fonts/segoeui.ttf", 13.0f);
+    ASSERT_TRUE(fontRes.isOk());
+    auto font = fontRes.value();
+    EXPECT_FLOAT_EQ(font->pixelSize(), 13.0f);
+    EXPECT_NEAR(font->pointSize(), 9.75f, 0.01f);
+    EXPECT_LE(font->capHeight(), 13.0f);
+    EXPECT_GT(font->capHeight(), 7.0f);
+}
+
+TEST(TextTest, VariableFontWeightAndOpticalSize) {
+    using namespace northern::text;
+    auto& mgr = FontManager::instance();
+    auto reg = mgr.defaultFont(13.0f);
+    auto med = mgr.mediumFont(13.0f);
+    auto semi = mgr.semiBoldFont(13.0f);
+    auto bold = mgr.boldFont(13.0f);
+    ASSERT_TRUE(reg.isOk());
+    ASSERT_TRUE(med.isOk());
+    ASSERT_TRUE(semi.isOk());
+    ASSERT_TRUE(bold.isOk());
+
+    EXPECT_EQ(reg.value()->weight(), FontWeight::Regular);
+    EXPECT_EQ(med.value()->weight(), FontWeight::Medium);
+    EXPECT_EQ(semi.value()->weight(), FontWeight::SemiBold);
+    EXPECT_EQ(bold.value()->weight(), FontWeight::Bold);
+    EXPECT_NE(reg.value()->id(), semi.value()->id());
+    EXPECT_NE(semi.value()->id(), bold.value()->id());
+}
+
+TEST(TextTest, GlyphAtlasLcdAndHiDpiGrayscaleFallback) {
+    using namespace northern;
+    using namespace northern::graphics;
+    using namespace northern::text;
+
+    auto devRes = Device::create();
+    ASSERT_TRUE(devRes.isOk());
+    auto device = std::move(devRes.value());
+
+    auto fontRes = FontManager::instance().defaultFont(13.0f);
+    ASSERT_TRUE(fontRes.isOk());
+    auto font = fontRes.value();
+
+    auto atlasRes = GlyphAtlas::create(*device, 512, 512, GlyphRenderMode::LcdRgb);
+    ASSERT_TRUE(atlasRes.isOk());
+    auto atlas = std::move(atlasRes.value());
+    EXPECT_EQ(atlas->renderMode(), GlyphRenderMode::LcdRgb);
+
+    auto shaped = TextShaper::shape(*font, "M");
+    ASSERT_FALSE(shaped.empty());
+    uint32_t gid = shaped[0].glyphId;
+
+    auto lcdGlyph = atlas->getOrInsert(*font, gid, 0, true);
+    auto grayGlyph = atlas->getOrInsert(*font, gid, 0, false);
+    ASSERT_TRUE(lcdGlyph.isOk());
+    ASSERT_TRUE(grayGlyph.isOk());
+    EXPECT_GT(lcdGlyph.value().size.width, 0.0f);
+    EXPECT_GT(grayGlyph.value().size.width, 0.0f);
+    EXPECT_NE(lcdGlyph.value().uvRect.origin.x, grayGlyph.value().uvRect.origin.x);
+    EXPECT_TRUE(atlas->flush().isOk());
 }

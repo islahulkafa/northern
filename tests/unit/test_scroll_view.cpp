@@ -2,6 +2,8 @@
 #include "widgets/base/widget_context.hpp"
 #include "widgets/containers/container.hpp"
 #include "widgets/containers/scroll_view.hpp"
+#include "widgets/containers/tab_view.hpp"
+#include "widgets/controls/button.hpp"
 #include <gtest/gtest.h>
 
 using namespace northern;
@@ -500,4 +502,87 @@ TEST(ScrollViewTest, ContextAttachmentAdoptsDpiScale) {
     EXPECT_FLOAT_EQ(scrollPtr->scrollbarThickness(), 9.0f);
     EXPECT_FLOAT_EQ(scrollPtr->scrollbarPadding(), 4.5f);
     EXPECT_FLOAT_EQ(scrollPtr->scrollbarHitThickness(), 21.0f);
+}
+
+TEST(ScrollViewTest, HitTestInsideTabViewTwoColumnContainer) {
+    WidgetContext ctx;
+    auto tabView = std::make_unique<TabView>();
+    TabView* tabPtr = tabView.get();
+    tabPtr->style().width = layout::Length::percent(100.0f);
+    tabPtr->style().height = layout::Length::percent(100.0f);
+
+    auto tab0 = std::make_unique<Container>();
+    tabPtr->addTab("First", std::move(tab0));
+
+    auto scroll = std::make_unique<ScrollView>();
+    ScrollView* scrollPtr = scroll.get();
+    scrollPtr->style().width = layout::Length::percent(100.0f);
+    scrollPtr->style().height = layout::Length::percent(100.0f);
+
+    auto page = std::make_unique<Container>();
+    Container* pagePtr = page.get();
+    pagePtr->setFlexDirection(layout::FlexDirection::Column);
+    pagePtr->setAlignItems(layout::AlignItems::FlexStart);
+    pagePtr->setPadding(24.0f);
+    pagePtr->setRowGap(16.0f);
+    pagePtr->style().width = layout::Length::percent(100.0f);
+
+    auto row = std::make_unique<Container>();
+    Container* rowPtr = row.get();
+    rowPtr->setFlexDirection(layout::FlexDirection::Row);
+    rowPtr->setAlignItems(layout::AlignItems::FlexStart);
+    rowPtr->setColumnGap(32.0f);
+    rowPtr->style().width = layout::Length::percent(100.0f);
+
+    auto leftCol = std::make_unique<Container>();
+    Container* leftPtr = leftCol.get();
+    leftPtr->setFlexDirection(layout::FlexDirection::Column);
+    leftPtr->setAlignItems(layout::AlignItems::FlexStart);
+    leftPtr->setRowGap(14.0f);
+    leftPtr->style().width = layout::Length::points(380.0f);
+
+    bool clicked = false;
+    auto btn = std::make_unique<Button>("Test Button");
+    Button* btnPtr = btn.get();
+    btnPtr->style().width = layout::Length::points(140.0f);
+    btnPtr->style().height = layout::Length::points(36.0f);
+    btnPtr->onClicked.connect([&clicked]() { clicked = true; });
+    leftPtr->addChild(std::move(btn));
+
+    rowPtr->addChild(std::move(leftCol));
+    pagePtr->addChild(std::move(row));
+    scrollPtr->addChild(std::move(page));
+    tabPtr->addTab("Controls", std::move(scroll));
+
+    ctx.setRootWidget(std::move(tabView));
+    ctx.handleResize(core::Size{1000.0f, 700.0f});
+
+    tabPtr->setCurrentIndex(1);
+    ctx.handleResize(core::Size{1000.0f, 700.0f});
+
+    core::Rect btnRect = btnPtr->screenRect();
+    EXPECT_GT(scrollPtr->screenRect().size.height, 100.0f);
+    EXPECT_GT(pagePtr->screenRect().size.height, 30.0f);
+    EXPECT_GT(rowPtr->screenRect().size.height, 30.0f);
+    EXPECT_GT(leftPtr->screenRect().size.height, 30.0f);
+    EXPECT_GT(btnRect.size.width, 0.0f);
+    EXPECT_GT(btnRect.size.height, 0.0f);
+
+    core::Point center{btnRect.origin.x + btnRect.size.width * 0.5f,
+                       btnRect.origin.y + btnRect.size.height * 0.5f};
+    platform::MouseEvent downEv{};
+    downEv.type = platform::MouseEventType::ButtonDown;
+    downEv.button = platform::MouseButton::Left;
+    downEv.physicalPosition = center;
+    downEv.position = center;
+    ctx.handleMouseDown(downEv);
+
+    platform::MouseEvent upEv{};
+    upEv.type = platform::MouseEventType::ButtonUp;
+    upEv.button = platform::MouseButton::Left;
+    upEv.physicalPosition = center;
+    upEv.position = center;
+    ctx.handleMouseUp(upEv);
+
+    EXPECT_TRUE(clicked);
 }

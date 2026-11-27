@@ -193,7 +193,7 @@ inline float computeCenteredTextY(float targetCenterY, const text::Font& font) {
     float capHeight = font.capHeight();
     if (capHeight <= 0.0f) {
         float px = font.pixelSize();
-        capHeight = (px > 0.0f) ? (px * 0.70f) : (font.pointSize() * (96.0f / 72.0f) * 0.70f);
+        capHeight = (px > 0.0f) ? (px * 0.70f) : 9.1f;
     }
     return targetCenterY + capHeight * 0.5f - font.ascender();
 }
@@ -220,7 +220,7 @@ enum class TypographyStyle : uint8_t {
     Monospace,
 };
 
-[[nodiscard]] constexpr float typographyPointSize(TypographyStyle style) noexcept {
+[[nodiscard]] constexpr float typographyPixelSize(TypographyStyle style) noexcept {
     switch (style) {
     case TypographyStyle::Display:
         return 24.0f;
@@ -239,23 +239,30 @@ enum class TypographyStyle : uint8_t {
     return 14.0f;
 }
 
+[[nodiscard]] constexpr float typographyPointSize(TypographyStyle style) noexcept {
+    return typographyPixelSize(style) * (72.0f / 96.0f);
+}
+
 [[nodiscard]] inline std::shared_ptr<text::Font> resolveFont(TypographyStyle style,
                                                              float dpiScale = 1.0f) {
     float scale = dpiScale > 0.0f ? dpiScale : 1.0f;
-    float pt = typographyPointSize(style) * scale;
+    float basePx = typographyPixelSize(style);
+    float px = basePx * scale;
+    float opszPt = basePx * 0.75f;
     auto& mgr = text::FontManager::instance();
     switch (style) {
     case TypographyStyle::Display:
     case TypographyStyle::Title:
     case TypographyStyle::BodyStrong:
-        return mgr.boldFont(pt).valueOr(nullptr);
-    case TypographyStyle::Monospace:
-        return mgr.monospaceFont(pt).valueOr(nullptr);
+        return mgr.font(text::FontWeight::SemiBold, px, opszPt).valueOr(nullptr);
     case TypographyStyle::Subtitle:
+        return mgr.font(text::FontWeight::Medium, px, opszPt).valueOr(nullptr);
+    case TypographyStyle::Monospace:
+        return mgr.monospaceFont(px).valueOr(nullptr);
     case TypographyStyle::Body:
     case TypographyStyle::Caption:
     default:
-        return mgr.defaultFont(pt).valueOr(nullptr);
+        return mgr.font(text::FontWeight::Regular, px, opszPt).valueOr(nullptr);
     }
 }
 

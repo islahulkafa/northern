@@ -136,6 +136,7 @@ TEST(DividerTest, PaintExecutionGeneratesDrawCommands) {
 
     // Test Vertical Divider Paint
     div->setOrientation(DividerOrientation::Vertical);
+    ctx.handleResize(core::Size{24.0f, 100.0f});
     renderer::PaintContext vPaintCtx;
     div->paint(vPaintCtx);
     EXPECT_FALSE(vPaintCtx.commands().empty());
@@ -153,7 +154,7 @@ TEST(DividerTest, ContextDpiAdoptionAndCustomOverridePreservation) {
     EXPECT_FLOAT_EQ(div->gap(), 16.0f);
     EXPECT_FLOAT_EQ(div->labelOffset(), 48.0f);
     ASSERT_NE(div->effectiveFont(), nullptr);
-    EXPECT_FLOAT_EQ(div->effectiveFont()->pointSize(), 22.0f);
+    EXPECT_FLOAT_EQ(div->effectiveFont()->pixelSize(), 24.0f);
 
     // Explicit metric overrides survive DPI changes
     Divider custom("CUSTOM");
@@ -165,7 +166,7 @@ TEST(DividerTest, ContextDpiAdoptionAndCustomOverridePreservation) {
     EXPECT_FLOAT_EQ(custom.gap(), 10.0f);
     EXPECT_FLOAT_EQ(custom.labelOffset(), 30.0f);
     ASSERT_NE(custom.effectiveFont(), nullptr);
-    EXPECT_FLOAT_EQ(custom.effectiveFont()->pointSize(), 16.5f);
+    EXPECT_FLOAT_EQ(custom.effectiveFont()->pixelSize(), 18.0f);
 
     // Explicit setDpiScale is preserved on context attachment
     WidgetContext ctx2;

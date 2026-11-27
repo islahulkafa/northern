@@ -62,6 +62,10 @@ public:
     void advanceFrame() override;
     void waitIdle() override;
 
+    [[nodiscard]] bool supportsDualSourceBlending() const noexcept override {
+        return dualSrcBlendSupported_;
+    }
+
     // Internal accessors
     [[nodiscard]] VkInstance instance() const noexcept { return instance_; }
     [[nodiscard]] VkPhysicalDevice physicalDevice() const noexcept { return physicalDevice_; }
@@ -118,6 +122,7 @@ private:
     struct RetiredResource {
         uint64_t timelineValue{0};
         VkCommandBuffer cmdBuffer{VK_NULL_HANDLE};
+        VkDescriptorSet descriptorSet{VK_NULL_HANDLE};
         std::unique_ptr<VulkanBuffer> buffer;
         std::unique_ptr<VulkanTexture> texture;
         std::unique_ptr<VulkanPipeline> pipeline;
@@ -128,6 +133,7 @@ private:
     uint64_t currentTimelineValue_{0};
     VkPipelineCache pipelineCache_{VK_NULL_HANDLE};
     std::unique_ptr<VulkanStagingPool> stagingPool_{nullptr};
+    bool dualSrcBlendSupported_{false};
 };
 
 } // namespace northern::graphics

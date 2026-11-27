@@ -1,21 +1,34 @@
 #include "renderer/batch_renderer.hpp"
 #include "../../shaders/sdf_shaders.hpp"
+#include "shaders/image_shaders.hpp"
 #include "shaders/text_shaders.hpp"
 #include <algorithm>
 #include <cmath>
 
 namespace northern::renderer {
 
-BatchRenderer::BatchRenderer(graphics::Device& device,
-                             std::unique_ptr<DynamicRingBuffer> ringBuffer,
-                             graphics::PipelineHandle sdfPipeline,
-                             graphics::PipelineHandle textPipeline,
-                             std::unique_ptr<text::GlyphAtlas> glyphAtlas) noexcept
+BatchRenderer::BatchRenderer(
+    graphics::Device& device, std::unique_ptr<DynamicRingBuffer> ringBuffer,
+    graphics::PipelineHandle sdfPipeline, graphics::PipelineHandle textPipeline,
+    graphics::PipelineHandle maskPipeline, graphics::PipelineHandle imagePipeline,
+    std::unique_ptr<text::GlyphAtlas> glyphAtlas, std::unique_ptr<text::GlyphAtlas> maskAtlas,
+    bool dualSrcEnabled) noexcept
     : device_(&device), ringBuffer_(std::move(ringBuffer)), sdfPipeline_(sdfPipeline),
-      textPipeline_(textPipeline), glyphAtlas_(std::move(glyphAtlas)) {}
+      textPipeline_(textPipeline), maskPipeline_(maskPipeline), imagePipeline_(imagePipeline),
+      glyphAtlas_(std::move(glyphAtlas)), maskAtlas_(std::move(maskAtlas)),
+      dualSrcEnabled_(dualSrcEnabled) {}
 
 BatchRenderer::~BatchRenderer() {
     if (device_) {
+        for (auto& [key, entry] : imageCache_) {
+            (void)key;
+            if (entry.texture.isValid()) {
+                device_->destroyTexture(entry.texture);
+            }
+        }
+        imageCache_.clear();
+        cachedImageBytes_ = 0;
+
         if (sdfPipeline_.isValid()) {
             device_->destroyPipeline(sdfPipeline_);
             sdfPipeline_ = graphics::PipelineHandle::invalid();
@@ -23,6 +36,14 @@ BatchRenderer::~BatchRenderer() {
         if (textPipeline_.isValid()) {
             device_->destroyPipeline(textPipeline_);
             textPipeline_ = graphics::PipelineHandle::invalid();
+        }
+        if (maskPipeline_.isValid()) {
+            device_->destroyPipeline(maskPipeline_);
+            maskPipeline_ = graphics::PipelineHandle::invalid();
+        }
+        if (imagePipeline_.isValid()) {
+            device_->destroyPipeline(imagePipeline_);
+            imagePipeline_ = graphics::PipelineHandle::invalid();
         }
     }
 }
@@ -58,23 +79,31 @@ BatchRenderer::create(graphics::Device& device, graphics::Format colorFormat, ui
         return sdfPipeRes.error();
     }
 
+    bool dualSrc = device.supportsDualSourceBlending();
+
     graphics::PipelineDesc textPipeDesc{};
-    textPipeDesc.debugName = "2D Batch Renderer Text Pipeline";
+    textPipeDesc.debugName =
+        dualSrc ? "2D Batch Renderer LCD Text Pipeline" : "2D Batch Renderer Text Pipeline";
     textPipeDesc.vertexShader.spirv = shaders::kTextVertSpv;
-    textPipeDesc.fragmentShader.spirv = shaders::kTextFragSpv;
+    textPipeDesc.fragmentShader.spirv = dualSrc
+                                            ? std::span<const uint32_t>(shaders::kTextLcdFragSpv)
+                                            : std::span<const uint32_t>(shaders::kTextFragSpv);
     textPipeDesc.hasTexture = true;
     textPipeDesc.colorAttachmentFormat = colorFormat;
     textPipeDesc.pushConstantSize = sizeof(float) * 16;
-    textPipeDesc.vertexLayout.bindings.push_back({0, sizeof(Vertex2D)});
-    textPipeDesc.vertexLayout.attributes = {
-        {0, 0, graphics::Format::R32G32_Sfloat, offsetof(Vertex2D, position)},
-        {1, 0, graphics::Format::R32G32B32A32_Sfloat, offsetof(Vertex2D, color)},
-        {2, 0, graphics::Format::R32G32_Sfloat, offsetof(Vertex2D, localPos)},
-        {3, 0, graphics::Format::R32G32_Sfloat, offsetof(Vertex2D, boxSize)},
-        {4, 0, graphics::Format::R32G32B32A32_Sfloat, offsetof(Vertex2D, cornerRadii)},
-        {5, 0, graphics::Format::R32G32B32A32_Sfloat, offsetof(Vertex2D, borderColor)},
-        {6, 0, graphics::Format::R32_Sfloat, offsetof(Vertex2D, borderWidth)},
-    };
+    textPipeDesc.vertexLayout = sdfPipeDesc.vertexLayout;
+    if (dualSrc) {
+        textPipeDesc.blendState = graphics::BlendState{
+            .blendEnable = true,
+            .srcColorFactor = graphics::BlendFactor::Src1Color,
+            .dstColorFactor = graphics::BlendFactor::OneMinusSrc1Color,
+            .colorBlendOp = graphics::BlendOp::Add,
+            .srcAlphaFactor = graphics::BlendFactor::One,
+            .dstAlphaFactor = graphics::BlendFactor::OneMinusSrc1Alpha,
+            .alphaBlendOp = graphics::BlendOp::Add,
+            .writeMask = graphics::ColorWriteMask::All,
+        };
+    }
 
     auto textPipeRes = device.createPipeline(textPipeDesc);
     if (textPipeRes.isErr()) {
@@ -82,19 +111,71 @@ BatchRenderer::create(graphics::Device& device, graphics::Format colorFormat, ui
         return textPipeRes.error();
     }
 
-    auto atlasRes = text::GlyphAtlas::create(device, 1024, 1024);
+    graphics::PipelineDesc maskPipeDesc{};
+    maskPipeDesc.debugName = "2D Batch Renderer Mask Pipeline";
+    maskPipeDesc.vertexShader.spirv = shaders::kTextVertSpv;
+    maskPipeDesc.fragmentShader.spirv = shaders::kMaskFragSpv;
+    maskPipeDesc.hasTexture = true;
+    maskPipeDesc.colorAttachmentFormat = colorFormat;
+    maskPipeDesc.pushConstantSize = sizeof(float) * 16;
+    maskPipeDesc.vertexLayout = sdfPipeDesc.vertexLayout;
+
+    auto maskPipeRes = device.createPipeline(maskPipeDesc);
+    if (maskPipeRes.isErr()) {
+        device.destroyPipeline(sdfPipeRes.value());
+        device.destroyPipeline(textPipeRes.value());
+        return maskPipeRes.error();
+    }
+
+    graphics::PipelineDesc imagePipeDesc{};
+    imagePipeDesc.debugName = "2D Batch Renderer Image Pipeline";
+    imagePipeDesc.vertexShader.spirv = shaders::kImageVertSpv;
+    imagePipeDesc.fragmentShader.spirv = shaders::kImageFragSpv;
+    imagePipeDesc.hasTexture = true;
+    imagePipeDesc.colorAttachmentFormat = colorFormat;
+    imagePipeDesc.pushConstantSize = sizeof(float) * 16;
+    imagePipeDesc.vertexLayout = sdfPipeDesc.vertexLayout;
+    imagePipeDesc.vertexLayout.attributes.push_back(
+        {7, 0, graphics::Format::R32G32_Sfloat, offsetof(Vertex2D, uv)});
+
+    auto imagePipeRes = device.createPipeline(imagePipeDesc);
+    if (imagePipeRes.isErr()) {
+        device.destroyPipeline(sdfPipeRes.value());
+        device.destroyPipeline(textPipeRes.value());
+        device.destroyPipeline(maskPipeRes.value());
+        return imagePipeRes.error();
+    }
+
+    auto atlasRes = text::GlyphAtlas::create(device, 1024, 1024,
+                                             dualSrc ? text::GlyphRenderMode::LcdRgb
+                                                     : text::GlyphRenderMode::Grayscale);
     if (atlasRes.isErr()) {
         device.destroyPipeline(sdfPipeRes.value());
         device.destroyPipeline(textPipeRes.value());
+        device.destroyPipeline(maskPipeRes.value());
+        device.destroyPipeline(imagePipeRes.value());
         return atlasRes.error();
     }
 
-    return std::unique_ptr<BatchRenderer>(new BatchRenderer(device, std::move(ringRes.value()),
-                                                            sdfPipeRes.value(), textPipeRes.value(),
-                                                            std::move(atlasRes.value())));
+    auto maskAtlasRes =
+        text::GlyphAtlas::create(device, 512, 512, text::GlyphRenderMode::Grayscale);
+    if (maskAtlasRes.isErr()) {
+        device.destroyPipeline(sdfPipeRes.value());
+        device.destroyPipeline(textPipeRes.value());
+        device.destroyPipeline(maskPipeRes.value());
+        device.destroyPipeline(imagePipeRes.value());
+        return maskAtlasRes.error();
+    }
+
+    return std::unique_ptr<BatchRenderer>(
+        new BatchRenderer(device, std::move(ringRes.value()), sdfPipeRes.value(),
+                          textPipeRes.value(), maskPipeRes.value(), imagePipeRes.value(),
+                          std::move(atlasRes.value()), std::move(maskAtlasRes.value()), dualSrc));
 }
 
 void BatchRenderer::begin(const core::Size& viewportSize, uint32_t frameSlot) {
+    ++frameCounter_;
+    pruneImageCache();
     viewportSize_ = viewportSize;
     ringBuffer_->resetFrame(frameSlot);
     batches_.clear();
@@ -104,6 +185,44 @@ void BatchRenderer::begin(const core::Size& viewportSize, uint32_t frameSlot) {
         {0, 0},
         {static_cast<int32_t>(viewportSize.width), static_cast<int32_t>(viewportSize.height)}};
     scissorStack_.push_back(rootScissor);
+}
+
+void BatchRenderer::pruneImageCache() {
+    if (!device_ || imageCache_.empty()) {
+        return;
+    }
+
+    for (auto it = imageCache_.begin(); it != imageCache_.end();) {
+        if (it->second.owner.expired()) {
+            if (it->second.texture.isValid()) {
+                device_->destroyTexture(it->second.texture);
+            }
+            cachedImageBytes_ -= std::min(cachedImageBytes_, it->second.byteSize);
+            it = imageCache_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    while (cachedImageBytes_ > imageCacheBudgetBytes_ && !imageCache_.empty()) {
+        auto victim = imageCache_.end();
+        for (auto it = imageCache_.begin(); it != imageCache_.end(); ++it) {
+            if (it->second.lastUsedFrame < frameCounter_) {
+                if (victim == imageCache_.end() ||
+                    it->second.lastUsedFrame < victim->second.lastUsedFrame) {
+                    victim = it;
+                }
+            }
+        }
+        if (victim == imageCache_.end()) {
+            break;
+        }
+        if (victim->second.texture.isValid()) {
+            device_->destroyTexture(victim->second.texture);
+        }
+        cachedImageBytes_ -= std::min(cachedImageBytes_, victim->second.byteSize);
+        imageCache_.erase(victim);
+    }
 }
 
 core::RectI BatchRenderer::currentScissor() const noexcept {
@@ -328,15 +447,17 @@ void BatchRenderer::emitGlyphs(const DrawGlyphsCommand& cmd) {
     std::vector<PendingGlyph> pending;
     pending.reserve(cmd.glyphs.size());
 
+    bool useLcd = dualSrcEnabled_ && (dpiScale_ < 2.0f);
+
     for (const auto& g : cmd.glyphs) {
         float targetX = cmd.origin.x + g.position.x;
         float targetY = cmd.origin.y + g.position.y;
-        float basePixelX = std::floor(targetX);
-        float fractX = targetX - basePixelX;
+        float roundedQuarter = std::round(targetX * 4.0f);
+        float basePixelX = std::floor(roundedQuarter * 0.25f);
         uint8_t subpixelBin =
-            static_cast<uint8_t>(std::clamp(static_cast<int>(fractX * 4.0f), 0, 3));
+            static_cast<uint8_t>(std::lround(roundedQuarter - basePixelX * 4.0f)) & 0x03;
 
-        auto gRes = glyphAtlas_->getOrInsert(*cmd.font, g.glyphId, subpixelBin);
+        auto gRes = glyphAtlas_->getOrInsert(*cmd.font, g.glyphId, subpixelBin, useLcd);
         if (gRes.isErr()) {
             continue;
         }
@@ -417,7 +538,7 @@ void BatchRenderer::emitGlyphs(const DrawGlyphsCommand& cmd) {
 }
 
 void BatchRenderer::emitSvg(const DrawSvgCommand& cmd) {
-    if (!cmd.docImpl || !glyphAtlas_ || cmd.bounds.size.width <= 0.0f ||
+    if (!cmd.docImpl || !maskAtlas_ || cmd.bounds.size.width <= 0.0f ||
         cmd.bounds.size.height <= 0.0f) {
         return;
     }
@@ -436,14 +557,14 @@ void BatchRenderer::emitSvg(const DrawSvgCommand& cmd) {
                        static_cast<uint64_t>(targetH & 0xFFFFu);
 
     text::CachedGlyph cached{};
-    if (auto found = glyphAtlas_->findCustomMask(maskKey)) {
+    if (auto found = maskAtlas_->findCustomMask(maskKey)) {
         cached = *found;
     } else {
         std::vector<uint8_t> maskBuf(static_cast<size_t>(maskW) * static_cast<size_t>(maskH), 0);
         if (SvgDocument::rasterizeImpl(*cmd.docImpl, targetW, targetH, kPad, maskBuf).isErr()) {
             return;
         }
-        auto insRes = glyphAtlas_->insertCustomMask(maskKey, maskW, maskH, maskBuf);
+        auto insRes = maskAtlas_->insertCustomMask(maskKey, maskW, maskH, maskBuf);
         if (insRes.isErr()) {
             return;
         }
@@ -461,12 +582,12 @@ void BatchRenderer::emitSvg(const DrawSvgCommand& cmd) {
     auto alloc = allocRes.value();
 
     core::RectI activeScissor = currentScissor();
-    graphics::TextureHandle atlasTex = glyphAtlas_->texture();
+    graphics::TextureHandle atlasTex = maskAtlas_->texture();
 
     if (batches_.empty() || batches_.back().scissorRect != activeScissor ||
-        batches_.back().type != BatchType::Text || batches_.back().texture != atlasTex) {
+        batches_.back().type != BatchType::Mask || batches_.back().texture != atlasTex) {
         DrawBatch batch{};
-        batch.type = BatchType::Text;
+        batch.type = BatchType::Mask;
         batch.firstIndex = alloc.firstIndex;
         batch.indexCount = 6;
         batch.scissorRect = activeScissor;
@@ -512,6 +633,135 @@ void BatchRenderer::emitSvg(const DrawSvgCommand& cmd) {
     alloc.indexData[5] = baseV + 0;
 }
 
+void BatchRenderer::emitImage(const DrawImageCommand& cmd) {
+    if (!cmd.imageImpl || !device_ || cmd.rect.size.width <= 0.0f || cmd.rect.size.height <= 0.0f) {
+        return;
+    }
+
+    uint32_t imgId = Image::implId(*cmd.imageImpl);
+    uint32_t imgW = Image::implWidth(*cmd.imageImpl);
+    uint32_t imgH = Image::implHeight(*cmd.imageImpl);
+    std::span<const uint8_t> pixels = Image::implPixels(*cmd.imageImpl);
+    if (imgId == 0 || imgW == 0 || imgH == 0 || pixels.empty()) {
+        return;
+    }
+
+    uint64_t cacheKey = (static_cast<uint64_t>(imgId) << 1) |
+                        (cmd.filter == graphics::Filter::Nearest ? 1ULL : 0ULL);
+
+    graphics::TextureHandle texHandle = graphics::TextureHandle::invalid();
+    auto it = imageCache_.find(cacheKey);
+    if (it != imageCache_.end() && !it->second.owner.expired() && it->second.texture.isValid()) {
+        texHandle = it->second.texture;
+        it->second.lastUsedFrame = frameCounter_;
+    } else {
+        if (it != imageCache_.end()) {
+            if (it->second.texture.isValid()) {
+                device_->destroyTexture(it->second.texture);
+            }
+            cachedImageBytes_ -= std::min(cachedImageBytes_, it->second.byteSize);
+            imageCache_.erase(it);
+        }
+
+        graphics::TextureDesc texDesc{
+            .width = imgW,
+            .height = imgH,
+            .format = graphics::Format::R8G8B8A8_Unorm,
+            .usage = graphics::TextureUsage::Sampled | graphics::TextureUsage::TransferDst,
+            .mipLevels = 1,
+            .sampler =
+                {
+                    .minFilter = cmd.filter,
+                    .magFilter = cmd.filter,
+                    .addressModeU = graphics::AddressMode::ClampToEdge,
+                    .addressModeV = graphics::AddressMode::ClampToEdge,
+                },
+            .debugName = "ImageTexture",
+        };
+        auto texRes = device_->createTexture(texDesc, pixels.data());
+        if (texRes.isErr()) {
+            return;
+        }
+        texHandle = texRes.value();
+
+        CachedImageEntry entry{};
+        entry.owner = cmd.imageImpl;
+        entry.texture = texHandle;
+        entry.byteSize = pixels.size();
+        entry.lastUsedFrame = frameCounter_;
+        imageCache_[cacheKey] = std::move(entry);
+        cachedImageBytes_ += pixels.size();
+    }
+
+    auto allocRes = ringBuffer_->allocate(4, 6);
+    if (allocRes.isErr()) {
+        return;
+    }
+    auto alloc = allocRes.value();
+
+    core::RectI activeScissor = currentScissor();
+    if (batches_.empty() || batches_.back().scissorRect != activeScissor ||
+        batches_.back().type != BatchType::Image || batches_.back().texture != texHandle) {
+        DrawBatch batch{};
+        batch.type = BatchType::Image;
+        batch.firstIndex = alloc.firstIndex;
+        batch.indexCount = 6;
+        batch.scissorRect = activeScissor;
+        batch.texture = texHandle;
+        batches_.push_back(batch);
+    } else {
+        batches_.back().indexCount += 6;
+    }
+
+    float x = cmd.rect.origin.x;
+    float y = cmd.rect.origin.y;
+    float w = cmd.rect.size.width;
+    float h = cmd.rect.size.height;
+    float hw = w * 0.5f;
+    float hh = h * 0.5f;
+
+    float u0 = cmd.uvRect.origin.x;
+    float v0 = cmd.uvRect.origin.y;
+    float u1 = u0 + cmd.uvRect.size.width;
+    float v1 = v0 + cmd.uvRect.size.height;
+
+    Vertex2D* v = alloc.vertexData;
+    for (int i = 0; i < 4; ++i) {
+        v[i].color = cmd.tintColor;
+        v[i].boxSize = {w, h};
+        v[i].cornerRadii[0] = cmd.cornerRadii[0];
+        v[i].cornerRadii[1] = cmd.cornerRadii[1];
+        v[i].cornerRadii[2] = cmd.cornerRadii[2];
+        v[i].cornerRadii[3] = cmd.cornerRadii[3];
+        v[i].borderColor = cmd.borderColor;
+        v[i].borderWidth = cmd.borderWidth;
+    }
+
+    v[0].position = {x, y};
+    v[0].localPos = {-hw, -hh};
+    v[0].uv = {u0, v0};
+
+    v[1].position = {x + w, y};
+    v[1].localPos = {hw, -hh};
+    v[1].uv = {u1, v0};
+
+    v[2].position = {x + w, y + h};
+    v[2].localPos = {hw, hh};
+    v[2].uv = {u1, v1};
+
+    v[3].position = {x, y + h};
+    v[3].localPos = {-hw, hh};
+    v[3].uv = {u0, v1};
+
+    uint32_t baseV = alloc.firstVertex;
+    alloc.indexData[0] = baseV + 0;
+    alloc.indexData[1] = baseV + 1;
+    alloc.indexData[2] = baseV + 2;
+    alloc.indexData[3] = baseV + 2;
+    alloc.indexData[4] = baseV + 3;
+    alloc.indexData[5] = baseV + 0;
+}
+
 void BatchRenderer::render(const PaintContext& context, graphics::CommandBuffer& cmdBuffer) {
     for (const auto& cmd : context.commands()) {
         std::visit(
@@ -525,6 +775,8 @@ void BatchRenderer::render(const PaintContext& context, graphics::CommandBuffer&
                     emitGlyphs(c);
                 } else if constexpr (std::is_same_v<T, DrawSvgCommand>) {
                     emitSvg(c);
+                } else if constexpr (std::is_same_v<T, DrawImageCommand>) {
+                    emitImage(c);
                 } else if constexpr (std::is_same_v<T, PushClipCommand>) {
                     pushScissor(c.clipRect);
                 } else if constexpr (std::is_same_v<T, PopClipCommand>) {
@@ -536,6 +788,9 @@ void BatchRenderer::render(const PaintContext& context, graphics::CommandBuffer&
 
     if (glyphAtlas_) {
         (void)glyphAtlas_->flush();
+    }
+    if (maskAtlas_) {
+        (void)maskAtlas_->flush();
     }
 
     if (batches_.empty()) {
@@ -555,8 +810,14 @@ void BatchRenderer::render(const PaintContext& context, graphics::CommandBuffer&
 
     for (const auto& batch : batches_) {
         if (batch.indexCount > 0) {
-            graphics::PipelineHandle targetPipeline =
-                (batch.type == BatchType::Text) ? textPipeline_ : sdfPipeline_;
+            graphics::PipelineHandle targetPipeline = sdfPipeline_;
+            if (batch.type == BatchType::Text) {
+                targetPipeline = textPipeline_;
+            } else if (batch.type == BatchType::Mask) {
+                targetPipeline = maskPipeline_;
+            } else if (batch.type == BatchType::Image) {
+                targetPipeline = imagePipeline_;
+            }
 
             if (currentlyBoundPipeline != targetPipeline) {
                 cmdBuffer.bindPipeline(targetPipeline);
@@ -566,7 +827,9 @@ void BatchRenderer::render(const PaintContext& context, graphics::CommandBuffer&
                 currentlyBoundPipeline = targetPipeline;
             }
 
-            if (batch.type == BatchType::Text && batch.texture.isValid()) {
+            if ((batch.type == BatchType::Text || batch.type == BatchType::Mask ||
+                 batch.type == BatchType::Image) &&
+                batch.texture.isValid()) {
                 cmdBuffer.bindTexture(0, 0, batch.texture);
             }
 

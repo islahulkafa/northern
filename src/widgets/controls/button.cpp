@@ -14,16 +14,16 @@ namespace northern::widgets {
 
 namespace {
 
-constexpr float defaultPointSizeForSize(ButtonSize s) noexcept {
+constexpr float defaultPixelSizeForSize(ButtonSize s) noexcept {
     switch (s) {
     case ButtonSize::Compact:
-        return 9.5f;
+        return 12.5f;
     case ButtonSize::Standard:
-        return 10.5f;
+        return 14.0f;
     case ButtonSize::Comfortable:
-        return 11.5f;
+        return 14.5f;
     }
-    return 10.5f;
+    return 14.0f;
 }
 
 } // namespace
@@ -142,8 +142,8 @@ std::shared_ptr<text::Font> Button::effectiveFont() const {
     }
     if (!resolvedDefaultFont_) {
         float scale = dpiScale_ > 0.0f ? dpiScale_ : 1.0f;
-        float pt = defaultPointSizeForSize(size_) * scale;
-        resolvedDefaultFont_ = text::FontManager::instance().defaultFont(pt).valueOr(nullptr);
+        float px = defaultPixelSizeForSize(size_) * scale;
+        resolvedDefaultFont_ = text::FontManager::instance().mediumFont(px).valueOr(nullptr);
     }
     return resolvedDefaultFont_;
 }

@@ -7,9 +7,11 @@
 namespace northern::text {
 
 GlyphAtlas::GlyphAtlas(graphics::Device& device, graphics::TextureHandle texture, uint32_t width,
-                       uint32_t height) noexcept
-    : device_(device), texture_(texture), width_(width), height_(height),
-      cpuAtlas_(width * height, 0), dirtyMinY_(height), dirtyMaxY_(0) {}
+                       uint32_t height, GlyphRenderMode mode) noexcept
+    : device_(device), texture_(texture), width_(width), height_(height), mode_(mode),
+      bytesPerPixel_(mode == GlyphRenderMode::LcdRgb ? 4u : 1u),
+      cpuAtlas_(static_cast<size_t>(width) * height * bytesPerPixel_, 0), dirtyMinY_(height),
+      dirtyMaxY_(0) {}
 
 GlyphAtlas::~GlyphAtlas() {
     if (texture_.isValid()) {
@@ -17,14 +19,24 @@ GlyphAtlas::~GlyphAtlas() {
     }
 }
 
-core::Result<std::unique_ptr<GlyphAtlas>, core::Error>
-GlyphAtlas::create(graphics::Device& device, uint32_t width, uint32_t height) {
+core::Result<std::unique_ptr<GlyphAtlas>, core::Error> GlyphAtlas::create(graphics::Device& device,
+                                                                          uint32_t width,
+                                                                          uint32_t height,
+                                                                          GlyphRenderMode mode) {
     graphics::TextureDesc desc{
         .width = width,
         .height = height,
-        .format = graphics::Format::R8_Unorm,
+        .format = (mode == GlyphRenderMode::LcdRgb) ? graphics::Format::R8G8B8A8_Unorm
+                                                    : graphics::Format::R8_Unorm,
         .usage = graphics::TextureUsage::Sampled | graphics::TextureUsage::TransferDst,
         .mipLevels = 1,
+        .sampler =
+            {
+                .minFilter = graphics::Filter::Nearest,
+                .magFilter = graphics::Filter::Nearest,
+                .addressModeU = graphics::AddressMode::ClampToEdge,
+                .addressModeV = graphics::AddressMode::ClampToEdge,
+            },
         .debugName = "GlyphAtlas",
     };
 
@@ -33,14 +45,16 @@ GlyphAtlas::create(graphics::Device& device, uint32_t width, uint32_t height) {
         return texRes.error();
     }
 
-    return std::unique_ptr<GlyphAtlas>(new GlyphAtlas(device, texRes.value(), width, height));
+    return std::unique_ptr<GlyphAtlas>(new GlyphAtlas(device, texRes.value(), width, height, mode));
 }
 
 core::Result<CachedGlyph, core::Error> GlyphAtlas::getOrInsert(const Font& font, uint32_t glyphId,
-                                                               uint8_t subpixelBin) {
+                                                               uint8_t subpixelBin, bool useLcd) {
     uint64_t fontId = font.id();
     uint64_t bin = subpixelBin & 0x03;
-    uint64_t key = (fontId << 34) | (static_cast<uint64_t>(glyphId) << 2) | bin;
+    bool renderLcd = (mode_ == GlyphRenderMode::LcdRgb && useLcd);
+    uint64_t lcdBit = renderLcd ? 1ULL : 0ULL;
+    uint64_t key = (fontId << 34) | (static_cast<uint64_t>(glyphId) << 3) | (lcdBit << 2) | bin;
     auto it = cache_.find(key);
     if (it != cache_.end()) {
         return it->second;
@@ -61,25 +75,25 @@ core::Result<CachedGlyph, core::Error> GlyphAtlas::getOrInsert(const Font& font,
         FT_Outline_Translate(&slot->outline, static_cast<FT_Pos>(bin * 16), 0);
     }
 
-    err = FT_Render_Glyph(slot, FT_RENDER_MODE_NORMAL);
+    err = FT_Render_Glyph(slot, renderLcd ? FT_RENDER_MODE_LCD : FT_RENDER_MODE_NORMAL);
     if (err != 0) {
         return core::Error(core::ErrorCode::InternalError, "Failed to render glyph");
     }
 
     FT_Bitmap& bitmap = slot->bitmap;
+    uint32_t w = renderLcd ? (bitmap.width / 3) : bitmap.width;
+    uint32_t h = bitmap.rows;
 
     CachedGlyph cached{};
     cached.offset = {static_cast<float>(slot->bitmap_left), static_cast<float>(slot->bitmap_top)};
-    cached.size = {static_cast<float>(bitmap.width), static_cast<float>(bitmap.rows)};
+    cached.size = {static_cast<float>(w), static_cast<float>(h)};
     cached.subpixelBin = static_cast<uint8_t>(bin);
 
-    if (bitmap.width == 0 || bitmap.rows == 0) {
+    if (w == 0 || h == 0) {
         cache_[key] = cached;
         return cached;
     }
 
-    uint32_t w = bitmap.width;
-    uint32_t h = bitmap.rows;
     uint32_t pad = 1;
 
     if (currentShelfX_ + w + pad > width_) {
@@ -99,9 +113,27 @@ core::Result<CachedGlyph, core::Error> GlyphAtlas::getOrInsert(const Font& font,
     shelfHeight_ = std::max(shelfHeight_, h);
 
     for (uint32_t r = 0; r < h; ++r) {
-        const uint8_t* srcRow = bitmap.buffer + r * bitmap.pitch;
-        uint8_t* dstRow = cpuAtlas_.data() + (y + r) * width_ + x;
-        std::memcpy(dstRow, srcRow, w);
+        const uint8_t* srcRow = bitmap.buffer + static_cast<size_t>(r) * bitmap.pitch;
+        uint8_t* dstRow =
+            cpuAtlas_.data() + (static_cast<size_t>(y + r) * width_ + x) * bytesPerPixel_;
+        if (renderLcd) {
+            for (uint32_t c = 0; c < w; ++c) {
+                dstRow[c * 4 + 0] = srcRow[c * 3 + 0];
+                dstRow[c * 4 + 1] = srcRow[c * 3 + 1];
+                dstRow[c * 4 + 2] = srcRow[c * 3 + 2];
+                dstRow[c * 4 + 3] = 255;
+            }
+        } else if (bytesPerPixel_ == 4) {
+            for (uint32_t c = 0; c < w; ++c) {
+                uint8_t a = srcRow[c];
+                dstRow[c * 4 + 0] = a;
+                dstRow[c * 4 + 1] = a;
+                dstRow[c * 4 + 2] = a;
+                dstRow[c * 4 + 3] = 255;
+            }
+        } else {
+            std::memcpy(dstRow, srcRow, w);
+        }
     }
 
     dirty_ = true;
@@ -160,8 +192,19 @@ GlyphAtlas::insertCustomMask(uint64_t maskKey, uint32_t w, uint32_t h,
 
     for (uint32_t r = 0; r < h; ++r) {
         const uint8_t* srcRow = alphaData.data() + static_cast<size_t>(r) * w;
-        uint8_t* dstRow = cpuAtlas_.data() + static_cast<size_t>(y + r) * width_ + x;
-        std::memcpy(dstRow, srcRow, w);
+        uint8_t* dstRow =
+            cpuAtlas_.data() + (static_cast<size_t>(y + r) * width_ + x) * bytesPerPixel_;
+        if (bytesPerPixel_ == 4) {
+            for (uint32_t c = 0; c < w; ++c) {
+                uint8_t a = srcRow[c];
+                dstRow[c * 4 + 0] = a;
+                dstRow[c * 4 + 1] = a;
+                dstRow[c * 4 + 2] = a;
+                dstRow[c * 4 + 3] = 255;
+            }
+        } else {
+            std::memcpy(dstRow, srcRow, w);
+        }
     }
 
     dirty_ = true;
@@ -189,7 +232,7 @@ core::Result<void, core::Error> GlyphAtlas::flush() {
 
     uint32_t y = dirtyMinY_;
     uint32_t h = dirtyMaxY_ - dirtyMinY_;
-    const uint8_t* sliceData = cpuAtlas_.data() + y * width_;
+    const uint8_t* sliceData = cpuAtlas_.data() + static_cast<size_t>(y) * width_ * bytesPerPixel_;
 
     auto writeRes = device_.writeTexture(texture_, 0, y, width_, h, sliceData);
     if (writeRes.isErr()) {
